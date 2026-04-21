@@ -3,9 +3,13 @@ import { useQueries } from '@tanstack/react-query';
 import { checkTaskStatus, checkVideoTaskStatus, findAllUrlsInObject } from '../services/api';
 import { useToast } from '../context/ToastContext';
 import { useCanvasStore } from '../store/canvasStore';
+import {
+  DEFAULT_GENERATION_ERROR_MESSAGE,
+  extractErrorMessage,
+  toGenerationErrorMessage,
+} from '../utils/errorDebug';
 
-const USER_FACING_GENERATION_ERROR_MESSAGE =
-  '请检查提示词或参考图，可能触发了安全限制，请更换后重试';
+const USER_FACING_GENERATION_ERROR_MESSAGE = DEFAULT_GENERATION_ERROR_MESSAGE;
 
 export const useGlobalPolling = (
   apiKey: string | undefined,
@@ -121,8 +125,12 @@ export const useGlobalPolling = (
 
         if (data.isFailed && !processedState.failed) {
           processedTasksRef.current.set(processedKey, { ...processedState, failed: true });
-          onUpdateGeneration(node.id, null, USER_FACING_GENERATION_ERROR_MESSAGE);
-          toastError(USER_FACING_GENERATION_ERROR_MESSAGE);
+          const nextError = toGenerationErrorMessage(
+            extractErrorMessage(data.raw?.error || data.raw?.message || data.raw?.details || data.raw),
+            USER_FACING_GENERATION_ERROR_MESSAGE,
+          );
+          onUpdateGeneration(node.id, null, nextError);
+          toastError(nextError);
         }
       });
     });
@@ -138,3 +146,4 @@ export const useGlobalPolling = (
     toastError,
   ]);
 };
+

@@ -7,14 +7,17 @@ import {
   allowsDirectUserApiKeyImageRoute,
   getImageRouteById,
 } from '../src/config/imageRoutes';
+import {
+  DEFAULT_GENERATION_ERROR_MESSAGE,
+  toGenerationErrorMessage,
+} from '../src/utils/errorDebug';
 
 const API_BASE_URL =
   typeof window !== 'undefined' && window.location.hostname === 'localhost'
     ? 'http://localhost:3355/api'
     : '/api';
 
-const USER_FACING_GENERATION_ERROR_MESSAGE =
-  '请求失败，请检查提示词或参考图后重试';
+const USER_FACING_GENERATION_ERROR_MESSAGE = DEFAULT_GENERATION_ERROR_MESSAGE;
 
 const cleanUrl = (url: string) => url.replace(/\/$/, '');
 const sanitizeHeader = (value: string) => value.replace(/[^\x00-\x7F]/g, '').trim();
@@ -76,7 +79,37 @@ const handleApiError = async (response: Response, fallbackMessage: string) => {
     code: errJson?.code || null,
   });
 
-  throw new Error(USER_FACING_GENERATION_ERROR_MESSAGE);
+  const detail = [
+    `status=${response.status}`,
+    errJson?.code ? `code=${errJson.code}` : '',
+    errJson?.error ? `error=${errJson.error}` : '',
+    rawText ? `raw=${String(rawText).slice(0, 300)}` : '',
+  ]
+    .filter(Boolean)
+    .join('; ');
+
+  throw new Error(toGenerationErrorMessage(detail, USER_FACING_GENERATION_ERROR_MESSAGE));
+};
+
+const throwPollingError = async (response: Response) => {
+  const rawText = await response.text().catch(() => '');
+  let errJson: any = null;
+  try {
+    errJson = rawText ? JSON.parse(rawText) : null;
+  } catch (_) {
+    errJson = null;
+  }
+
+  const detail = [
+    `status=${response.status}`,
+    errJson?.code ? `code=${errJson.code}` : '',
+    errJson?.error ? `error=${errJson.error}` : '',
+    rawText ? `raw=${String(rawText).slice(0, 300)}` : '',
+  ]
+    .filter(Boolean)
+    .join('; ');
+
+  throw new Error(toGenerationErrorMessage(detail, USER_FACING_GENERATION_ERROR_MESSAGE));
 };
 
 export const getModelBySize = (size: string): string => {
@@ -213,7 +246,7 @@ export const getTaskStatusApi = async (
   });
 
   if (!response.ok) {
-    throw new Error(USER_FACING_GENERATION_ERROR_MESSAGE);
+    await throwPollingError(response);
   }
 
   return response.json();
@@ -235,7 +268,7 @@ export const checkVideoTaskStatus = async (
   });
 
   if (!response.ok) {
-    throw new Error(USER_FACING_GENERATION_ERROR_MESSAGE);
+    await throwPollingError(response);
   }
 
   return response.json();

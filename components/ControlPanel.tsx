@@ -42,13 +42,17 @@ import { getSelectedVideoRoute, getVideoModelNameForRoute } from '../src/config/
 import { useVideoModelCatalog } from '../src/hooks/useVideoModelCatalog';
 import { useVideoRouteCatalog } from '../src/hooks/useVideoRouteCatalog';
 import ImageModelIcon from './ImageModelIcon';
+import {
+  DEFAULT_GENERATION_ERROR_MESSAGE,
+  extractErrorMessage,
+  toGenerationErrorMessage,
+} from '../src/utils/errorDebug';
 
 // Branding Icons are now in Logos.tsx
 
 import logo from '../src/assets/logo.svg';
 
-const USER_FACING_GENERATION_ERROR_MESSAGE =
-  '请检查提示词或参考图，可能触发了安全限制，请更换后重试';
+const USER_FACING_GENERATION_ERROR_MESSAGE = DEFAULT_GENERATION_ERROR_MESSAGE;
 
 interface ControlPanelProps {
   onInitGenerations: (count: number, prompt: string, aspectRatio?: string, baseNode?: NodeData, type?: 'IMAGE' | 'VIDEO') => string[];
@@ -939,8 +943,11 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
                }
             })
             .catch((err: any) => { 
-              void err;
-              onUpdateGeneration(pid, null, USER_FACING_GENERATION_ERROR_MESSAGE); 
+              onUpdateGeneration(
+                pid,
+                null,
+                toGenerationErrorMessage(extractErrorMessage(err), USER_FACING_GENERATION_ERROR_MESSAGE),
+              );
             });
         });
       }
@@ -1075,7 +1082,11 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
             }
           } catch (err: any) {
             console.error("Gemini Native Call Error:", err);
-            placeholderIds.forEach(pid => onUpdateGeneration(pid, null, USER_FACING_GENERATION_ERROR_MESSAGE));
+            const nextError = toGenerationErrorMessage(
+              extractErrorMessage(err),
+              USER_FACING_GENERATION_ERROR_MESSAGE,
+            );
+            placeholderIds.forEach(pid => onUpdateGeneration(pid, null, nextError));
           }
         };
 
@@ -1129,8 +1140,11 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
                 }
               })
               .catch((err: any) => {
-                void err;
-                placeholderIds.forEach(pid => onUpdateGeneration(pid, null, USER_FACING_GENERATION_ERROR_MESSAGE));
+                const nextError = toGenerationErrorMessage(
+                  extractErrorMessage(err),
+                  USER_FACING_GENERATION_ERROR_MESSAGE,
+                );
+                placeholderIds.forEach(pid => onUpdateGeneration(pid, null, nextError));
               });
           }
         };
@@ -1189,8 +1203,12 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
               images: [collageBase64.split(',')[1]]
             }, compositePrompt);
           }).catch((err: any) => {
-            void err;
-            setError(USER_FACING_GENERATION_ERROR_MESSAGE);
+            setError(
+              toGenerationErrorMessage(
+                extractErrorMessage(err),
+                USER_FACING_GENERATION_ERROR_MESSAGE,
+              ),
+            );
           });
         }
 	            } else {
@@ -1237,8 +1255,11 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
               }
             })
             .catch((err: any) => {
-              void err;
-              placeholderIds.forEach(pid => onUpdateGeneration(pid, null, USER_FACING_GENERATION_ERROR_MESSAGE));
+              const nextError = toGenerationErrorMessage(
+                extractErrorMessage(err),
+                USER_FACING_GENERATION_ERROR_MESSAGE,
+              );
+              placeholderIds.forEach(pid => onUpdateGeneration(pid, null, nextError));
             });
         }
       }
@@ -1401,8 +1422,11 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
       });
       onUpdateGeneration(pid, videoUrl);
     } catch (err: any) {
-      void err;
-      onUpdateGeneration(pid, null, USER_FACING_GENERATION_ERROR_MESSAGE);
+      onUpdateGeneration(
+        pid,
+        null,
+        toGenerationErrorMessage(extractErrorMessage(err), USER_FACING_GENERATION_ERROR_MESSAGE),
+      );
     }
   };
 

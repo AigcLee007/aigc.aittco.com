@@ -1017,6 +1017,9 @@ const sendAuthError = (res, error) => {
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const USER_FACING_GENERATION_ERROR_MESSAGE =
   "请检查提示词或参考图，可能触发了安全限制，请更换后重试";
+const EXPOSE_ERROR_DETAILS =
+  String(process.env.EXPOSE_ERROR_DETAILS || "").trim().toLowerCase() === "true" ||
+  String(process.env.NODE_ENV || "").trim().toLowerCase() !== "production";
 const NON_IDEMPOTENT_UPSTREAM_ERROR_MESSAGE =
   "Upstream connection closed after the generation request was sent. Automatic retry is disabled to avoid duplicate billing. Please check the upstream dashboard before retrying manually.";
 const isRetryableNetworkError = (error) => {
@@ -1058,37 +1061,66 @@ const toSafeHttpStatus = (status, fallbackStatus = 500) => {
   if (numeric < 400 || numeric > 599) return fallbackStatus;
   return numeric;
 };
-const sendUserFacingGenerationError = (res, status = 500) =>
-  res.status(toSafeHttpStatus(status, 500)).json({
+const buildErrorDetails = (error) => {
+  if (!error) return "";
+  const parts = [];
+  const message = String(error.message || "").trim();
+  const code = String(error.code || error.response?.data?.code || "").trim();
+  const upstream =
+    error.response?.data?.error ||
+    error.response?.data?.message ||
+    error.response?.statusText ||
+    "";
+
+  if (code) parts.push(`code=${code}`);
+  if (message) parts.push(`message=${message}`);
+  if (upstream) parts.push(`upstream=${String(upstream)}`);
+
+  return parts.join("; ");
+};
+
+const sendUserFacingGenerationError = (res, status = 500, error = null) => {
+  const payload = {
     error: USER_FACING_GENERATION_ERROR_MESSAGE,
-  });
+  };
+
+  if (EXPOSE_ERROR_DETAILS) {
+    const details = buildErrorDetails(error);
+    if (details) {
+      payload.details = details;
+    }
+  }
+
+  return res.status(toSafeHttpStatus(status, 500)).json(payload);
+};
 const respondWithUserFacingGenerationError = (res, error, fallbackStatus = 500) => {
   if (error instanceof BillingError) {
     const isAuthError =
       error.code === "ACCOUNT_AUTH_REQUIRED" || error.code === "AUTH_LOGIN_REQUIRED";
-    return sendUserFacingGenerationError(res, isAuthError ? 401 : 400);
+    return sendUserFacingGenerationError(res, isAuthError ? 401 : 400, error);
   }
 
   if (error instanceof AuthError) {
     return sendUserFacingGenerationError(
       res,
       error.code === "AUTH_LOGIN_REQUIRED" ? 401 : 400,
+      error,
     );
   }
 
   if (error?.response?.status) {
-    return sendUserFacingGenerationError(res, error.response.status);
+    return sendUserFacingGenerationError(res, error.response.status, error);
   }
 
   if (error?.code === "ECONNABORTED") {
-    return sendUserFacingGenerationError(res, 504);
+    return sendUserFacingGenerationError(res, 504, error);
   }
 
   if (isRetryableNetworkError(error)) {
-    return sendUserFacingGenerationError(res, 502);
+    return sendUserFacingGenerationError(res, 502, error);
   }
 
-  return sendUserFacingGenerationError(res, fallbackStatus);
+  return sendUserFacingGenerationError(res, fallbackStatus, error);
 };
 const requestWithRetry = async (
   fn,
