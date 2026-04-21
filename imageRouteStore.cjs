@@ -803,13 +803,6 @@ const deleteManagedImageRoute = async (routeId) => {
     }
 
     const family = trimToString(existing.model_family || "");
-    const [remainingCountRows] = await connection.execute(
-      "SELECT COUNT(*) AS total FROM image_routes WHERE model_family = ? AND route_id <> ?",
-      [family, routeIdValue],
-    );
-    if (Number(remainingCountRows?.[0]?.total || 0) <= 0) {
-      throw new Error("Each route family must retain at least one route");
-    }
 
     const deletingDefaultRoute = parseBoolean(existing.is_default_route, false);
     const deletingDefaultNanoLine = parseBoolean(existing.is_default_nano_banana_line, false);

@@ -592,14 +592,6 @@ const deleteManagedImageModel = async (modelId) => {
       throw new Error("Image model does not exist");
     }
 
-    const [remainingCountRows] = await connection.execute(
-      "SELECT COUNT(*) AS total FROM image_models WHERE model_id <> ?",
-      [modelIdValue],
-    );
-    if (Number(remainingCountRows?.[0]?.total || 0) <= 0) {
-      throw new Error("At least one image model must remain");
-    }
-
     const deletingDefault = parseBoolean(existing.is_default_model, false);
     await connection.execute("DELETE FROM image_models WHERE model_id = ?", [modelIdValue]);
 

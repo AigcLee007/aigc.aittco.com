@@ -362,8 +362,6 @@ const deleteManagedVideoRoute = async (routeId) => {
     const existing = existingRows?.[0];
     if (!existing) throw new Error("Video route does not exist");
     const family = trimToString(existing.route_family || "");
-    const [familyCountRows] = await connection.execute("SELECT COUNT(*) AS total FROM video_routes WHERE route_family = ? AND route_id <> ?", [family, routeIdValue]);
-    if (Number(familyCountRows?.[0]?.total || 0) <= 0) throw new Error("Each video model must retain at least one route");
     const deletingDefault = parseBoolean(existing.is_default_route, false);
     await connection.execute("DELETE FROM video_routes WHERE route_id = ?", [routeIdValue]);
     const [remainingRows] = await connection.execute("SELECT * FROM video_routes WHERE route_family = ? ORDER BY is_active DESC, sort_order ASC, label ASC, route_id ASC", [family]);

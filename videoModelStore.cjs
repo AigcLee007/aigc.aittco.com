@@ -342,8 +342,6 @@ const deleteManagedVideoModel = async (modelId) => {
     const [existingRows] = await connection.execute("SELECT * FROM video_models WHERE model_id = ? LIMIT 1 FOR UPDATE", [modelIdValue]);
     const existing = existingRows?.[0];
     if (!existing) throw new Error("Video model does not exist");
-    const [remainingCountRows] = await connection.execute("SELECT COUNT(*) AS total FROM video_models WHERE model_id <> ?", [modelIdValue]);
-    if (Number(remainingCountRows?.[0]?.total || 0) <= 0) throw new Error("At least one video model must remain");
     const deletingDefault = parseBoolean(existing.is_default_model, false);
     await connection.execute("DELETE FROM video_models WHERE model_id = ?", [modelIdValue]);
     const [remainingRows] = await connection.execute("SELECT * FROM video_models ORDER BY is_active DESC, sort_order ASC, label ASC, model_id ASC");
