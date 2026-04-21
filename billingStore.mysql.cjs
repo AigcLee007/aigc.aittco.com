@@ -35,6 +35,10 @@ const parsePositiveInteger = (value, fallback = 0) => {
 };
 
 const DEFAULT_SIGNUP_POINTS = () => toPositivePoint(process.env.DEFAULT_SIGNUP_POINTS, 0);
+const BILLING_LOCK_TIMEOUT_SECONDS = parsePositiveInteger(
+  process.env.BILLING_LOCK_TIMEOUT_SECONDS,
+  5,
+);
 
 const normalizeRedeemCode = (value = "") =>
   String(value || "")
@@ -50,6 +54,37 @@ const formatRedeemCode = (value = "") => {
 
 const createRedeemCodeValue = () =>
   `NB${randomBytes(8).toString("hex").toUpperCase()}`;
+
+const normalizeLockKey = (value = "") =>
+  String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9:_-]/g, "_");
+
+const buildNamedLock = (prefix, value) => {
+  const key = normalizeLockKey(value) || randomBytes(6).toString("hex");
+  return `${prefix}:${key}`.slice(0, 64);
+};
+
+const withNamedLock = async (connection, lockName, runner) => {
+  const [rows] = await connection.execute("SELECT GET_LOCK(?, ?) AS locked", [
+    lockName,
+    BILLING_LOCK_TIMEOUT_SECONDS,
+  ]);
+  const locked = Number(rows?.[0]?.locked || 0) === 1;
+  if (!locked) {
+    throw new BillingError(
+      "ACCOUNT_BUSY",
+      "Account is busy, please retry in a moment",
+    );
+  }
+
+  try {
+    return await runner();
+  } finally {
+    await connection.execute("SELECT RELEASE_LOCK(?)", [lockName]).catch(() => null);
+  }
+};
 
 let billingSchemaPromise = null;
 
@@ -194,6 +229,40 @@ const cleanupBillingArtifacts = async (executor = null) => {
     `,
     [LEDGER_LIMIT],
   ).catch(() => Promise.resolve());
+};
+
+const withAccountSerializedTransaction = async (accountId, runner) => {
+  const targetAccountId = String(accountId || "").trim();
+  if (!targetAccountId) {
+    throw new BillingError("ACCOUNT_NOT_FOUND", "Billing account does not exist");
+  }
+
+  await ensureBillingSchema();
+  return withTransaction(async (connection) => {
+    await cleanupBillingArtifacts(connection);
+    return withNamedLock(
+      connection,
+      buildNamedLock("billing:account", targetAccountId),
+      () => runner(connection, targetAccountId),
+    );
+  });
+};
+
+const withUserSerializedTransaction = async (userId, runner) => {
+  const targetUserId = String(userId || "").trim();
+  if (!targetUserId) {
+    throw new BillingError("AUTH_LOGIN_REQUIRED", "Please sign in before using this feature");
+  }
+
+  await ensureBillingSchema();
+  return withTransaction(async (connection) => {
+    await cleanupBillingArtifacts(connection);
+    return withNamedLock(
+      connection,
+      buildNamedLock("billing:user", targetUserId),
+      () => runner(connection, targetUserId),
+    );
+  });
 };
 
 const publicAccount = (account) => ({
@@ -344,9 +413,8 @@ const getOrCreateAccountInTx = async (connection, user) => {
 };
 
 const ensureAccountForUser = async (user) => {
-  await ensureBillingSchema();
-  return withTransaction(async (connection) => {
-    await cleanupBillingArtifacts(connection);
+  const userId = String(user?.userId || "").trim();
+  return withUserSerializedTransaction(userId, async (connection) => {
     const account = await getOrCreateAccountInTx(connection, user);
     return publicAccount(account);
   });
@@ -708,12 +776,10 @@ const getAdminBillingOverview = async ({ recentWindowHours = 24 } = {}) => {
 };
 
 const reservePoints = async (accountId, points, meta = {}) => {
-  await ensureBillingSchema();
-  return withTransaction(async (connection) => {
-    await cleanupBillingArtifacts(connection);
+  return withAccountSerializedTransaction(accountId, async (connection, targetAccountId) => {
     const [rows] = await connection.execute(
       "SELECT * FROM billing_accounts WHERE account_id = ? LIMIT 1 FOR UPDATE",
-      [accountId],
+      [targetAccountId],
     );
     const account = rows[0];
     if (!account) {
@@ -746,7 +812,7 @@ const reservePoints = async (accountId, points, meta = {}) => {
         SET points = ?, total_spent = ?, updated_at = ?, last_seen_at = ?
         WHERE account_id = ?
       `,
-      [nextPoints, nextTotalSpent, nowDb, nowDb, accountId],
+      [nextPoints, nextTotalSpent, nowDb, nowDb, targetAccountId],
     );
 
     const chargeId = `chg_${randomBytes(10).toString("hex")}`;
@@ -756,7 +822,7 @@ const reservePoints = async (accountId, points, meta = {}) => {
           id, type, account_id, points, balance_after, created_at, meta_json
         ) VALUES (?, 'charge', ?, ?, ?, ?, ?)
       `,
-      [chargeId, accountId, cost, nextPoints, nowDb, JSON.stringify(meta || {})],
+      [chargeId, targetAccountId, cost, nextPoints, nowDb, JSON.stringify(meta || {})],
     );
 
     return {
@@ -855,11 +921,9 @@ const refundChargeInTx = async (connection, accountId, chargeId, meta = {}) => {
 };
 
 const refundPoints = async (accountId, chargeId, meta = {}) => {
-  await ensureBillingSchema();
-  return withTransaction(async (connection) => {
-    await cleanupBillingArtifacts(connection);
-    return refundChargeInTx(connection, accountId, chargeId, meta);
-  });
+  return withAccountSerializedTransaction(accountId, async (connection, targetAccountId) =>
+    refundChargeInTx(connection, targetAccountId, chargeId, meta),
+  );
 };
 
 const registerPendingTask = async (taskId, taskInfo) => {
@@ -914,50 +978,54 @@ const settlePendingTask = async (taskId, status) => {
     if (!task) return null;
     if (task.settled_at) return task;
 
-    const normalizedStatus = String(status || "").toUpperCase();
-    const nowDb = toDbDateTime();
-    let refund = null;
+    return withNamedLock(
+      connection,
+      buildNamedLock("billing:account", task.account_id || ""),
+      async () => {
+        const normalizedStatus = String(status || "").toUpperCase();
+        const nowDb = toDbDateTime();
+        let refund = null;
 
-    if (normalizedStatus === "FAILED") {
-      refund = await refundChargeInTx(connection, task.account_id, task.charge_id, {
-        reason: "task_failed",
-        taskId,
-        routeId: task.route_id,
-      });
-    }
+        if (normalizedStatus === "FAILED") {
+          refund = await refundChargeInTx(connection, task.account_id, task.charge_id, {
+            reason: "task_failed",
+            taskId,
+            routeId: task.route_id,
+          });
+        }
 
-    await connection.execute(
-      `
-        UPDATE billing_pending_tasks
-        SET status = ?, settled_at = ?, refund_id = ?, refunded_at = ?
-        WHERE task_id = ?
-      `,
-      [
-        normalizedStatus,
-        nowDb,
-        refund?.refundId || null,
-        refund?.account?.updatedAt ? toDbDateTime(refund.account.updatedAt) : null,
-        taskId,
-      ],
+        await connection.execute(
+          `
+            UPDATE billing_pending_tasks
+            SET status = ?, settled_at = ?, refund_id = ?, refunded_at = ?
+            WHERE task_id = ?
+          `,
+          [
+            normalizedStatus,
+            nowDb,
+            refund?.refundId || null,
+            refund?.account?.updatedAt ? toDbDateTime(refund.account.updatedAt) : null,
+            taskId,
+          ],
+        );
+
+        return {
+          ...task,
+          status: normalizedStatus,
+          settled_at: nowDb,
+          refund_id: refund?.refundId || null,
+          refunded_at: refund?.account?.updatedAt ? toDbDateTime(refund.account.updatedAt) : null,
+        };
+      },
     );
-
-    return {
-      ...task,
-      status: normalizedStatus,
-      settled_at: nowDb,
-      refund_id: refund?.refundId || null,
-      refunded_at: refund?.account?.updatedAt ? toDbDateTime(refund.account.updatedAt) : null,
-    };
   });
 };
 
 const rechargeAccount = async (accountId, points, note = "") => {
-  await ensureBillingSchema();
-  return withTransaction(async (connection) => {
-    await cleanupBillingArtifacts(connection);
+  return withAccountSerializedTransaction(accountId, async (connection, targetAccountId) => {
     const [rows] = await connection.execute(
       "SELECT * FROM billing_accounts WHERE account_id = ? LIMIT 1 FOR UPDATE",
-      [accountId],
+      [targetAccountId],
     );
     const account = rows[0];
     if (!account) {
@@ -984,7 +1052,7 @@ const rechargeAccount = async (accountId, points, note = "") => {
         SET points = ?, total_recharged = ?, updated_at = ?, last_seen_at = ?
         WHERE account_id = ?
       `,
-      [nextPoints, nextTotalRecharged, nowDb, nowDb, accountId],
+      [nextPoints, nextTotalRecharged, nowDb, nowDb, targetAccountId],
     );
 
     await connection.execute(
@@ -995,7 +1063,7 @@ const rechargeAccount = async (accountId, points, note = "") => {
       `,
       [
         `rcg_${randomBytes(10).toString("hex")}`,
-        accountId,
+        targetAccountId,
         amount,
         nextPoints,
         nowDb,
@@ -1014,12 +1082,10 @@ const rechargeAccount = async (accountId, points, note = "") => {
 };
 
 const adjustAccountPoints = async (accountId, deltaPoints, meta = {}) => {
-  await ensureBillingSchema();
-  return withTransaction(async (connection) => {
-    await cleanupBillingArtifacts(connection);
+  return withAccountSerializedTransaction(accountId, async (connection, targetAccountId) => {
     const [rows] = await connection.execute(
       "SELECT * FROM billing_accounts WHERE account_id = ? LIMIT 1 FOR UPDATE",
-      [accountId],
+      [targetAccountId],
     );
     const account = rows[0];
     if (!account) {
@@ -1053,7 +1119,7 @@ const adjustAccountPoints = async (accountId, deltaPoints, meta = {}) => {
         SET points = ?, total_recharged = ?, updated_at = ?, last_seen_at = ?
         WHERE account_id = ?
       `,
-      [nextPoints, nextTotalRecharged, nowDb, nowDb, accountId],
+      [nextPoints, nextTotalRecharged, nowDb, nowDb, targetAccountId],
     );
 
     const ledgerType = delta > 0 ? "admin_credit" : "admin_debit";
@@ -1066,7 +1132,7 @@ const adjustAccountPoints = async (accountId, deltaPoints, meta = {}) => {
       [
         `adj_${randomBytes(10).toString("hex")}`,
         ledgerType,
-        accountId,
+        targetAccountId,
         toPointNumber(Math.abs(delta), 0),
         nextPoints,
         nowDb,
@@ -1219,10 +1285,7 @@ const listRedeemCodes = async ({
 };
 
 const redeemCode = async (accountId, code, meta = {}) => {
-  await ensureBillingSchema();
-  return withTransaction(async (connection) => {
-    await cleanupBillingArtifacts(connection);
-
+  return withAccountSerializedTransaction(accountId, async (connection, targetAccountId) => {
     const normalizedCode = normalizeRedeemCode(code);
     if (!normalizedCode) {
       throw new BillingError("INVALID_REDEEM_CODE", "Redeem code is required");
@@ -1230,7 +1293,7 @@ const redeemCode = async (accountId, code, meta = {}) => {
 
     const [accountRows] = await connection.execute(
       "SELECT * FROM billing_accounts WHERE account_id = ? LIMIT 1 FOR UPDATE",
-      [accountId],
+      [targetAccountId],
     );
     const account = accountRows[0];
     if (!account) {
@@ -1268,7 +1331,7 @@ const redeemCode = async (accountId, code, meta = {}) => {
         SET points = ?, total_recharged = ?, updated_at = ?, last_seen_at = ?
         WHERE account_id = ?
       `,
-      [nextPoints, nextTotalRecharged, nowDb, nowDb, accountId],
+      [nextPoints, nextTotalRecharged, nowDb, nowDb, targetAccountId],
     );
 
     await connection.execute(
@@ -1280,7 +1343,7 @@ const redeemCode = async (accountId, code, meta = {}) => {
       [
         String(meta.userId || "").trim() || null,
         String(meta.email || "").trim().toLowerCase() || null,
-        accountId,
+        targetAccountId,
         nowDb,
         normalizedCode,
       ],
@@ -1294,7 +1357,7 @@ const redeemCode = async (accountId, code, meta = {}) => {
       `,
       [
         `gft_${randomBytes(10).toString("hex")}`,
-        accountId,
+        targetAccountId,
         amount,
         nextPoints,
         nowDb,
@@ -1322,7 +1385,7 @@ const redeemCode = async (accountId, code, meta = {}) => {
         ...codeRow,
         redeemed_by_user_id: String(meta.userId || "").trim() || null,
         redeemed_by_email: String(meta.email || "").trim().toLowerCase() || null,
-        redeemed_account_id: accountId,
+        redeemed_account_id: targetAccountId,
         redeemed_at: nowDb,
       }),
       points: amount,
