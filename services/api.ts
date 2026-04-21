@@ -62,14 +62,46 @@ const buildImageRequestHeaders = async (
   };
 };
 
-const handleApiError = async (response: Response, fallbackMessage: string) => {
-  const rawText = await response.text();
+const parseErrorResponse = async (response: Response) => {
+  const rawText = await response.text().catch(() => '');
   let errJson: any = null;
   try {
-    errJson = JSON.parse(rawText);
+    errJson = rawText ? JSON.parse(rawText) : null;
   } catch (_) {
     errJson = null;
   }
+
+  return { rawText, errJson };
+};
+
+const buildDebugDetail = (
+  response: Response,
+  errJson: any,
+  rawText: string,
+) => {
+  const detailsFromServer = String(errJson?.details || '').trim();
+  if (detailsFromServer) {
+    return `status=${response.status}; details=${detailsFromServer}`;
+  }
+
+  const errorText = String(errJson?.error || '').trim();
+  const rawTrimmed = String(rawText || '').trim();
+  if (errorText && rawTrimmed && rawTrimmed === JSON.stringify({ error: errorText })) {
+    return `status=${response.status}; error=${errorText}`;
+  }
+
+  return [
+    `status=${response.status}`,
+    errJson?.code ? `code=${errJson.code}` : '',
+    errorText ? `error=${errorText}` : '',
+    rawTrimmed ? `raw=${rawTrimmed.slice(0, 300)}` : '',
+  ]
+    .filter(Boolean)
+    .join('; ');
+};
+
+const handleApiError = async (response: Response, fallbackMessage: string) => {
+  const { rawText, errJson } = await parseErrorResponse(response);
 
   console.error('[Generation API] request failed', {
     status: response.status,
@@ -79,35 +111,14 @@ const handleApiError = async (response: Response, fallbackMessage: string) => {
     code: errJson?.code || null,
   });
 
-  const detail = [
-    `status=${response.status}`,
-    errJson?.code ? `code=${errJson.code}` : '',
-    errJson?.error ? `error=${errJson.error}` : '',
-    rawText ? `raw=${String(rawText).slice(0, 300)}` : '',
-  ]
-    .filter(Boolean)
-    .join('; ');
+  const detail = buildDebugDetail(response, errJson, rawText);
 
   throw new Error(toGenerationErrorMessage(detail, USER_FACING_GENERATION_ERROR_MESSAGE));
 };
 
 const throwPollingError = async (response: Response) => {
-  const rawText = await response.text().catch(() => '');
-  let errJson: any = null;
-  try {
-    errJson = rawText ? JSON.parse(rawText) : null;
-  } catch (_) {
-    errJson = null;
-  }
-
-  const detail = [
-    `status=${response.status}`,
-    errJson?.code ? `code=${errJson.code}` : '',
-    errJson?.error ? `error=${errJson.error}` : '',
-    rawText ? `raw=${String(rawText).slice(0, 300)}` : '',
-  ]
-    .filter(Boolean)
-    .join('; ');
+  const { rawText, errJson } = await parseErrorResponse(response);
+  const detail = buildDebugDetail(response, errJson, rawText);
 
   throw new Error(toGenerationErrorMessage(detail, USER_FACING_GENERATION_ERROR_MESSAGE));
 };

@@ -125,8 +125,9 @@ export const useGlobalPolling = (
 
         if (data.isFailed && !processedState.failed) {
           processedTasksRef.current.set(processedKey, { ...processedState, failed: true });
+          const rawDetails = data.raw?.details || data.raw?.error || data.raw?.message || data.raw;
           const nextError = toGenerationErrorMessage(
-            extractErrorMessage(data.raw?.error || data.raw?.message || data.raw?.details || data.raw),
+            extractErrorMessage(rawDetails),
             USER_FACING_GENERATION_ERROR_MESSAGE,
           );
           onUpdateGeneration(node.id, null, nextError);
@@ -146,4 +147,3 @@ export const useGlobalPolling = (
     toastError,
   ]);
 };
-
