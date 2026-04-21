@@ -537,7 +537,7 @@ const MediaCatalogAdminPanel: React.FC<MediaCatalogAdminPanelProps> = ({ session
       if (editor.kind === 'image-route') {
         const payload: AdminImageRoutePayload = {
           ...imageRouteForm,
-          id: slugify(imageRouteForm.id, 'image-route'),
+          id: String(imageRouteForm.id || '').trim(),
           label: imageRouteForm.label.trim() || buildLineLabel(imageRouteForm.line),
           description: imageRouteForm.description?.trim() || '',
           modelFamily: imageRouteForm.modelFamily.trim(),
@@ -564,7 +564,7 @@ const MediaCatalogAdminPanel: React.FC<MediaCatalogAdminPanelProps> = ({ session
         if (editor.mode === 'create') { await createAdminVideoModel(payload); toast.success('视频模型已创建。'); } else { await updateAdminVideoModel(editor.targetId || payload.id, payload); toast.success('视频模型已更新。'); }
       }
       if (editor.kind === 'video-route') {
-        const payload: AdminVideoRoutePayload = { ...videoRouteForm, id: slugify(videoRouteForm.id, 'video-route'), label: videoRouteForm.label.trim() || buildLineLabel(videoRouteForm.line), description: videoRouteForm.description?.trim() || '', routeFamily: videoRouteForm.routeFamily.trim(), line: videoRouteForm.line.trim().toLowerCase(), baseUrl: videoRouteForm.baseUrl.trim(), generatePath: videoRouteForm.generatePath.trim(), taskPath: videoRouteForm.taskPath?.trim() || '', upstreamModel: videoRouteForm.upstreamModel?.trim() || '', apiKeyEnv: videoRouteForm.apiKeyEnv?.trim() || '', apiKey: sanitizeApiKeyInput(videoRouteForm.apiKey), pointCost: roundNonNegativePoint(videoRouteForm.pointCost || 0, 0), sortOrder: Number(videoRouteForm.sortOrder || 0) };
+        const payload: AdminVideoRoutePayload = { ...videoRouteForm, id: String(videoRouteForm.id || '').trim(), label: videoRouteForm.label.trim() || buildLineLabel(videoRouteForm.line), description: videoRouteForm.description?.trim() || '', routeFamily: videoRouteForm.routeFamily.trim(), line: videoRouteForm.line.trim().toLowerCase(), baseUrl: videoRouteForm.baseUrl.trim(), generatePath: videoRouteForm.generatePath.trim(), taskPath: videoRouteForm.taskPath?.trim() || '', upstreamModel: videoRouteForm.upstreamModel?.trim() || '', apiKeyEnv: videoRouteForm.apiKeyEnv?.trim() || '', apiKey: sanitizeApiKeyInput(videoRouteForm.apiKey), pointCost: roundNonNegativePoint(videoRouteForm.pointCost || 0, 0), sortOrder: Number(videoRouteForm.sortOrder || 0) };
         const validationError = validateVideoRoutePayload(payload);
         if (validationError) throw new Error(validationError);
         if (editor.mode === 'create') { await createAdminVideoRoute(payload); toast.success('视频线路已创建。'); } else { await updateAdminVideoRoute(editor.targetId || payload.id, payload); toast.success('视频线路已更新。'); }
@@ -1473,4 +1473,3 @@ const MediaCatalogAdminPanel: React.FC<MediaCatalogAdminPanelProps> = ({ session
 };
 
 export default MediaCatalogAdminPanel;
-
