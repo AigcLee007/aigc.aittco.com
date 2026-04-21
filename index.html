@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Aittco-AI Pro</title>
+    <link rel="icon" type="image/svg+xml" href="/src/assets/logo.svg" />
+    <!-- Tailwind CDN removed -->
+    <style>
+      body,
+      html {
+        margin: 0;
+        padding: 0;
+        width: 100%;
+        min-height: 100%;
+        overflow-x: hidden;
+        overflow-y: auto;
+        background-color: #1a1a1a;
+        color: #fff;
+      }
+
+      #root {
+        min-height: 100vh;
+      }
+    </style>
+    <script type="importmap">
+      {
+        "imports": {
+          "lucide-react": "https://esm.sh/lucide-react@^0.561.0",
+          "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
+          "react/": "https://esm.sh/react@^19.2.3/",
+          "react": "https://esm.sh/react@^19.2.3",
+          "@google/genai": "https://esm.sh/@google/genai@^1.33.0",
+          "uuid": "https://esm.sh/uuid@^13.0.0"
+        }
+      }
+    </script>
+    <script type="module" src="/src/index.css"></script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/index.tsx"></script>
+  </body>
+</html>

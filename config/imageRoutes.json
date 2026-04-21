@@ -1,0 +1,68 @@
+{
+  "defaultRouteId": "openai-image-default",
+  "defaultNanoBananaLine": "line1",
+  "routes": [
+    {
+      "id": "nano-banana-pro-line1",
+      "label": "Line 1",
+      "description": "BLTCY async image generation",
+      "modelFamily": "nano-banana",
+      "line": "line1",
+      "transport": "openai-image",
+      "mode": "async",
+      "baseUrl": "https://api.bltcy.ai",
+      "generatePath": "/v1/images/generations?async=true",
+      "taskPath": "/v1/images/tasks/{taskId}",
+      "editPath": "/v1/images/edits?async=true",
+      "upstreamModel": "nano-banana-pro",
+      "allowUserApiKeyWithoutLogin": true,
+      "apiKeyEnv": "IMAGE_ROUTE_NANO_BANANA_PRO_LINE1_KEY",
+      "pointCost": 10
+    },
+    {
+      "id": "nano-banana-pro-line2",
+      "label": "Line 2",
+      "description": "AITTCO Gemini sync image generation",
+      "modelFamily": "nano-banana",
+      "line": "line2",
+      "transport": "gemini-native",
+      "mode": "sync",
+      "baseUrl": "https://api.aittco.com",
+      "generatePath": "/v1beta/models/{model}:generateContent",
+      "upstreamModel": "gemini-3-pro-image-preview",
+      "apiKeyEnv": "IMAGE_ROUTE_NANO_BANANA_PRO_LINE2_KEY",
+      "pointCost": 18
+    },
+    {
+      "id": "nano-banana-pro-line3",
+      "label": "Line 3",
+      "description": "02Studio Gemini sync image generation",
+      "modelFamily": "nano-banana",
+      "line": "line3",
+      "transport": "gemini-native",
+      "mode": "sync",
+      "baseUrl": "https://api.02studio.net",
+      "generatePath": "/v1beta/models/{model}:generateContent",
+      "upstreamModel": "gemini-3.0-pro-image",
+      "apiKeyEnv": "IMAGE_ROUTE_NANO_BANANA_PRO_LINE3_KEY",
+      "pointCost": 20
+    },
+    {
+      "id": "openai-image-default",
+      "label": "Default Route",
+      "description": "Default async image generation route",
+      "modelFamily": "default",
+      "line": "default",
+      "transport": "openai-image",
+      "mode": "async",
+      "baseUrl": "https://api.bltcy.ai",
+      "generatePath": "/v1/images/generations?async=true",
+      "taskPath": "/v1/images/tasks/{taskId}",
+      "editPath": "/v1/images/edits?async=true",
+      "useRequestModel": true,
+      "allowUserApiKeyWithoutLogin": true,
+      "apiKeyEnv": "IMAGE_ROUTE_DEFAULT_KEY",
+      "pointCost": 12
+    }
+  ]
+}

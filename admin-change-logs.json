@@ -1,0 +1,19 @@
+[
+  {
+    "id": "adm_dd7c35608e32f921",
+    "createdAt": "2026-04-20T18:10:48.052Z",
+    "actorUserId": "usr_990e4aa54e3f1995",
+    "actorEmail": "aigclee@sina.com",
+    "actorDisplayName": "Aigclee",
+    "actorRole": "super_admin",
+    "action": "billing.adjust_points",
+    "entityType": "billing_account",
+    "entityId": "acct_289e9a4d30f659a7",
+    "summary": "Added 100 points",
+    "detail": {
+      "accountId": "acct_289e9a4d30f659a7",
+      "delta": 100,
+      "note": ""
+    }
+  }
+]

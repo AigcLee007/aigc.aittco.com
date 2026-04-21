@@ -1,0 +1,926 @@
+﻿<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
+    />
+
+    <title>BananaPro 4K</title>
+
+    <link
+      rel="icon"
+      href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><defs><filter id='glow'><feGaussianBlur stdDeviation='2.5' result='coloredBlur'/><feMerge><feMergeNode in='coloredBlur'/><feMergeNode in='SourceGraphic'/></feMerge></filter></defs><circle cx='50' cy='50' r='50' fill='%230a0a0c'/><text x='50' y='70' font-size='70' text-anchor='middle' filter='url(%23glow)'>🍌</text></svg>"
+    />
+
+    <link rel="stylesheet" href="/classic-app/style.css?v=classic_settings_layout_v1" />
+  </head>
+  <body>
+    <div class="top-controls">
+      <button
+        class="theme-toggle"
+        id="themeBtn"
+        onclick="toggleTheme()"
+        title="切换 日/夜 模式"
+      >
+        🌙
+      </button>
+
+      <div class="top-right-tools">
+        <!-- Desktop Navigation -->
+        <div class="desktop-nav">
+          <span
+            onclick="switchTab('create')"
+            class="d-nav-item active"
+            id="d-nav-create"
+            >✨ 创作</span
+          >
+          <span
+            onclick="switchTab('gallery')"
+            class="d-nav-item"
+            id="d-nav-gallery"
+            >🖼️ 画廊</span
+          >
+          <span
+            onclick="switchTab('profile')"
+            class="d-nav-item"
+            id="d-nav-profile"
+            >👤 我的</span
+          >
+        </div>
+        <a
+          href="/create/canvas"
+          class="mode-switch-link"
+          onclick="try { localStorage.setItem('preferred-create-ui', 'canvas'); } catch (_) {}"
+          title="切换到画布版"
+        >
+          画布版
+        </a>
+        <button
+          id="noticeBellBtn"
+          class="notice-bell-btn"
+          onclick="toggleNoticeCenter(event)"
+          title="公告通知"
+        >
+          <svg class="notice-bell-icon" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M12 4.5a4 4 0 0 0-4 4v2.2c0 1.2-.4 2.4-1.2 3.3L5.7 15.4c-.5.6-.1 1.6.7 1.6h11.2c.8 0 1.2-1 .7-1.6l-1.1-1.4c-.8-.9-1.2-2.1-1.2-3.3V8.5a4 4 0 0 0-4-4Z"/>
+            <path d="M9.8 18.4a2.4 2.4 0 0 0 4.4 0"/>
+          </svg>
+          <span id="noticeUnreadDot" class="notice-unread-dot" style="display:none;"></span>
+        </button>
+      </div>
+    </div>
+
+    <div id="announcementBar" class="announcement-modal-overlay" style="display:none;" onclick="handleAnnouncementModalClick(event)">
+      <div class="announcement-modal-card" onclick="event.stopPropagation()">
+        <div id="announcementText" class="announcement-modal-content"></div>
+        <div class="announcement-modal-footer">
+          <button class="announcement-close-btn" onclick="closeAnnouncement()">我知道了</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="noticeOverlay" class="notice-overlay" style="display:none;" onclick="handleNoticeOverlayClick(event)">
+      <div class="notice-panel">
+        <div class="notice-panel-header">
+          <div class="notice-panel-title">📢 通知</div>
+          <button id="noticeMarkAllBtn" class="notice-mark-read-btn" onclick="markAllNoticesRead()">✓ 全部已读</button>
+        </div>
+        <div id="noticeList" class="notice-list"></div>
+      </div>
+    </div>
+
+    <div class="hero-header">
+      <div class="brand-container">
+        <a
+          href="https://item.taobao.com/item.htm?id=975150888957"
+          target="_blank"
+          rel="noopener noreferrer"
+          class="brand-title"
+          id="brandTitleText"
+        >
+          Nano Banana <span class="brand-pro">PRO</span>
+        </a>
+        <span class="brand-badge-4k" id="brandBadge4k">4K</span>
+      </div>
+      <div class="brand-sub" id="brandSubText">Powered By Gemini-3-Pro-Preview</div>
+    </div>
+
+    <!-- TAB 1: CREATE -->
+    <div id="tab-create" class="tab-content active">
+      <div class="dashboard">
+        <!-- Header removed as requested (Duplicate) -->
+
+        <!-- 顶部通栏: 提示词 -->
+        <div class="tech-module prompt-module">
+          <div class="module-header">
+            创意提示词 (PROMPT)
+            <span
+              class="trash-icon"
+              onclick="clearPrompt()"
+              title="清空提示词"
+              >🗑️</span
+            >
+          </div>
+          <div class="prompt-input-wrap">
+            <textarea
+              id="prompt"
+              class="prompt-area"
+              placeholder="描述画面内容、光影、风格... (支持中文，支持 @图1 @图2 引用参考图)"
+            ></textarea>
+            <div id="promptMentionMenu" class="prompt-mention-menu" style="display:none;"></div>
+          </div>
+          <div id="refMentionSummary" class="ref-mention-summary" style="display:none;"></div>
+        </div>
+
+        <div class="settings-grid">
+          <!-- 左列: 视觉参考图 -->
+          <div class="tech-module ref-module">
+            <div class="module-header">
+              <div class="ref-header-main">
+                <span>视觉参考图 (REF)</span>
+                <span id="refCountBadge" class="ref-count-badge">0/10</span>
+              </div>
+              <span
+                class="trash-icon"
+                onclick="clearRefImages()"
+                title="清空参考图"
+                >🗑️</span
+              >
+            </div>
+            <div class="upload-box" id="dropZone">
+              <input
+                type="file"
+                id="fileInput"
+                accept="image/*"
+                multiple
+                hidden
+                onclick="event.stopPropagation()"
+              />
+              <div id="uploadPlaceholder" onclick="triggerUpload(event)">
+                <div style="font-size: 24px; margin-bottom: 5px">📷</div>
+                <div style="font-size: 12px; color: var(--text-sub)">
+                  点击或拖拽图片到此处（最多10张）
+                </div>
+              </div>
+              <div id="thumbGrid"></div>
+            </div>
+          </div>
+
+          <!-- 右列: 模型与参数 -->
+          <div class="right-column">
+            <!-- 模型选择 -->
+            <div class="tech-module model-selector-module inline-module">
+              <div class="module-header">模型 (MODEL)</div>
+              <div class="pill-dropdown" id="modelPill" data-selected-value="nano-banana">
+                <div class="pill-trigger" onclick="togglePill(event, 'modelPill')">
+                   <span class="trigger-label">🍌🍌 Nano Banana Pro</span>
+                   <div class="trigger-right">
+                     <span class="trigger-val">5 🪙</span>
+                     <span class="arrow">▼</span>
+                   </div>
+                </div>
+                <div class="dropdown-menu">
+                  <div class="dropdown-item active" data-value="nano-banana" onclick="selectPill('modelPill', this, '5 🪙')">
+                    <span>🍌🍌 Nano Banana Pro</span> <span class="item-cost">5 🪙</span>
+                  </div>
+                  <div class="dropdown-item" data-value="nano-banana-2" onclick="selectPill('modelPill', this, '2.5 🪙')">
+                    <span>🍌 Nano Banana 2</span> <span class="item-cost">2.5 🪙</span>
+                  </div>
+                  <div class="dropdown-item" data-value="grok-4.2" onclick="selectPill('modelPill', this, '3 🪙')">
+                    <span>🚀 Grok 4.2 Image</span> <span class="item-cost">3 🪙</span>
+                  </div>
+                  <div class="dropdown-item" data-value="grok-4.1" onclick="selectPill('modelPill', this, '2 🪙')">
+                    <span>⚡ Grok 4.1 Image</span> <span class="item-cost">2 🪙</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- 线路选择 -->
+            <div class="tech-module line-selector-module inline-module" id="lineModule" style="display: none;">
+              <div class="module-header">线路 (LINE)</div>
+              <div class="pill-dropdown" id="linePill" data-selected-value="1">
+                <div class="pill-trigger" onclick="togglePill(event, 'linePill')">
+                  <span class="trigger-label">线路一 (异步增强)</span>
+                  <span class="arrow">▼</span>
+                </div>
+                <div class="dropdown-menu">
+                  <div class="dropdown-item active" data-value="1" onclick="selectPill('linePill', this)">Line 1</div>
+                  <div class="dropdown-item" data-value="2" onclick="selectPill('linePill', this)">Line 2</div>
+                  <div class="dropdown-item" data-value="3" onclick="selectPill('linePill', this)">Line 3</div>
+                </div>
+              </div>
+            </div>
+
+            <div class="tech-module inline-module grok-ref-mode-module" id="grokRefModeModule" style="display: none;">
+              <div class="module-header">参考图模式 (GROK)</div>
+              <div class="pill-dropdown" id="grokRefModePill" data-selected-value="stable_fusion">
+                <div class="pill-trigger" onclick="togglePill(event, 'grokRefModePill')">
+                  <span class="trigger-label">稳定融合（推荐）</span>
+                  <div class="trigger-right">
+                    <span class="arrow">▼</span>
+                  </div>
+                </div>
+                <div class="dropdown-menu">
+                  <div class="dropdown-item active" data-value="stable_fusion" onclick="selectPill('grokRefModePill', this)">
+                    <span>稳定融合（推荐）</span>
+                  </div>
+                  <div class="dropdown-item" data-value="classic_multi" onclick="selectPill('grokRefModePill', this)">
+                    <span>经典多参考直传</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="params-row">
+              <div class="tech-module" title="比例 (RATIO)">
+                <div class="pill-dropdown" id="ratioPill" data-selected-value="16:9">
+                  <div class="pill-trigger" onclick="togglePill(event, 'ratioPill')">
+                    <div class="trigger-left" style="display: flex; align-items: center; gap: 8px;">
+                      <div class="ratio-icon r-16-9"></div>
+                      <span class="trigger-label">16:9</span>
+                    </div>
+                    <span class="arrow">▼</span>
+                  </div>
+                  <div class="dropdown-menu">
+                    <div class="dropdown-item active" data-value="16:9" onclick="selectPill('ratioPill', this)">
+                      <div style="display: flex; align-items: center; gap: 10px;">
+                        <div class="ratio-icon r-16-9"></div> <span>16:9</span>
+                      </div>
+                    </div>
+                    <!-- ... ratios truncated for brevity but essentially same ... -->
+                    <div class="dropdown-item" data-value="21:9" onclick="selectPill('ratioPill', this)">
+                      <div style="display: flex; align-items: center; gap: 10px;">
+                        <div class="ratio-icon r-21-9"></div> <span>21:9</span>
+                      </div>
+                    </div>
+                    <div class="dropdown-item" data-value="9:16" onclick="selectPill('ratioPill', this)">
+                      <div style="display: flex; align-items: center; gap: 10px;">
+                        <div class="ratio-icon r-9-16"></div> <span>9:16</span>
+                      </div>
+                    </div>
+                    <div class="dropdown-item" data-value="1:1" onclick="selectPill('ratioPill', this)">
+                      <div style="display: flex; align-items: center; gap: 10px;">
+                        <div class="ratio-icon r-1-1"></div> <span>1:1</span>
+                      </div>
+                    </div>
+                    <div class="dropdown-item" data-value="4:3" onclick="selectPill('ratioPill', this)">
+                      <div style="display: flex; align-items: center; gap: 10px;">
+                        <div class="ratio-icon r-4-3"></div> <span>4:3</span>
+                      </div>
+                    </div>
+                    <div class="dropdown-item" data-value="3:4" onclick="selectPill('ratioPill', this)">
+                      <div style="display: flex; align-items: center; gap: 10px;">
+                        <div class="ratio-icon r-3-4"></div> <span>3:4</span>
+                      </div>
+                    </div>
+                    <div class="dropdown-item" data-value="2:3" onclick="selectPill('ratioPill', this)">
+                      <div style="display: flex; align-items: center; gap: 10px;">
+                        <div class="ratio-icon r-2-3"></div> <span>2:3</span>
+                      </div>
+                    </div>
+                    <div class="dropdown-item" data-value="3:2" onclick="selectPill('ratioPill', this)">
+                      <div style="display: flex; align-items: center; gap: 10px;">
+                        <div class="ratio-icon r-3-2"></div> <span>3:2</span>
+                      </div>
+                    </div>
+                    <div class="dropdown-item" data-value="5:4" onclick="selectPill('ratioPill', this)">
+                      <div style="display: flex; align-items: center; gap: 10px;">
+                        <div class="ratio-icon r-5-4"></div> <span>5:4</span>
+                      </div>
+                    </div>
+                    <div class="dropdown-item" data-value="4:5" onclick="selectPill('ratioPill', this)">
+                      <div style="display: flex; align-items: center; gap: 10px;">
+                        <div class="ratio-icon r-4-5"></div> <span>4:5</span>
+                      </div>
+                    </div>
+                    <div class="dropdown-item gemini-only-ratio" data-value="4:1" style="display:none" onclick="selectPill('ratioPill', this)">
+                      <div style="display: flex; align-items: center; gap: 10px;">
+                        <div class="ratio-icon r-4-1"></div> <span>4:1</span>
+                      </div>
+                    </div>
+                    <div class="dropdown-item gemini-only-ratio" data-value="1:4" style="display:none" onclick="selectPill('ratioPill', this)">
+                      <div style="display: flex; align-items: center; gap: 10px;">
+                        <div class="ratio-icon r-1-4"></div> <span>1:4</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="tech-module" id="sizeModule" title="画质 (SIZE)">
+                <div class="pill-dropdown" id="sizePill" data-selected-value="1K">
+                  <div class="pill-trigger" onclick="togglePill(event, 'sizePill')">
+                    <span class="trigger-label">1K (标准)</span>
+                    <span class="arrow">▼</span>
+                  </div>
+                  <div class="dropdown-menu">
+                    <div class="dropdown-item active" data-value="1K" onclick="selectPill('sizePill', this)">1K (标准)</div>
+                    <div class="dropdown-item" data-value="2K" onclick="selectPill('sizePill', this)">2K (高清)</div>
+                    <div class="dropdown-item" data-value="4K" onclick="selectPill('sizePill', this)">4K (超清)</div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="tech-module" title="数量 (QTY)">
+                <div class="pill-dropdown" id="qtyPill" data-selected-value="1">
+                  <div class="pill-trigger" onclick="togglePill(event, 'qtyPill')">
+                    <span class="trigger-label">1 张 (标准)</span>
+                    <span class="arrow">▼</span>
+                  </div>
+                  <div class="dropdown-menu">
+                    <div class="dropdown-item active" data-value="1" onclick="selectPill('qtyPill', this)">1 张 (标准)</div>
+                    <div class="dropdown-item" data-value="2" onclick="selectPill('qtyPill', this)">2 张 (-2x 余额)</div>
+                    <div class="dropdown-item" data-value="3" onclick="selectPill('qtyPill', this)">3 张 (-3x 余额)</div>
+                    <div class="dropdown-item" data-value="4" onclick="selectPill('qtyPill', this)">4 张 (-4x 余额)</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="action-section">
+          <button class="start-btn" id="genBtn" onclick="runGen()">
+            INITIATE // 开始生产
+          </button>
+        </div>
+
+        <div class="tech-module result-module">
+          <div class="module-header" style="width: 100%; margin-bottom: auto">
+            生成结果 (OUTPUT)
+          </div>
+
+          <div class="status-text" id="statusText">SYSTEM READY</div>
+          <div class="progress-bar" id="progressBar">
+            <div class="progress-fill" id="progressFill"></div>
+          </div>
+
+          <div class="image-container" id="imgContainer">
+            <div
+              id="errorPlaceholder"
+              style="
+                display: none;
+                color: var(--text-sub);
+                margin-bottom: 15px;
+                text-align: center;
+              "
+            >
+              ⚠️ 图片生成成功，但无法直接预览<br />这通常是因为网络阻断或浏览器安全策略
+            </div>
+
+            <div id="resultGrid" class="result-grid"></div>
+
+            <a id="manualLinkBtn" class="manual-link-btn" target="_blank"
+              >🔗 点击跳转查看原图</a
+            >
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB 2: GALLERY -->
+    <div id="tab-gallery" class="tab-content">
+      <div class="history-section">
+        <div class="tech-module full-width">
+          <div class="module-header">
+            历史记录 (HISTORY)
+            <button class="clear-history-btn" onclick="clearHistory()">
+              🗑️清空历史
+            </button>
+          </div>
+          <!-- History Warning -->
+          <div
+            style="
+              font-size: 12px;
+              color: #ffab00;
+              margin-bottom: 10px;
+              padding: 0 5px;
+              text-align: center;
+            "
+          >
+            ⚠️ 历史记录仅临时保存，请及时下载避免丢失
+          </div>
+
+          <!-- Pending Tasks Section (New) -->
+          <div
+            id="pendingTasksContainer"
+            style="display: none; margin-bottom: 20px"
+          >
+            <div
+              class="module-header"
+              style="
+                color: var(--banana);
+                border-bottom: 1px solid var(--banana-glow);
+                padding-bottom: 5px;
+                margin-bottom: 10px;
+              "
+            >
+              ⏳ 正在生成 (PROCESSING)
+            </div>
+            <div id="pendingTasksGrid" class="history-grid"></div>
+          </div>
+
+          <div class="history-grid" id="historyGrid"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB 3: PROFILE (New) -->
+    <div id="tab-profile" class="tab-content">
+      <div class="dashboard" style="margin-top: 20px">
+        <div class="tech-module full-width" id="classicUnifiedAuthSection">
+          <div class="module-header">全局设置</div>
+
+          <div id="classicAuthLoggedOut">
+            <div class="auth-mode-switch">
+              <button
+                type="button"
+                class="auth-mode-btn active"
+                id="classicAuthModeLoginBtn"
+                onclick="switchClassicAuthMode('login')"
+              >
+                密码登录
+              </button>
+              <button
+                type="button"
+                class="auth-mode-btn"
+                id="classicAuthModeRegisterBtn"
+                onclick="switchClassicAuthMode('register')"
+              >
+                注册账户
+              </button>
+              <button
+                type="button"
+                class="auth-mode-btn"
+                id="classicAuthModeForgotBtn"
+                onclick="switchClassicAuthMode('forgot')"
+              >
+                忘记密码
+              </button>
+            </div>
+
+            <div class="auth-form-grid">
+              <input
+                type="text"
+                id="classicAuthDisplayName"
+                placeholder="显示名称（注册时填写）"
+                style="display: none"
+              />
+              <input
+                type="email"
+                id="classicAuthEmail"
+                placeholder="邮箱地址"
+                autocomplete="username"
+              />
+              <input
+                type="password"
+                id="classicAuthPassword"
+                placeholder="密码"
+                autocomplete="current-password"
+              />
+            </div>
+
+            <div id="classicAuthResetFields" class="classic-account-stack" style="display: none; margin-top: 12px">
+              <div class="classic-profile-card">
+                <div class="classic-section-title">重置密码</div>
+                <div class="auth-inline-note">
+                  先发送邮箱验证码，再输入新密码完成重置。重置成功后会自动登录当前账号。
+                </div>
+                <div class="classic-inline-form" style="margin-top: 12px">
+                  <input
+                    type="text"
+                    id="classicAuthResetCode"
+                    placeholder="输入 6 位重置验证码"
+                    autocomplete="one-time-code"
+                  />
+                  <button
+                    type="button"
+                    class="action-btn check-balance-btn classic-inline-btn"
+                    id="classicAuthSendResetCodeBtn"
+                    onclick="requestClassicPasswordResetCode()"
+                  >
+                    <span style="font-size: 16px">✉️</span> 发送重置码
+                  </button>
+                </div>
+                <div class="auth-form-grid" style="margin-top: 12px">
+                  <input
+                    type="password"
+                    id="classicAuthResetPassword"
+                    placeholder="设置新密码"
+                    autocomplete="new-password"
+                  />
+                  <input
+                    type="password"
+                    id="classicAuthResetConfirmPassword"
+                    placeholder="确认新密码"
+                    autocomplete="new-password"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div class="auth-inline-note" id="classicAuthHint">
+              登录后可直接使用站内点数、全部模型与后台配置的全部线路。旧 API Key 仍可兼容部分直连线路。
+            </div>
+            <div class="auth-status" id="classicAuthStatus"></div>
+
+            <div class="profile-actions" style="display: flex; gap: 10px; margin-top: 12px">
+              <button
+                class="action-btn save-key-btn"
+                id="classicAuthSubmitBtn"
+                onclick="submitClassicAuth()"
+                style="flex: 1; justify-content: center; padding: 12px"
+              >
+                <span style="font-size: 16px">🔐</span> 密码登录
+              </button>
+              <button
+                class="action-btn check-balance-btn"
+                onclick="refreshClassicSession(true)"
+                style="flex: 1; justify-content: center; padding: 12px"
+              >
+                <span style="font-size: 16px">🔄</span> 刷新状态
+              </button>
+            </div>
+          </div>
+
+          <div id="classicAuthLoggedIn" style="display: none">
+            <div class="classic-settings-stack">
+              <div class="classic-settings-card classic-settings-auth-card">
+                <div class="classic-settings-header">
+                  <div>
+                    <div class="classic-settings-title">账户登录</div>
+                    <div class="classic-settings-desc">
+                      登录后，点数、消费记录和管理权限都会绑定到你的账户。
+                    </div>
+                  </div>
+                </div>
+
+                <div class="classic-settings-user-card">
+                  <div class="classic-settings-user-main">
+                    <div class="classic-settings-user-top">
+                      <div class="auth-user-name" id="classicAuthUserName">-</div>
+                      <div class="classic-settings-user-badges">
+                        <span class="classic-role-badge" id="classicAuthRoleBadge" style="display: none">管理员</span>
+                      </div>
+                    </div>
+                    <div class="auth-user-meta" id="classicAuthUserMeta">-</div>
+                    <div class="classic-settings-user-meta-row">
+                      <span id="classicAuthUserId">用户 ID：-</span>
+                      <span id="classicAuthRoleText">角色：-</span>
+                      <span id="classicAuthLastLogin">最近登录：-</span>
+                    </div>
+                  </div>
+
+                  <div class="classic-settings-user-actions">
+                    <button
+                      type="button"
+                      class="action-btn check-balance-btn classic-inline-btn"
+                      id="classicPasswordToggleBtn"
+                      onclick="toggleClassicPasswordPanel()"
+                    >
+                      <span style="font-size: 16px">🔐</span> 修改密码
+                    </button>
+                    <button
+                      class="action-btn buy-btn classic-inline-btn"
+                      onclick="logoutClassicSession()"
+                    >
+                      <span style="font-size: 16px">↩️</span> 退出登录
+                    </button>
+                  </div>
+                </div>
+
+                <div class="auth-status" id="classicAuthLoggedInStatus"></div>
+
+                <div id="classicPasswordPanelBody" class="classic-password-panel-body">
+                  <div class="classic-password-panel-shell">
+                    <div class="classic-card-toolbar">
+                      <div class="classic-card-heading">
+                        <div class="classic-section-title" id="classicPasswordCardTitle">修改密码</div>
+                        <div class="auth-inline-note" id="classicPasswordCardHint">
+                          修改成功后，新的密码会立即生效。
+                        </div>
+                      </div>
+                    </div>
+                    <div id="classicCurrentPasswordRow" style="margin-top: 12px">
+                      <input
+                        type="password"
+                        id="classicCurrentPassword"
+                        placeholder="当前密码"
+                        autocomplete="current-password"
+                      />
+                    </div>
+                    <div class="auth-form-grid" style="margin-top: 12px">
+                      <input
+                        type="password"
+                        id="classicNewPassword"
+                        placeholder="新密码"
+                        autocomplete="new-password"
+                      />
+                      <input
+                        type="password"
+                        id="classicConfirmPassword"
+                        placeholder="确认新密码"
+                        autocomplete="new-password"
+                      />
+                    </div>
+                    <div class="profile-actions" style="display: flex; gap: 10px; margin-top: 12px">
+                      <button
+                        type="button"
+                        class="action-btn save-key-btn classic-inline-btn"
+                        id="classicPasswordSubmitBtn"
+                        onclick="submitClassicPasswordChange()"
+                      >
+                        <span style="font-size: 16px">🔐</span> 保存密码
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="classic-settings-card classic-settings-billing-card">
+                <div class="classic-settings-header">
+                  <div>
+                    <div class="classic-settings-title">点数账户</div>
+                    <div class="classic-settings-desc">
+                      这里保留账户摘要和兑换入口，完整统计、筛选和分页账本已经迁移到账单中心。
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    class="action-btn check-balance-btn classic-inline-btn"
+                    onclick="refreshClassicSession(true)"
+                  >
+                    <span style="font-size: 16px">🔄</span> 刷新
+                  </button>
+                </div>
+
+                <div class="classic-settings-stats-grid">
+                  <div class="classic-settings-stat-card">
+                    <div class="classic-settings-stat-label">当前点数</div>
+                    <div class="classic-settings-stat-value highlight" id="classicAuthRemain">-</div>
+                  </div>
+                  <div class="classic-settings-stat-card">
+                    <div class="classic-settings-stat-label">累计消费</div>
+                    <div class="classic-settings-stat-value" id="classicAuthSpent">-</div>
+                  </div>
+                  <div class="classic-settings-stat-card">
+                    <div class="classic-settings-stat-label">累计入账</div>
+                    <div class="classic-settings-stat-value" id="classicAuthRecharged">-</div>
+                  </div>
+                </div>
+
+                <div class="classic-settings-redeem-card">
+                  <div class="classic-settings-subtitle">兑换码兑换</div>
+                  <div class="auth-inline-note">
+                    成功到账后会立即刷新当前点数；更详细的账本和统计请到账单中心中查看。
+                  </div>
+                  <div class="classic-inline-form" style="margin-top: 12px">
+                    <input
+                      type="text"
+                      id="classicRedeemCodeInput"
+                      placeholder="输入兑换码，例如 NBP-ABCD-EFGH-IJKL"
+                      autocomplete="off"
+                    />
+                    <button
+                      type="button"
+                      class="action-btn save-key-btn classic-inline-btn"
+                      id="classicRedeemSubmitBtn"
+                      onclick="redeemClassicCode()"
+                    >
+                      <span style="font-size: 16px">🎟️</span> 立即兑换
+                    </button>
+                  </div>
+                  <div class="auth-status" id="classicRedeemStatus"></div>
+                  <div
+                    id="classicRedeemResult"
+                    class="classic-redeem-result"
+                    style="display: none"
+                  ></div>
+                  <div class="classic-settings-actions-row">
+                    <a
+                      href="/billing"
+                      class="action-btn check-balance-btn classic-inline-btn"
+                      style="justify-content: center"
+                    >
+                      <span style="font-size: 16px">📒</span> 打开账单中心
+                    </a>
+                  </div>
+                </div>
+              </div>
+
+              <div
+                class="classic-settings-card classic-settings-admin-card"
+                id="classicAdminManageCard"
+                style="display: none"
+              >
+                <div class="classic-settings-header">
+                  <div>
+                    <div class="classic-settings-title">独立管理后台</div>
+                    <div class="classic-settings-desc">
+                      管理用户、查看网站在线情况、统计模型与线路成功率、维护模型和线路配置，已经迁移到单独后台页面，日常运营会顺手很多。
+                    </div>
+                  </div>
+                  <a
+                    href="/admin"
+                    id="classicAdminEntryBtn"
+                    class="action-btn support-btn classic-inline-btn"
+                    style="justify-content: center"
+                  >
+                    <span style="font-size: 16px">🛡️</span> 进入管理后台
+                  </a>
+                </div>
+              </div>
+
+              <div class="classic-settings-card classic-settings-compliance-card">
+                <div class="classic-compliance-card">
+                  <div class="classic-compliance-icon">ⓘ</div>
+                  <div class="classic-compliance-text">
+                    <span class="classic-compliance-title">合规声明：</span>
+                    本站 API 仅限合规技术研发及学术测试使用。用户须严格遵守《生成式人工智能服务管理暂行办法》，严禁利用本平台接口生成或传播违法违规内容。本平台不对用户行为承担连带法律责任。
+                  </div>
+                </div>
+              </div>
+
+              <div class="classic-settings-card classic-settings-support-card">
+                <div class="classic-support-inline" onclick="openSupportModal()">
+                  <img class="classic-support-inline-qr" src="/classic-app/wechat.png" alt="微信客服二维码" />
+                  <div class="classic-support-inline-text">扫码联系技术支持</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="tech-module full-width" id="classicApiConfigModule">
+          <div class="module-header">
+            API 配置 (CONFIGURATION)
+            <div class="api-status" id="apiStatus"></div>
+          </div>
+          <!-- Large Input for Mobile -->
+          <div class="password-wrapper" style="margin-bottom: 15px">
+            <input
+              type="password"
+              id="apiKey"
+              placeholder="在此输入 sk-..."
+              autocomplete="off"
+              style="font-size: 16px; padding: 15px"
+            />
+            <button
+              class="eye-toggle"
+              id="eyeBtn"
+              onclick="toggleKeyVisibility()"
+              title="显示/隐藏"
+            >
+              <svg viewBox="0 0 24 24">
+                <path
+                  d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"
+                />
+              </svg>
+            </button>
+          </div>
+
+          <div class="profile-actions" style="display: flex; gap: 10px; margin-top: 10px">
+            <button
+              class="action-btn save-key-btn"
+              id="saveKeyBtn"
+              onclick="saveApiKeyAndBack()"
+              style="flex: 1; justify-content: center; padding: 12px"
+            >
+              <span style="font-size: 16px">💾</span> 保存密钥
+            </button>
+            <button
+              class="action-btn check-balance-btn"
+              id="checkBalanceBtn"
+              onclick="checkBalance()"
+              style="flex: 1; justify-content: center; padding: 12px"
+            >
+              <span style="font-size: 16px">🔍</span> 查询余额
+            </button>
+            <a
+              href="https://item.taobao.com/item.htm?id=975150888957"
+              target="_blank"
+              class="action-btn buy-btn"
+              style="flex: 1; justify-content: center; padding: 12px"
+            >
+              <span style="font-size: 16px">🛒</span> 购买额度
+            </a>
+            <button
+              class="action-btn support-btn"
+              id="supportBtn"
+              onclick="openSupportModal()"
+              style="flex: 1; justify-content: center; padding: 12px"
+            >
+              <span style="font-size: 16px">💬</span> 联系客服
+            </button>
+          </div>
+          <div class="auth-inline-note" id="classicApiKeyHint" style="margin-top: 12px">
+            这里保留给旧用户兼容使用。若你已经登录，可以直接使用站内点数；若你仍想继续使用旧 Key，请保存后选择支持“旧 Key 兼容”的线路。
+          </div>
+        </div>
+
+        <!-- Removed legacy profile duplicate modules -->
+      </div>
+    </div>
+
+    <!-- BOTTOM NAV -->
+    <div class="bottom-nav">
+      <div class="nav-item active" onclick="switchTab('create')">
+        <div class="nav-icon">✨</div>
+        <div class="nav-label">创作</div>
+      </div>
+      <div class="nav-item" onclick="switchTab('gallery')">
+        <div class="nav-icon">🖼️</div>
+        <div class="nav-label">画廊</div>
+      </div>
+      <div class="nav-item" onclick="switchTab('profile')">
+        <div class="nav-icon">👤</div>
+        <div class="nav-label">我的</div>
+      </div>
+    </div>
+
+    <div id="lightbox" class="lightbox" onclick="closeLightbox()">
+      <img id="lbImg" src="" onclick="closeLightbox()" />
+    </div>
+
+    <div
+      id="balanceModal"
+      class="balance-modal"
+      onclick="closeBalanceModal(event)"
+    >
+      <div class="balance-card" id="balanceCard">
+        <div class="balance-header">
+          <span style="font-size: 24px">💳</span> 账户余额详情
+        </div>
+        <div class="balance-item">
+          <span class="balance-label">API 状态</span>
+          <span
+            class="balance-value"
+            id="b_status"
+            style="color: var(--success-green)"
+            >checking...</span
+          >
+        </div>
+        <div class="balance-item">
+          <span class="balance-label">剩余额度</span>
+          <span class="balance-value highlight" id="b_remain">-</span>
+        </div>
+        <div class="balance-item">
+          <span class="balance-label">已用额度</span>
+          <span class="balance-value" id="b_used">-</span>
+        </div>
+        <div class="balance-item">
+          <span class="balance-label">总额度</span>
+          <span class="balance-value" id="b_total">-</span>
+        </div>
+        <button
+          class="close-balance-btn"
+          onclick="
+            document.getElementById('balanceModal').style.display = 'none'
+          "
+        >
+          关闭
+        </button>
+      </div>
+    </div>
+
+    <div
+      id="supportModal"
+      class="support-modal"
+      style="display: none"
+      onclick="if(event.target===this) closeSupportModal()"
+    >
+      <div class="support-card">
+        <div class="support-title">联系客服</div>
+        <div class="support-desc">微信扫码联系人工客服</div>
+        <img class="support-qr" src="/classic-app/wechat.png" alt="微信客服二维码" />
+        <button class="support-close-btn" onclick="closeSupportModal()">
+          关闭
+        </button>
+      </div>
+    </div>
+
+<div id="apiGuideModal" class="api-guide-modal" style="display: none" onclick="if(event.target===this) handleApiGuideSecondary()">
+  <div class="api-guide-card" onclick="event.stopPropagation()">
+    <div class="api-guide-icon">✨</div>
+    <div class="api-guide-title" id="apiGuideTitle">欢迎使用，先完成 1 步配置</div>
+    <div class="api-guide-desc" id="apiGuideDesc">检测到你还没有输入 API Key。先在“我的”页填写密钥，完成后即可直接开始生图。</div>
+    <div class="api-guide-actions">
+      <button class="api-guide-btn ghost" id="apiGuideSecondaryBtn" onclick="handleApiGuideSecondary()">稍后</button>
+      <button class="api-guide-btn" id="apiGuidePrimaryBtn" onclick="handleApiGuidePrimary()">去输入密钥</button>
+    </div>
+  </div>
+</div>
+
+<div id="refContextMenu" class="ref-context-menu" style="display:none;"></div>
+<div id="softToast" class="soft-toast" style="display:none;"></div>
+
+    <script src="/classic-app/promptTags.js?v=classic_settings_layout_v1"></script>
+    <script src="/classic-app/script.js?v=classic_settings_layout_v1"></script>
+    <script src="/classic-app/unified-bridge.js?v=classic_settings_layout_v1"></script>
+  </body>
+</html>
+
+

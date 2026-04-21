@@ -1,0 +1,59 @@
+services:
+  mysql:
+    image: mysql:8.4
+    container_name: image-pro-mysql
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_PASSWORD:-change_me}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-nano_banana_pro}
+    ports:
+      - "127.0.0.1:${MYSQL_HOST_PORT:-3310}:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-p${MYSQL_PASSWORD:-change_me}"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  app:
+    build: .
+    container_name: image-pro
+    restart: always
+    depends_on:
+      mysql:
+        condition: service_healthy
+    env_file:
+      - .env
+    ports:
+      - "127.0.0.1:${PORT:-3365}:${PORT:-3365}"
+    volumes:
+      - ./uploads:/app/uploads
+    environment:
+      PORT: ${PORT:-3365}
+      NODE_ENV: ${NODE_ENV:-production}
+      APP_NAME: ${APP_NAME:-Nano Banana Pro}
+      ADMIN_EMAILS: ${ADMIN_EMAILS:-admin@example.com}
+      DEFAULT_SIGNUP_POINTS: ${DEFAULT_SIGNUP_POINTS:-0}
+      MYSQL_URL: ${MYSQL_URL:-}
+      MYSQL_HOST: mysql
+      MYSQL_PORT: 3306
+      MYSQL_USER: root
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-change_me}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-nano_banana_pro}
+      MYSQL_CONNECTION_LIMIT: ${MYSQL_CONNECTION_LIMIT:-10}
+      IMAGE_ROUTE_DEFAULT_KEY: ${IMAGE_ROUTE_DEFAULT_KEY:-}
+      IMAGE_ROUTE_NANO_BANANA_PRO_LINE1_KEY: ${IMAGE_ROUTE_NANO_BANANA_PRO_LINE1_KEY:-}
+      IMAGE_ROUTE_NANO_BANANA_PRO_LINE2_KEY: ${IMAGE_ROUTE_NANO_BANANA_PRO_LINE2_KEY:-}
+      IMAGE_ROUTE_NANO_BANANA_PRO_LINE3_KEY: ${IMAGE_ROUTE_NANO_BANANA_PRO_LINE3_KEY:-}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_SECURE: ${SMTP_SECURE:-false}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      SMTP_FROM: ${SMTP_FROM:-}
+      BILLING_ADMIN_API_KEY: ${BILLING_ADMIN_API_KEY:-}
+      ANNOUNCEMENT_ADMIN_API_KEY: ${ANNOUNCEMENT_ADMIN_API_KEY:-}
+
+volumes:
+  mysql-data:

@@ -1,0 +1,120 @@
+@import "tailwindcss";
+
+/* Pattern background for the canvas */
+.canvas-bg {
+  background-image: radial-gradient(#333 1px, transparent 1px);
+  background-size: 20px 20px;
+}
+
+/* Hide scrollbar for Chrome, Safari and Opera */
+.scrollbar-hide::-webkit-scrollbar {
+    display: none;
+}
+
+/* Hide scrollbar for IE, Edge and Firefox */
+.scrollbar-hide {
+    -ms-overflow-style: none;  /* IE and Edge */
+    scrollbar-width: none;  /* Firefox */
+}
+
+/* Mobile usability baseline */
+* {
+  -webkit-tap-highlight-color: transparent;
+}
+
+@media (max-width: 640px) {
+  input,
+  textarea,
+  select {
+    font-size: 16px; /* Prevent iOS zoom-on-focus */
+  }
+
+  button {
+    touch-action: manipulation;
+  }
+}
+
+/* Low-end device downgrade strategy */
+.low-end-device * {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 120ms !important;
+}
+
+.low-end-device .backdrop-blur-xl,
+.low-end-device .backdrop-blur-lg,
+.low-end-device .backdrop-blur-md {
+  backdrop-filter: none !important;
+}
+
+.low-end-device .shadow-2xl {
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35) !important;
+}
+
+/* Refined scrollbars for panel/dropdowns/thumb strips */
+.sleek-scroll-y {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(148, 163, 184, 0.55) rgba(0, 0, 0, 0.08);
+}
+
+.sleek-scroll-y::-webkit-scrollbar {
+  width: 3px;
+}
+
+.sleek-scroll-y::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 999px;
+}
+
+.sleek-scroll-y::-webkit-scrollbar-thumb {
+  background: linear-gradient(to bottom, rgba(148, 163, 184, 0.62), rgba(100, 116, 139, 0.62));
+  border-radius: 999px;
+}
+
+.sleek-scroll-y::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(to bottom, rgba(167, 182, 204, 0.8), rgba(124, 138, 157, 0.8));
+}
+
+.sleek-scroll-x {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(148, 163, 184, 0.5) rgba(255, 255, 255, 0.04);
+}
+
+.sleek-scroll-x::-webkit-scrollbar {
+  height: 2px;
+}
+
+/* Legacy class used in a few modals/lists */
+.custom-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(148, 163, 184, 0.5) rgba(255, 255, 255, 0.04);
+}
+
+.custom-scrollbar::-webkit-scrollbar {
+  width: 3px;
+  height: 2px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 999px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: linear-gradient(to bottom, rgba(148, 163, 184, 0.62), rgba(100, 116, 139, 0.62));
+  border-radius: 999px;
+}
+
+.sleek-scroll-x::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 999px;
+}
+
+.sleek-scroll-x::-webkit-scrollbar-thumb {
+  background: linear-gradient(to right, rgba(148, 163, 184, 0.64), rgba(100, 116, 139, 0.64));
+  border-radius: 999px;
+}
+
+.sleek-scroll-x::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(to right, rgba(167, 182, 204, 0.8), rgba(124, 138, 157, 0.8));
+}
