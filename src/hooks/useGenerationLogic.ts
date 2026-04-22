@@ -284,8 +284,15 @@ export const useGenerationLogic = () => {
               const cachedUrl = await assetStorage.getAssetUrl(assetId);
 
               if (cachedUrl) {
-                updateNode(id, { src: cachedUrl, assetId }, true);
-                updateLogAsset(logId, assetId, cachedUrl);
+                // Some browsers/proxies can block blob: URL rendering in strict contexts.
+                // Keep the display URL as the original remote/proxy URL and only persist assetId.
+                if (cachedUrl.startsWith('blob:')) {
+                  updateNode(id, { assetId }, true);
+                  updateLogAsset(logId, assetId);
+                } else {
+                  updateNode(id, { src: cachedUrl, assetId }, true);
+                  updateLogAsset(logId, assetId, cachedUrl);
+                }
               } else {
                 updateNode(id, { assetId }, true);
                 updateLogAsset(logId, assetId);
