@@ -1520,6 +1520,9 @@ app.use(
   helmet({
     contentSecurityPolicy: false, // Totally disable CSP to allow blob: and data: images
     crossOriginEmbedderPolicy: false,
+    crossOriginOpenerPolicy: false,
+    crossOriginResourcePolicy: false,
+    originAgentCluster: false,
   })
 );
 
