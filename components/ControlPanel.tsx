@@ -525,6 +525,17 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
     });
   };
 
+  const fileToDataUrl = async (file: File): Promise<string> =>
+    new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        if (typeof reader.result === 'string') resolve(reader.result);
+        else reject(new Error('Failed to convert file to data URL'));
+      };
+      reader.onerror = () => reject(reader.error || new Error('FileReader failed'));
+      reader.readAsDataURL(file);
+    });
+
   const handleRefDragStart = (e: React.DragEvent, index: number) => {
     setDraggingIndex(index);
     e.dataTransfer.setData('application/x-sort-index', index.toString());
@@ -576,16 +587,18 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
         return; 
       }
 
-      // Create blob URLs with File objects
+      // Prefer data URLs for preview to avoid browser blocking blob: URLs in strict contexts.
       for (const file of files) {
         if (file.size > 10 * 1024 * 1024) {
           console.warn('File too large:', file.name);
           continue;
         }
-        
-        // Create blob URL for display
-        const blobUrl = URL.createObjectURL(file);
-        newImages.push({ src: blobUrl, blob: file });
+        try {
+          const dataUrl = await fileToDataUrl(file);
+          newImages.push({ src: dataUrl, blob: file });
+        } catch (error) {
+          console.warn('Failed to read dropped file as data URL:', error);
+        }
       }
     } else {
       // Handle HTML/URI drops
@@ -636,10 +649,12 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
           setError("文件过大（最大 10MB）");
           continue;
         }
-        
-        // Create blob URL for display
-        const blobUrl = URL.createObjectURL(file);
-        newImages.push({ src: blobUrl, blob: file });
+        try {
+          const dataUrl = await fileToDataUrl(file);
+          newImages.push({ src: dataUrl, blob: file });
+        } catch (error) {
+          console.warn('Failed to read selected file as data URL:', error);
+        }
       }
 
       if (newImages.length > 0) {
