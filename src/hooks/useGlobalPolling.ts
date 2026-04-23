@@ -93,8 +93,31 @@ export const useGlobalPolling = (
   const processedTasksRef = useRef<Map<string, { success: boolean; failed: boolean }>>(new Map());
 
   useEffect(() => {
-    queries.forEach((result) => {
+    queries.forEach((result, index) => {
       const data = result.data;
+      const taskNode = pendingTasks[index];
+      const fallbackTaskId = taskNode?.taskId || '';
+
+      if (result.error && fallbackTaskId) {
+        const targetNodes = pendingNodes.filter((n) => n.taskId === fallbackTaskId);
+        targetNodes.forEach((node) => {
+          const processedKey = `${fallbackTaskId}:${node.id}`;
+          const processedState = processedTasksRef.current.get(processedKey) || {
+            success: false,
+            failed: false,
+          };
+          if (processedState.failed) return;
+          processedTasksRef.current.set(processedKey, { ...processedState, failed: true });
+          const nextError = toGenerationErrorMessage(
+            extractErrorMessage(result.error),
+            USER_FACING_GENERATION_ERROR_MESSAGE,
+          );
+          onUpdateGeneration(node.id, null, nextError);
+          toastError(nextError);
+        });
+        return;
+      }
+
       if (!data || !data.taskId) return;
 
       const targetNodes = pendingNodes.filter((n) => n.taskId === data.taskId);
@@ -142,7 +165,9 @@ export const useGlobalPolling = (
     }
   }, [
     pendingNodes,
+    pendingTasks,
     queries.map((q) => `${q.data?.taskId ?? ''}:${q.data?.status ?? ''}`).join('|'),
+    queries.map((q) => `${q.error ? 'E' : 'O'}:${q.error ? extractErrorMessage(q.error) : ''}`).join('|'),
     onUpdateGeneration,
     toastError,
   ]);
