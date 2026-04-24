@@ -276,7 +276,6 @@ const applyRoutePathTemplate = (template, params = {}) =>
   );
 const buildRouteUrl = (route, template, params = {}) =>
   `${trimTrailingSlash(route.baseUrl)}${applyRoutePathTemplate(template, params)}`;
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const buildImageTaskToken = (routeId, upstreamTaskId) =>
   Buffer.from(
     JSON.stringify({ routeId, upstreamTaskId }),
