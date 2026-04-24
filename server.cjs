@@ -2987,8 +2987,10 @@ app.post("/api/generate", generateLimiter, async (req, res) => {
       grokImageDebug,
     });
 
-    const upstreamUrl = isSyncLine
-      ? buildRouteUrl(route, route.chatPath || "/v1/chat/completions", {
+    const chatPath = String(route?.chatPath || "").trim();
+    const shouldUseChatSyncEndpoint = isSyncLine && chatPath.length > 0;
+    const upstreamUrl = shouldUseChatSyncEndpoint
+      ? buildRouteUrl(route, chatPath, {
           model: requestBody.model,
         })
       : buildRouteUrl(route, route.generatePath, {
@@ -2996,7 +2998,7 @@ app.post("/api/generate", generateLimiter, async (req, res) => {
         });
 
     let finalRequestBody = requestBody;
-    if (isSyncLine) {
+    if (shouldUseChatSyncEndpoint) {
       finalRequestBody = {
         model: requestBody.model,
         messages: [{ role: "user", content: requestBody.prompt }],
