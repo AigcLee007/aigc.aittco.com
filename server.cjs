@@ -2910,7 +2910,8 @@ app.post("/api/generate", generateLimiter, async (req, res) => {
       }
     };
 
-    const isSyncLine = requestBody.isSync === true;
+    const routeMode = String(route?.mode || "").trim().toLowerCase();
+    const isSyncLine = requestBody.isSync === true || routeMode === "sync";
     if (isSyncLine) {
       delete requestBody.isSync;
     }
