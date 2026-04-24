@@ -323,6 +323,36 @@ const fetchVisionaryRecordById = async ({
     ) || null
   );
 };
+const LOCAL_IMAGE_JOBS = new Map();
+const LOCAL_IMAGE_JOB_TTL_MS = 30 * 60 * 1000;
+const createLocalImageJobId = () =>
+  `local-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+const setLocalImageJob = (jobId, patch) => {
+  const existing = LOCAL_IMAGE_JOBS.get(jobId) || {};
+  const next = {
+    ...existing,
+    ...patch,
+    id: jobId,
+    updatedAt: new Date().toISOString(),
+  };
+  LOCAL_IMAGE_JOBS.set(jobId, next);
+  return next;
+};
+const getLocalImageJob = (jobId) => LOCAL_IMAGE_JOBS.get(jobId) || null;
+const scheduleLocalImageJobCleanup = (jobId) => {
+  setTimeout(() => {
+    LOCAL_IMAGE_JOBS.delete(jobId);
+  }, LOCAL_IMAGE_JOB_TTL_MS).unref?.();
+};
+const toImmediateImagePayload = (payload) => {
+  const resultUrls = extractResultUrlsFromPayload(payload);
+  return {
+    ...payload,
+    url: payload?.url || payload?.image_url || resultUrls[0] || null,
+    image_url: payload?.image_url || payload?.url || resultUrls[0] || null,
+    images: Array.isArray(payload?.images) ? payload.images : resultUrls,
+  };
+};
 const createGeminiDataItems = (images = []) =>
   images.map((value) => {
     if (typeof value === "string" && value.startsWith("data:")) {
@@ -3036,6 +3066,180 @@ app.post("/api/generate", generateLimiter, async (req, res) => {
       },
     });
 
+    if (isVisionaryImageRoute(route) && isSyncLine && !shouldUseChatSyncEndpoint) {
+      const localJobId = createLocalImageJobId();
+      localTaskId = buildImageTaskToken(route.id, localJobId);
+      setLocalImageJob(localJobId, {
+        localTaskId,
+        routeId: route.id,
+        status: "processing",
+        progress: 0,
+        results: [],
+      });
+      scheduleLocalImageJobCleanup(localJobId);
+
+      if (shouldUseBilling) {
+        await registerPendingTask(localTaskId, {
+          accountId: billingAccount.accountId,
+          chargeId: billingCharge?.chargeId || null,
+          points: pointCost,
+          routeId: route.id,
+          action: "generate",
+        });
+      }
+      if (generationRecord?.id) {
+        await attachTaskToGenerationRecord(generationRecord.id, localTaskId);
+      }
+
+      (async () => {
+        try {
+          const response = await requestWithRetry(
+            () =>
+              axios.post(upstreamUrl, finalRequestBody, {
+                headers: {
+                  Authorization: userKey,
+                  "Content-Type": "application/json",
+                },
+                timeout: 600000,
+                httpsAgent: SHARED_HTTPS_AGENT,
+              }),
+            { retries: 1, delayMs: 700, label: `generate-bg-${route.id}` },
+          );
+
+          let settledPayload = response.data;
+          let settledStatus = extractResultStatus(settledPayload);
+          let resultUrls = extractResultUrlsFromPayload(settledPayload);
+          const upstreamTaskId =
+            settledPayload?.id ||
+            settledPayload?.task_id ||
+            settledPayload?.data?.task_id;
+
+          if (
+            upstreamTaskId &&
+            resultUrls.length === 0 &&
+            ["PROCESSING", "PENDING", "RUNNING", "QUEUED", "IN_PROGRESS", ""].includes(settledStatus)
+          ) {
+            const startedAt = Date.now();
+            while (Date.now() - startedAt < 10 * 60 * 1000) {
+              const record = await fetchVisionaryRecordById({
+                route,
+                authorization: userKey,
+                upstreamTaskId,
+              });
+              if (record) {
+                settledPayload = record;
+                settledStatus = extractResultStatus(record);
+                resultUrls = extractResultUrlsFromPayload(record);
+                setLocalImageJob(localJobId, {
+                  upstreamTaskId,
+                  status: String(record.status || "processing").toLowerCase(),
+                  progress: record.progress ?? 0,
+                  responseData: {
+                    ...record,
+                    id: localTaskId,
+                    task_id: localTaskId,
+                    upstream_id: upstreamTaskId,
+                  },
+                });
+                if (["SUCCEEDED", "SUCCESS", "COMPLETED"].includes(settledStatus)) break;
+                if (["FAILED", "FAILURE", "ERROR", "CANCELLED", "CANCELED"].includes(settledStatus)) {
+                  throw new Error(record.error || record.failure_reason || "Visionary generation failed");
+                }
+              }
+              await sleep(2000);
+            }
+          }
+
+          if (resultUrls.length === 0 || !["SUCCEEDED", "SUCCESS", "COMPLETED"].includes(settledStatus)) {
+            throw new Error(
+              `Visionary generation did not return an image URL (status: ${settledStatus || "UNKNOWN"})`,
+            );
+          }
+
+          const successPayload = {
+            ...toImmediateImagePayload(settledPayload),
+            id: localTaskId,
+            task_id: localTaskId,
+            upstream_id: upstreamTaskId || settledPayload?.id || null,
+            status: "succeeded",
+          };
+          setLocalImageJob(localJobId, {
+            status: "succeeded",
+            progress: 100,
+            responseData: successPayload,
+          });
+          await settlePendingTask(localTaskId, "SUCCESS");
+          await completeGenerationRecordSuccessSafe({
+            recordId: generationRecord?.id,
+            taskId: localTaskId,
+            resultUrls,
+            previewUrl: resultUrls[0] || null,
+            outputSize: requestBody.size || requestBody.image_size || null,
+            aspectRatio: requestBody.aspect_ratio || null,
+            meta: {
+              transport: route.transport,
+              routeMode: "sync",
+              upstreamStatus: settledStatus,
+              settled: "visionary_background_job",
+            },
+          });
+        } catch (error) {
+          setLocalImageJob(localJobId, {
+            status: "failed",
+            progress: 100,
+            responseData: {
+              id: localTaskId,
+              task_id: localTaskId,
+              status: "failed",
+              error: error.message,
+              results: [],
+            },
+          });
+          await settlePendingTask(localTaskId, "FAILED");
+          if (shouldUseBilling && billingCharge?.chargeId && billingAccount?.accountId) {
+            await refundPoints(billingAccount.accountId, billingCharge.chargeId, {
+              reason: "request_failed",
+              routeId: route.id,
+            });
+          }
+          await completeGenerationRecordFailureSafe({
+            recordId: generationRecord?.id,
+            taskId: localTaskId,
+            errorMessage: error.message,
+          });
+          logger.error({
+            timestamp: new Date().toISOString(),
+            type: "Visionary Background Generate Error",
+            message: error.message,
+            stack: error.stack,
+            response: error.response?.data,
+          });
+        }
+      })();
+
+      return res.json(
+        shouldUseBilling
+          ? {
+              id: localTaskId,
+              task_id: localTaskId,
+              status: "processing",
+              progress: 0,
+              results: [],
+              billing: {
+                deductedPoints: pointCost,
+                remainingPoints: billingCharge?.account?.points,
+              },
+            }
+          : {
+              id: localTaskId,
+              task_id: localTaskId,
+              status: "processing",
+              progress: 0,
+              results: [],
+            },
+      );
+    }
+
     const response = await requestWithRetry(
       () =>
         axios.post(upstreamUrl, finalRequestBody, {
@@ -3546,6 +3750,19 @@ app.get("/api/task/:taskId", pollingLimiter, async (req, res) => {
         : null) || (await resolveImageRoute(undefined, { includeInactive: true }));
 
     const upstreamTaskId = decodedTask?.upstreamTaskId || encodedTask;
+    const localJob = getLocalImageJob(upstreamTaskId);
+    if (localJob) {
+      return res.json(
+        localJob.responseData || {
+          id: encodedTask,
+          task_id: encodedTask,
+          status: localJob.status || "processing",
+          progress: localJob.progress ?? 0,
+          results: localJob.results || [],
+        },
+      );
+    }
+
     const authorization = getRouteAuthorization(route, fallbackAuthorization, {
       preferUserProvided: shouldUseUserProvidedApiKey(route, fallbackAuthorization),
     });
