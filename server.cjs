@@ -1152,12 +1152,24 @@ const createTransientHttpsAgent = () =>
     maxCachedSessions: 0,
   });
 
+const extractAuthorizationToken = (authorization = "") =>
+  String(authorization || "")
+    .replace(/^Bearer\s+/i, "")
+    .trim();
+
 const buildUpstreamJsonRequestConfig = (
   authorization,
-  { httpsAgent = SHARED_HTTPS_AGENT, closeConnection = false } = {},
+  {
+    httpsAgent = SHARED_HTTPS_AGENT,
+    closeConnection = false,
+    includeGoogleApiKey = false,
+  } = {},
 ) => ({
   headers: {
     Authorization: authorization,
+    ...(includeGoogleApiKey
+      ? { "x-goog-api-key": extractAuthorizationToken(authorization) }
+      : {}),
     "Content-Type": "application/json",
     "Accept-Encoding": "identity",
     ...(closeConnection ? { Connection: "close" } : {}),
@@ -1184,6 +1196,7 @@ const postJsonWithFetch = async ({
   authorization,
   label,
   closeConnection = false,
+  includeGoogleApiKey = false,
 }) => {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 600000);
@@ -1192,6 +1205,9 @@ const postJsonWithFetch = async ({
       method: "POST",
       headers: {
         Authorization: authorization,
+        ...(includeGoogleApiKey
+          ? { "x-goog-api-key": extractAuthorizationToken(authorization) }
+          : {}),
         "Content-Type": "application/json",
         ...(closeConnection ? { Connection: "close" } : {}),
       },
@@ -1247,6 +1263,7 @@ const postJsonWithTlsFallback = async ({
   body,
   authorization,
   label,
+  includeGoogleApiKey = false,
 }) => {
   return axios.post(
     endpoint,
@@ -1254,6 +1271,7 @@ const postJsonWithTlsFallback = async ({
     buildUpstreamJsonRequestConfig(authorization, {
       httpsAgent: createTransientHttpsAgent(),
       closeConnection: true,
+      includeGoogleApiKey,
     }),
   );
 };
@@ -1438,6 +1456,7 @@ const executeGeminiNativeGenerate = async ({
         body: camelBody,
         authorization,
         label: `${logTag}-${route.id}-camel-${resolvedImageSize}`,
+        includeGoogleApiKey: true,
       });
     } catch (firstErr) {
       if (firstErr.response?.status === 400) {
@@ -1451,6 +1470,7 @@ const executeGeminiNativeGenerate = async ({
             body: snakeBody,
             authorization,
             label: `${logTag}-${route.id}-snake-${resolvedImageSize}`,
+            includeGoogleApiKey: true,
           });
         } catch (secondErr) {
           if (secondErr.response?.status === 400) {
@@ -1466,6 +1486,7 @@ const executeGeminiNativeGenerate = async ({
               body: noConfigBody,
               authorization,
               label: `${logTag}-${route.id}-no-config-${resolvedImageSize}`,
+              includeGoogleApiKey: true,
             });
           }
           throw secondErr;
