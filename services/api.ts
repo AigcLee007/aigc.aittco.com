@@ -182,6 +182,12 @@ export function findAllUrlsInObject(obj: any, results: string[] = []) {
   });
 }
 
+const extractGenerateResultUrls = (payload: any): string[] => {
+  const urls: string[] = [];
+  findAllUrlsInObject(payload, urls);
+  return Array.from(new Set(urls.filter((u) => typeof u === 'string' && (u.startsWith('http') || u.startsWith('data:')))));
+};
+
 export const generateImageApi = async (
   apiKey: string | undefined,
   payload: any,
@@ -207,6 +213,20 @@ export const generateImageApi = async (
 
   if (Array.isArray(resJson.images) && resJson.images.length > 0) {
     return { taskId: '', images: resJson.images, ...resJson };
+  }
+
+  const normalizedStatus = String(resJson?.status || resJson?.state || '').trim().toLowerCase();
+  const directResultUrls = extractGenerateResultUrls(resJson);
+  const isImmediateSuccess =
+    ['succeeded', 'success', 'completed'].includes(normalizedStatus) &&
+    directResultUrls.length > 0;
+  if (isImmediateSuccess) {
+    return {
+      taskId: '',
+      url: directResultUrls[0],
+      images: directResultUrls,
+      ...resJson,
+    };
   }
 
   const taskId = resJson.id || resJson.task_id || resJson.data?.task_id;
