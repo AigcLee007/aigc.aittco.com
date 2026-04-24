@@ -276,6 +276,7 @@ const applyRoutePathTemplate = (template, params = {}) =>
   );
 const buildRouteUrl = (route, template, params = {}) =>
   `${trimTrailingSlash(route.baseUrl)}${applyRoutePathTemplate(template, params)}`;
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const buildImageTaskToken = (routeId, upstreamTaskId) =>
   Buffer.from(
     JSON.stringify({ routeId, upstreamTaskId }),
@@ -296,6 +297,64 @@ const parseImageTaskToken = (token) => {
     return null;
   }
   return null;
+};
+const pollVisionaryRecordUntilSettled = async ({
+  route,
+  authorization,
+  upstreamTaskId,
+  timeoutMs = 8 * 60 * 1000,
+  intervalMs = 1800,
+}) => {
+  const startedAt = Date.now();
+  const listPath = "/openapi/v1/images/generations?page=1&limit=50";
+  let lastStatus = "";
+
+  while (Date.now() - startedAt < timeoutMs) {
+    const response = await requestWithRetry(
+      () =>
+        axios.get(buildRouteUrl(route, listPath), {
+          headers: {
+            Authorization: authorization,
+            "Content-Type": "application/json",
+          },
+          timeout: 15000,
+          httpsAgent: SHARED_HTTPS_AGENT,
+        }),
+      { retries: 1, delayMs: 250, label: `visionary-list-poll-${route.id}` },
+    );
+
+    const records = Array.isArray(response?.data?.data)
+      ? response.data.data
+      : [];
+    const target = records.find(
+      (item) => String(item?.id || "").trim() === String(upstreamTaskId || "").trim(),
+    );
+
+    if (!target) {
+      await sleep(intervalMs);
+      continue;
+    }
+
+    const status = extractResultStatus(target);
+    lastStatus = status;
+    if (["SUCCEEDED", "SUCCESS", "COMPLETED"].includes(status)) {
+      return target;
+    }
+    if (["FAILED", "FAILURE", "ERROR", "CANCELLED", "CANCELED"].includes(status)) {
+      const message =
+        target?.error ||
+        target?.failure_reason ||
+        target?.message ||
+        "Visionary generation failed";
+      throw new Error(String(message));
+    }
+
+    await sleep(intervalMs);
+  }
+
+  throw new Error(
+    `Visionary generation polling timeout (task: ${upstreamTaskId}, lastStatus: ${lastStatus || "UNKNOWN"})`,
+  );
 };
 const createGeminiDataItems = (images = []) =>
   images.map((value) => {
@@ -3077,6 +3136,57 @@ app.post("/api/generate", generateLimiter, async (req, res) => {
         syncUpstreamTaskId &&
         ["PROCESSING", "PENDING", "RUNNING", "QUEUED", "IN_PROGRESS"].includes(syncUpstreamStatus);
       if (shouldTreatSyncAsPendingTask) {
+        if (isVisionaryImageRoute(route)) {
+          const visionarySettledResult = await pollVisionaryRecordUntilSettled({
+            route,
+            authorization: userKey,
+            upstreamTaskId: syncUpstreamTaskId,
+          });
+          const visionaryResultUrls = extractResultUrlsFromPayload(visionarySettledResult);
+          const visionaryPayload = {
+            ...visionarySettledResult,
+            url:
+              visionarySettledResult?.url ||
+              visionarySettledResult?.image_url ||
+              visionaryResultUrls[0] ||
+              null,
+            image_url:
+              visionarySettledResult?.image_url ||
+              visionarySettledResult?.url ||
+              visionaryResultUrls[0] ||
+              null,
+            images: Array.isArray(visionarySettledResult?.images)
+              ? visionarySettledResult.images
+              : visionaryResultUrls,
+          };
+
+          await completeGenerationRecordSuccessSafe({
+            recordId: generationRecord?.id,
+            resultUrls: visionaryResultUrls,
+            previewUrl: visionaryResultUrls[0] || null,
+            outputSize: requestBody.size || requestBody.image_size || null,
+            aspectRatio: requestBody.aspect_ratio || null,
+            meta: {
+              transport: route.transport,
+              routeMode: "sync",
+              upstreamStatus: "SUCCEEDED",
+              settled: "sync_visionary_list_poll",
+            },
+          });
+
+          return res.json(
+            shouldUseBilling
+              ? {
+                  ...visionaryPayload,
+                  billing: {
+                    deductedPoints: pointCost,
+                    remainingPoints: billingCharge?.account?.points,
+                  },
+                }
+              : visionaryPayload,
+          );
+        }
+
         localTaskId = buildImageTaskToken(route.id, syncUpstreamTaskId);
         if (shouldUseBilling) {
           await registerPendingTask(localTaskId, {
