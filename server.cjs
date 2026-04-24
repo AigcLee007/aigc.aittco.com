@@ -3021,6 +3021,102 @@ app.post("/api/generate", generateLimiter, async (req, res) => {
     );
 
     if (isSyncLine) {
+      const syncImmediateResultUrls = extractResultUrlsFromPayload(response.data);
+      const syncUpstreamStatus = extractResultStatus(response.data);
+      if (
+        syncImmediateResultUrls.length > 0 &&
+        ["SUCCEEDED", "SUCCESS", "COMPLETED"].includes(syncUpstreamStatus)
+      ) {
+        const immediatePayload = {
+          ...response.data,
+          url:
+            response.data?.url ||
+            response.data?.image_url ||
+            syncImmediateResultUrls[0] ||
+            null,
+          image_url:
+            response.data?.image_url ||
+            response.data?.url ||
+            syncImmediateResultUrls[0] ||
+            null,
+          images: Array.isArray(response.data?.images)
+            ? response.data.images
+            : syncImmediateResultUrls,
+        };
+        await completeGenerationRecordSuccessSafe({
+          recordId: generationRecord?.id,
+          resultUrls: syncImmediateResultUrls,
+          previewUrl: syncImmediateResultUrls[0] || null,
+          outputSize: requestBody.size || requestBody.image_size || null,
+          aspectRatio: requestBody.aspect_ratio || null,
+          meta: {
+            transport: route.transport,
+            routeMode: "sync",
+            upstreamStatus: syncUpstreamStatus,
+            settled: "sync_immediate_result",
+          },
+        });
+        return res.json(
+          shouldUseBilling
+            ? {
+                ...immediatePayload,
+                billing: {
+                  deductedPoints: pointCost,
+                  remainingPoints: billingCharge?.account?.points,
+                },
+              }
+            : immediatePayload,
+        );
+      }
+
+      const syncUpstreamTaskId =
+        response.data?.id ||
+        response.data?.task_id ||
+        response.data?.data?.task_id;
+      const shouldTreatSyncAsPendingTask =
+        syncUpstreamTaskId &&
+        ["PROCESSING", "PENDING", "RUNNING", "QUEUED", "IN_PROGRESS"].includes(syncUpstreamStatus);
+      if (shouldTreatSyncAsPendingTask) {
+        localTaskId = buildImageTaskToken(route.id, syncUpstreamTaskId);
+        if (shouldUseBilling) {
+          await registerPendingTask(localTaskId, {
+            accountId: billingAccount.accountId,
+            chargeId: billingCharge?.chargeId || null,
+            points: pointCost,
+            routeId: route.id,
+            action: "generate",
+          });
+        }
+        if (generationRecord?.id) {
+          await attachTaskToGenerationRecord(generationRecord.id, localTaskId);
+        }
+
+        const normalizedResponse = shouldUseBilling
+          ? {
+              ...response.data,
+              id: localTaskId,
+              task_id: localTaskId,
+              billing: {
+                deductedPoints: pointCost,
+                remainingPoints: billingCharge?.account?.points,
+              },
+            }
+          : {
+              ...response.data,
+              id: localTaskId,
+              task_id: localTaskId,
+            };
+
+        if (normalizedResponse.data && typeof normalizedResponse.data === "object") {
+          normalizedResponse.data = {
+            ...normalizedResponse.data,
+            task_id: localTaskId,
+          };
+        }
+
+        return res.json(normalizedResponse);
+      }
+
       const chatContent = response.data.choices?.[0]?.message?.content || "";
       console.log("[Generate] Chat response content:", chatContent.substring(0, 100));
 
