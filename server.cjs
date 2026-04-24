@@ -297,62 +297,30 @@ const parseImageTaskToken = (token) => {
   }
   return null;
 };
-const pollVisionaryRecordUntilSettled = async ({
+const fetchVisionaryRecordById = async ({
   route,
   authorization,
   upstreamTaskId,
-  timeoutMs = 8 * 60 * 1000,
-  intervalMs = 1800,
 }) => {
-  const startedAt = Date.now();
   const listPath = "/openapi/v1/images/generations?page=1&limit=50";
-  let lastStatus = "";
+  const response = await requestWithRetry(
+    () =>
+      axios.get(buildRouteUrl(route, listPath), {
+        headers: {
+          Authorization: authorization,
+          "Content-Type": "application/json",
+        },
+        timeout: 15000,
+        httpsAgent: SHARED_HTTPS_AGENT,
+      }),
+    { retries: 1, delayMs: 250, label: `visionary-list-query-${route.id}` },
+  );
 
-  while (Date.now() - startedAt < timeoutMs) {
-    const response = await requestWithRetry(
-      () =>
-        axios.get(buildRouteUrl(route, listPath), {
-          headers: {
-            Authorization: authorization,
-            "Content-Type": "application/json",
-          },
-          timeout: 15000,
-          httpsAgent: SHARED_HTTPS_AGENT,
-        }),
-      { retries: 1, delayMs: 250, label: `visionary-list-poll-${route.id}` },
-    );
-
-    const records = Array.isArray(response?.data?.data)
-      ? response.data.data
-      : [];
-    const target = records.find(
+  const records = Array.isArray(response?.data?.data) ? response.data.data : [];
+  return (
+    records.find(
       (item) => String(item?.id || "").trim() === String(upstreamTaskId || "").trim(),
-    );
-
-    if (!target) {
-      await sleep(intervalMs);
-      continue;
-    }
-
-    const status = extractResultStatus(target);
-    lastStatus = status;
-    if (["SUCCEEDED", "SUCCESS", "COMPLETED"].includes(status)) {
-      return target;
-    }
-    if (["FAILED", "FAILURE", "ERROR", "CANCELLED", "CANCELED"].includes(status)) {
-      const message =
-        target?.error ||
-        target?.failure_reason ||
-        target?.message ||
-        "Visionary generation failed";
-      throw new Error(String(message));
-    }
-
-    await sleep(intervalMs);
-  }
-
-  throw new Error(
-    `Visionary generation polling timeout (task: ${upstreamTaskId}, lastStatus: ${lastStatus || "UNKNOWN"})`,
+    ) || null
   );
 };
 const createGeminiDataItems = (images = []) =>
@@ -3135,57 +3103,6 @@ app.post("/api/generate", generateLimiter, async (req, res) => {
         syncUpstreamTaskId &&
         ["PROCESSING", "PENDING", "RUNNING", "QUEUED", "IN_PROGRESS"].includes(syncUpstreamStatus);
       if (shouldTreatSyncAsPendingTask) {
-        if (isVisionaryImageRoute(route)) {
-          const visionarySettledResult = await pollVisionaryRecordUntilSettled({
-            route,
-            authorization: userKey,
-            upstreamTaskId: syncUpstreamTaskId,
-          });
-          const visionaryResultUrls = extractResultUrlsFromPayload(visionarySettledResult);
-          const visionaryPayload = {
-            ...visionarySettledResult,
-            url:
-              visionarySettledResult?.url ||
-              visionarySettledResult?.image_url ||
-              visionaryResultUrls[0] ||
-              null,
-            image_url:
-              visionarySettledResult?.image_url ||
-              visionarySettledResult?.url ||
-              visionaryResultUrls[0] ||
-              null,
-            images: Array.isArray(visionarySettledResult?.images)
-              ? visionarySettledResult.images
-              : visionaryResultUrls,
-          };
-
-          await completeGenerationRecordSuccessSafe({
-            recordId: generationRecord?.id,
-            resultUrls: visionaryResultUrls,
-            previewUrl: visionaryResultUrls[0] || null,
-            outputSize: requestBody.size || requestBody.image_size || null,
-            aspectRatio: requestBody.aspect_ratio || null,
-            meta: {
-              transport: route.transport,
-              routeMode: "sync",
-              upstreamStatus: "SUCCEEDED",
-              settled: "sync_visionary_list_poll",
-            },
-          });
-
-          return res.json(
-            shouldUseBilling
-              ? {
-                  ...visionaryPayload,
-                  billing: {
-                    deductedPoints: pointCost,
-                    remainingPoints: billingCharge?.account?.points,
-                  },
-                }
-              : visionaryPayload,
-          );
-        }
-
         localTaskId = buildImageTaskToken(route.id, syncUpstreamTaskId);
         if (shouldUseBilling) {
           await registerPendingTask(localTaskId, {
@@ -3625,37 +3542,56 @@ app.get("/api/task/:taskId", pollingLimiter, async (req, res) => {
           })
         : null) || (await resolveImageRoute(undefined, { includeInactive: true }));
 
-    if (!route?.taskPath || !isOpenAiImageRoute(route)) {
-      return sendUserFacingGenerationError(res, 400);
-    }
-
     const upstreamTaskId = decodedTask?.upstreamTaskId || encodedTask;
     const authorization = getRouteAuthorization(route, fallbackAuthorization, {
       preferUserProvided: shouldUseUserProvidedApiKey(route, fallbackAuthorization),
     });
-    const pollUrl = buildRouteUrl(route, route.taskPath, { taskId: upstreamTaskId });
+    let responseData = null;
 
-    const response = await requestWithRetry(
-      () =>
-        axios.get(pollUrl, {
-          headers: {
-            Authorization: authorization,
-            "Content-Type": "application/json",
-          },
-          timeout: 10000,
-          httpsAgent: SHARED_HTTPS_AGENT,
-        }),
-      { retries: 2, delayMs: 350, label: `task-poll-${route.id}` },
-    );
+    if (isVisionaryImageRoute(route)) {
+      const record = await fetchVisionaryRecordById({
+        route,
+        authorization,
+        upstreamTaskId,
+      });
+      responseData =
+        record || {
+          id: upstreamTaskId,
+          results: [],
+          progress: 0,
+          status: "processing",
+          failure_reason: "",
+          error: "",
+        };
+    } else {
+      if (!route?.taskPath || !isOpenAiImageRoute(route)) {
+        return sendUserFacingGenerationError(res, 400);
+      }
+
+      const pollUrl = buildRouteUrl(route, route.taskPath, { taskId: upstreamTaskId });
+      const response = await requestWithRetry(
+        () =>
+          axios.get(pollUrl, {
+            headers: {
+              Authorization: authorization,
+              "Content-Type": "application/json",
+            },
+            timeout: 10000,
+            httpsAgent: SHARED_HTTPS_AGENT,
+          }),
+        { retries: 2, delayMs: 350, label: `task-poll-${route.id}` },
+      );
+      responseData = response.data;
+    }
 
     const taskStatus = String(
-      response.data?.status || response.data?.state || response.data?.data?.status || "",
+      responseData?.status || responseData?.state || responseData?.data?.status || "",
     ).toUpperCase();
     if (["SUCCESS", "SUCCEEDED", "COMPLETED"].includes(taskStatus)) {
       await settlePendingTask(encodedTask, "SUCCESS");
       await completeGenerationRecordSuccessSafe({
         taskId: encodedTask,
-        resultUrls: extractResultUrlsFromPayload(response.data),
+        resultUrls: extractResultUrlsFromPayload(responseData),
         meta: {
           polledAt: new Date().toISOString(),
           source: "image_task_poll",
@@ -3666,9 +3602,9 @@ app.get("/api/task/:taskId", pollingLimiter, async (req, res) => {
       await completeGenerationRecordFailureSafe({
         taskId: encodedTask,
         errorMessage:
-          response.data?.error ||
-          response.data?.message ||
-          response.data?.fail_reason ||
+          responseData?.error ||
+          responseData?.message ||
+          responseData?.fail_reason ||
           "Image task failed",
         meta: {
           polledAt: new Date().toISOString(),
@@ -3677,7 +3613,7 @@ app.get("/api/task/:taskId", pollingLimiter, async (req, res) => {
       });
     }
 
-    res.json(response.data);
+    res.json(responseData);
   } catch (error) {
     console.error("[Task Poll] Error:", error.message);
     respondWithUserFacingGenerationError(res, error, 500);
