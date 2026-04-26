@@ -25,6 +25,8 @@ const DropUpSelect: React.FC<DropUpSelectProps> = ({
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const [markerMenuWidth, setMarkerMenuWidth] = useState<number>(188);
 
   const selectedOption = options.find(opt => opt.value === value) || options[0];
 
@@ -64,9 +66,27 @@ const DropUpSelect: React.FC<DropUpSelectProps> = ({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
+  useEffect(() => {
+    if (!showRectMarker) return;
+    const updateMarkerMenuWidth = () => {
+      const triggerWidth = triggerRef.current?.offsetWidth || 172;
+      const next = Math.max(168, Math.min(208, triggerWidth + 16));
+      setMarkerMenuWidth(next);
+    };
+
+    updateMarkerMenuWidth();
+    if (!isOpen) return;
+
+    window.addEventListener('resize', updateMarkerMenuWidth);
+    return () => {
+      window.removeEventListener('resize', updateMarkerMenuWidth);
+    };
+  }, [isOpen, showRectMarker]);
+
   return (
     <div className={`relative ${className}`} ref={containerRef}>
       <button
+        ref={triggerRef}
         type="button"
         onClick={() => setIsOpen(!isOpen)}
         className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-2.5 sm:py-2 text-sm sm:text-xs text-white flex items-center justify-between hover:bg-gray-750 transition-colors touch-manipulation active:scale-[0.98] min-h-[42px] sm:min-h-0"
@@ -96,9 +116,18 @@ const DropUpSelect: React.FC<DropUpSelectProps> = ({
         <div
           className={`absolute bottom-full mb-1 left-0 bg-[#1A1A1A] border border-gray-700 rounded-lg shadow-xl overflow-hidden z-[130] max-h-56 overflow-y-auto sleek-scroll-y ${
             showRectMarker
-              ? 'w-max min-w-[170px] max-w-[260px]'
+              ? ''
               : 'w-full min-w-[88px]'
           }`}
+          style={
+            showRectMarker
+              ? {
+                  width: `${markerMenuWidth}px`,
+                  minWidth: `${markerMenuWidth}px`,
+                  maxWidth: `${markerMenuWidth}px`,
+                }
+              : undefined
+          }
         >
           {options.map((option) => {
             const isActive = value === option.value;
