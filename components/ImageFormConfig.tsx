@@ -60,6 +60,14 @@ export const ImageFormConfig: React.FC<ImageFormConfigProps> = ({
     setImageModel,
     imageLine,
     setImageLine,
+    gptImageQuality,
+    setGptImageQuality,
+    gptImageOutputFormat,
+    setGptImageOutputFormat,
+    gptImageOutputCompression,
+    setGptImageOutputCompression,
+    gptImageModeration,
+    setGptImageModeration,
   } = useSelectionStore();
 
   const visibleImageModels = useMemo(
@@ -93,10 +101,26 @@ export const ImageFormConfig: React.FC<ImageFormConfigProps> = ({
     [currentModel.id, restrictToDirectKeyCompatible],
   );
 
-  const sizeOptions = getImageModelSizeOptions(currentModel.id);
+  const rawSizeOptions = getImageModelSizeOptions(currentModel.id);
+  const sizeOptions =
+    currentModel.id === 'gpt-image-2' && !rawSizeOptions.includes('auto')
+      ? ['auto', ...rawSizeOptions]
+      : rawSizeOptions;
   const normalizedSize = getNormalizedImageSizeForModel(currentModel.id, imageSize);
   const showLineSelector = availableRoutes.length > 1;
   const showSizeSelector = shouldShowImageSizeSelector(currentModel.id);
+  const isGptImage2 = currentModel.id === 'gpt-image-2';
+
+  const commitGptCompression = (value: string) => {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      setGptImageOutputCompression(null);
+      return;
+    }
+    const parsed = Number(trimmed);
+    if (!Number.isFinite(parsed)) return;
+    setGptImageOutputCompression(Math.max(0, Math.min(100, Math.round(parsed))));
+  };
 
   useEffect(() => {
     if (visibleImageModels.length === 0) return;
@@ -235,6 +259,71 @@ export const ImageFormConfig: React.FC<ImageFormConfigProps> = ({
                 Only routes that support direct API Key use are shown here.
               </div>
             )}
+          </div>
+        )}
+
+        {isGptImage2 && (
+          <div>
+            <label className="mb-1 block text-[10px] text-gray-500">Quality</label>
+            <DropUpSelect
+              value={gptImageQuality}
+              onChange={(value) =>
+                setGptImageQuality(value as 'auto' | 'low' | 'medium' | 'high')
+              }
+              options={[
+                { value: 'auto', label: 'Auto' },
+                { value: 'low', label: 'Low' },
+                { value: 'medium', label: 'Medium' },
+                { value: 'high', label: 'High' },
+              ]}
+            />
+          </div>
+        )}
+
+        {isGptImage2 && (
+          <div>
+            <label className="mb-1 block text-[10px] text-gray-500">Format</label>
+            <DropUpSelect
+              value={gptImageOutputFormat}
+              onChange={(value) =>
+                setGptImageOutputFormat(value as 'png' | 'jpeg' | 'webp')
+              }
+              options={[
+                { value: 'png', label: 'PNG' },
+                { value: 'jpeg', label: 'JPEG' },
+                { value: 'webp', label: 'WebP' },
+              ]}
+            />
+          </div>
+        )}
+
+        {isGptImage2 && (
+          <div>
+            <label className="mb-1 block text-[10px] text-gray-500">Compression</label>
+            <input
+              type="number"
+              min={0}
+              max={100}
+              disabled={gptImageOutputFormat === 'png'}
+              value={gptImageOutputCompression ?? ''}
+              onChange={(event) => commitGptCompression(event.target.value)}
+              placeholder="0-100"
+              className="w-full rounded border border-gray-700 bg-gray-900 px-2 py-2 text-xs text-white disabled:cursor-not-allowed disabled:opacity-45"
+            />
+          </div>
+        )}
+
+        {isGptImage2 && (
+          <div>
+            <label className="mb-1 block text-[10px] text-gray-500">Moderation</label>
+            <DropUpSelect
+              value={gptImageModeration}
+              onChange={(value) => setGptImageModeration(value as 'auto' | 'low')}
+              options={[
+                { value: 'auto', label: 'Auto' },
+                { value: 'low', label: 'Low' },
+              ]}
+            />
           </div>
         )}
 

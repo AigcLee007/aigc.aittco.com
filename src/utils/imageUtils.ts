@@ -53,6 +53,70 @@ export const getDoubaoSize = (model: string, size: string, ratio: string): strin
   return resMap["1:1"];
 };
 
+const GPT_SIZE_PATTERN = /^\s*(\d+)\s*[xX×]\s*(\d+)\s*$/;
+const GPT_RATIO_PATTERN = /^\s*(\d+(?:\.\d+)?)\s*[:xX×]\s*(\d+(?:\.\d+)?)\s*$/;
+
+const roundToMultiple = (value: number, multiple: number): number =>
+  Math.max(multiple, Math.round(value / multiple) * multiple);
+
+export const normalizeGptImageSize = (size: string): string => {
+  const trimmed = String(size || '').trim();
+  const match = trimmed.match(GPT_SIZE_PATTERN);
+  if (!match) return trimmed;
+
+  const width = roundToMultiple(Number(match[1]), 16);
+  const height = roundToMultiple(Number(match[2]), 16);
+  return `${width}x${height}`;
+};
+
+const parseGptRatio = (ratio: string): { width: number; height: number } | null => {
+  const match = String(ratio || '').match(GPT_RATIO_PATTERN);
+  if (!match) return null;
+
+  const width = Number(match[1]);
+  const height = Number(match[2]);
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+    return null;
+  }
+
+  return { width, height };
+};
+
+export const calculateGptImageSize = (size: string, ratio: string): string => {
+  const normalizedSize = String(size || '').toLowerCase();
+  if (normalizedSize === 'auto') return 'auto';
+  if (GPT_SIZE_PATTERN.test(normalizedSize)) return normalizeGptImageSize(normalizedSize);
+
+  const tier = normalizedSize === '4k' ? '4k' : normalizedSize === '2k' ? '2k' : '1k';
+  const parsedRatio = parseGptRatio(ratio) || { width: 1, height: 1 };
+  const { width: ratioWidth, height: ratioHeight } = parsedRatio;
+
+  if (ratioWidth === ratioHeight) {
+    const side = tier === '1k' ? 1024 : tier === '2k' ? 2048 : 3840;
+    return `${side}x${side}`;
+  }
+
+  if (tier === '1k') {
+    const shortSide = 1024;
+    const width = ratioWidth > ratioHeight
+      ? roundToMultiple((shortSide * ratioWidth) / ratioHeight, 16)
+      : shortSide;
+    const height = ratioWidth > ratioHeight
+      ? shortSide
+      : roundToMultiple((shortSide * ratioHeight) / ratioWidth, 16);
+    return `${width}x${height}`;
+  }
+
+  const longSide = tier === '2k' ? 2048 : 3840;
+  const width = ratioWidth > ratioHeight
+    ? longSide
+    : roundToMultiple((longSide * ratioWidth) / ratioHeight, 16);
+  const height = ratioWidth > ratioHeight
+    ? roundToMultiple((longSide * ratioHeight) / ratioWidth, 16)
+    : longSide;
+  return `${width}x${height}`;
+};
+
 export const findClosestRatio = (r: number): string => {
   const ratios: { [key: string]: number } = { '1:1': 1, '16:9': 16 / 9, '9:16': 9 / 16, '4:3': 4 / 3, '3:4': 3 / 4, '3:2': 3 / 2, '2:3': 2 / 3, '21:9': 21 / 9, '9:21': 9 / 21, '5:4': 5 / 4 };
   let closest = '1:1';

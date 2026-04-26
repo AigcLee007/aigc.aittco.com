@@ -2,7 +2,7 @@
 import { AppStatus, NodeData, ToolMode } from '../types';
 import { useSelectionStore, type ReferenceImage } from '../src/store/selectionStore';
 import { useCanvasStore } from '../src/store/canvasStore';
-import { generateImageApi, generateGeminiImage } from '../services/api';
+import { editImageApi, generateImageApi, generateGeminiImage } from '../services/api';
 import { generateVideo } from '../services/videoService';
 import { checkBalance } from '../services/geminiService';
 import { assetStorage } from '../src/services/assetStorage';
@@ -15,7 +15,7 @@ import ModelSelector from './ModelSelector';
 import ImageFormConfig from './ImageFormConfig';
 import VideoFormConfig from './VideoFormConfig';
 import { GoogleLogo, OpenAILogo } from './Logos';
-import { findClosestRatio, extractRatioFromPrompt, renderMaskToDataURL, getBase64FromUrl } from '../src/utils/imageUtils';
+import { findClosestRatio, extractRatioFromPrompt, renderMaskToDataURL, getBase64FromUrl, calculateGptImageSize } from '../src/utils/imageUtils';
 import { parsePromptReferenceTags } from '../src/utils/promptTags';
 import {
   getImageModelNameForRoute,
@@ -128,6 +128,10 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
     videoHd, setVideoHd,
     imageModel, setImageModel,
     imageLine, setImageLine,
+    gptImageQuality,
+    gptImageOutputFormat,
+    gptImageOutputCompression,
+    gptImageModeration,
     grokReferenceMode,
     thinkingLevel, setThinkingLevel,
     brushSize, setBrushSize,
@@ -324,9 +328,13 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
   */
   const isMultiSelect = selectedNodes.length > 1;
   const isGenerating = status === AppStatus.LOADING;
-  const hasUnlockedGenerationAccess =
-    generationAccessState === 'authenticated' ||
-    generationAccessState === 'valid_api_key';
+  const hasAuthenticatedSession = generationAccessState === 'authenticated';
+  const hasUnlockedImageGenerationAccess =
+    hasAuthenticatedSession || generationAccessState === 'valid_api_key';
+  const hasUnlockedVideoGenerationAccess = hasAuthenticatedSession;
+  const hasUnlockedGenerationAccess = isVideoMode
+    ? hasUnlockedVideoGenerationAccess
+    : hasUnlockedImageGenerationAccess;
   const isCheckingGenerationAccess = generationAccessState === 'checking';
 
 
@@ -563,7 +571,9 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
     e.stopPropagation();
     if (e.dataTransfer.types.includes('application/x-sort-index')) return;
 
-    const max = isVideoMode ? getVideoModelMaxReferenceImages(selectedVideoModelConfig.id) : 10;
+    const max = isVideoMode
+      ? getVideoModelMaxReferenceImages(selectedVideoModelConfig.id)
+      : (imageModel === 'gpt-image-2' ? 16 : 10);
     
     // DEBUG ALERT
     // alert(`[Debug] Drop: Max=${max}, Current=${referenceImages.length}, IsVideo=${isVideoMode}, Model=${videoModel}`);
@@ -628,7 +638,9 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
   const handlePanelFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) {
       const files = Array.from(e.target.files);
-      const max = isVideoMode ? getVideoModelMaxReferenceImages(selectedVideoModelConfig.id) : 10;
+      const max = isVideoMode
+        ? getVideoModelMaxReferenceImages(selectedVideoModelConfig.id)
+        : (imageModel === 'gpt-image-2' ? 16 : 10);
       const remainingSlots = max - referenceImages.length;
 
       if (remainingSlots <= 0) {
@@ -888,9 +900,10 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
       effectiveRatio = normalizeLine2Ratio(effectiveRatio);
     }
 
+    const isGptImage2Model = imageModel === 'gpt-image-2' || modelName === 'gpt-image-2';
     const promptWithoutAr = parsedPrompt.replace(/\s*--ar\s*\d+\s*[:：]\s*\d+/gi, '').trim();
     const promptWithRatio = `${promptWithoutAr} --ar ${effectiveRatio}`;
-    const currentPrompt = promptWithRatio;
+    const currentPrompt = isGptImage2Model ? promptWithoutAr : promptWithRatio;
     // Decision Logic:
     // User explicitly requested NO "Regenerate" / "Edit Mode".
     // Panel always functions as "Create New". References must be added manually.
@@ -901,12 +914,56 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
       selectedImageRoute.mode === 'sync' &&
       selectedImageRoute.transport === 'openai-image';
 
-    const getEffectiveSize = () =>
-      getImageModelEffectiveRequestSize({
+    const getEffectiveSize = () => {
+      if (isGptImage2Model) {
+        return calculateGptImageSize(imageSize, effectiveRatio);
+      }
+      return getImageModelEffectiveRequestSize({
         modelId: selectedImageModelConfig.id,
         imageSize,
         aspectRatio: effectiveRatio,
       });
+    };
+
+    const getGptImagePayload = (basePrompt: string, n = 1) => {
+      const payload: any = {
+        model: 'gpt-image-2',
+        modelId: selectedImageModelConfig.id,
+        prompt: basePrompt,
+        size: calculateGptImageSize(imageSize, effectiveRatio),
+        quality: gptImageQuality,
+        output_format: gptImageOutputFormat,
+        moderation: gptImageModeration,
+        n,
+        routeId: selectedImageRoute.id,
+      };
+
+      if (gptImageOutputFormat !== 'png' && gptImageOutputCompression !== null) {
+        payload.output_compression = Math.max(0, Math.min(100, gptImageOutputCompression));
+      }
+
+      return payload;
+    };
+
+    const referenceToDataUrl = async (ref: ReferenceImage): Promise<string | null> => {
+      try {
+        if (ref.blob) {
+          return await new Promise<string>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onloadend = () => {
+              if (typeof reader.result === 'string') resolve(reader.result);
+              else reject(new Error('Failed to read blob as data URL'));
+            };
+            reader.onerror = () => reject(reader.error || new Error('FileReader error'));
+            reader.readAsDataURL(ref.blob as Blob);
+          });
+        }
+        return await getBase64FromUrl(ref.src);
+      } catch (error) {
+        console.error('Failed to convert reference image:', error);
+        return null;
+      }
+    };
 
     const isGrokImageModel = (model: string) => model.startsWith('grok-');
     const getGrokPrompt = (basePrompt: string, model: string) => {
@@ -1111,6 +1168,7 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
 	        const refSrcs = effectiveReferenceImages.map(r => r.src);
 	        const isDoubao = modelName.startsWith('doubao');
           const isGrok = isGrokImageModel(modelName);
+          const isGptImage2 = isGptImage2Model;
 	                const processSubmission = async (imagePayload: any, customPrompt?: string) => {
           const perRequestImageCount = 1;
           for (let reqIdx = 0; reqIdx < quantity; reqIdx++) {
@@ -1164,10 +1222,48 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
           }
         };
 
+        const processEditSubmission = async (imageDataUrls: string[], customPrompt?: string) => {
+          const perRequestImageCount = 1;
+          for (let reqIdx = 0; reqIdx < quantity; reqIdx++) {
+            const placeholderIds = onInitGenerations(perRequestImageCount, currentPrompt, effectiveRatio);
+            const promptForModel = customPrompt || currentPrompt;
+            const payload: any = {
+              ...getGptImagePayload(promptForModel, 1),
+              images: imageDataUrls,
+            };
+            editImageApi(apiKey, payload)
+              .then((res: any) => {
+                if (res.taskId) {
+                  placeholderIds.forEach((pid) => onUpdateGeneration(pid, null, undefined, res.taskId));
+                } else {
+                  placeholderIds.forEach((pid) =>
+                    onUpdateGeneration(pid, null, USER_FACING_GENERATION_ERROR_MESSAGE),
+                  );
+                }
+              })
+              .catch((err: any) => {
+                const nextError = toGenerationErrorMessage(
+                  extractErrorMessage(err),
+                  USER_FACING_GENERATION_ERROR_MESSAGE,
+                );
+                placeholderIds.forEach((pid) => onUpdateGeneration(pid, null, nextError));
+              });
+          }
+        };
+
 	        if (isDoubao) {
 	          // Doubao models support multi-image array natively
 	          const imageArray = refSrcs.map(src => src.includes(',') ? src.split(',')[1] : src);
 	          processSubmission({ image: imageArray });
+          } else if (isGptImage2) {
+            const imageDataUrls = (await Promise.all(
+              effectiveReferenceImages.map((ref) => referenceToDataUrl(ref)),
+            )).filter((value): value is string => !!value);
+            if (imageDataUrls.length === 0) {
+              setError("参考图处理失败，请重新上传后再试");
+              return;
+            }
+            processEditSubmission(imageDataUrls, currentPrompt);
           } else if (isGrok) {
             // Grok 图生图必须传可读图片数据，避免 blob/url 导致参考图失效。
             const base64Results = await Promise.all(
@@ -1225,23 +1321,25 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
               ),
             );
           });
-        }
+      }
 	            } else {
         const promptForModel = getGrokPrompt(currentPrompt, modelName);
         const isGrokModel = isGrokImageModel(modelName);
         const perRequestImageCount = 1;
         for (let reqIdx = 0; reqIdx < quantity; reqIdx++) {
           const placeholderIds = onInitGenerations(perRequestImageCount, currentPrompt, effectiveRatio);
-            const payload: any = {
-              model: modelName,
-              modelId: selectedImageModelConfig.id,
-              prompt: promptForModel,
-              size: getEffectiveSize(),
-              aspect_ratio: effectiveRatio,
-              n: 1,
-              routeId: selectedImageRoute.id,
-              ...(isSyncMode ? { isSync: true } : {})
-            };
+            const payload: any = isGptImage2Model
+              ? getGptImagePayload(currentPrompt, 1)
+              : {
+                  model: modelName,
+                  modelId: selectedImageModelConfig.id,
+                  prompt: promptForModel,
+                  size: getEffectiveSize(),
+                  aspect_ratio: effectiveRatio,
+                  n: 1,
+                  routeId: selectedImageRoute.id,
+                  ...(isSyncMode ? { isSync: true } : {})
+                };
           generateImageApi(apiKey, payload)
             .then((res: any) => {
               if (res.taskId) {
@@ -1285,10 +1383,6 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
     console.log("Video Submit triggered", { prompt, apiKey, videoModel });
     if (!prompt.trim()) {
       setError("请输入提示词");
-      return;
-    }
-    if (!apiKey) {
-      setError("请先设置 API 密钥");
       return;
     }
 
@@ -1452,7 +1546,9 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
       setError(
         isCheckingGenerationAccess
           ? '正在验证访问权限，请稍后再试'
-          : '请先登录，或输入并验证有效的 API Key 后再开始创作',
+          : isVideoMode
+            ? '视频生成功能需要先登录账户'
+            : '请先登录，或输入并验证有效的 API Key 后再开始创作',
       );
       return;
     }
@@ -1528,8 +1624,8 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
     />
   );
 
-  const imagePanelTitle = hasUnlockedGenerationAccess ? getImageModelTitle() : 'AI IMAGE';
-  const titleIcon = hasUnlockedGenerationAccess ? (
+  const imagePanelTitle = hasUnlockedImageGenerationAccess ? getImageModelTitle() : 'AI IMAGE';
+  const titleIcon = hasUnlockedImageGenerationAccess ? (
     getImageTitleIcon()
   ) : (
     <Wand2 size={20} className="text-yellow-400" />
@@ -1540,7 +1636,7 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
     </span>
   );
 
-  const videoPanelTitle = hasUnlockedGenerationAccess
+  const videoPanelTitle = hasUnlockedVideoGenerationAccess
     ? selectedVideoModelConfig.label || 'AIGC Video'
     : 'AI VIDEO';
   const videoTitleText = (
@@ -1565,7 +1661,7 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
   ];
   const maxReferenceImages = isVideoMode
     ? getVideoModelMaxReferenceImages(selectedVideoModelConfig.id)
-    : 10;
+    : (imageModel === 'gpt-image-2' ? 16 : 10);
   const promptReferenceMentionState = useMemo(() => {
     const referenceTagRegex = /@图\s*([1-9]\d*)/gi;
     const mentionedOneBased: number[] = [];
@@ -2080,7 +2176,7 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
             {hasUnlockedGenerationAccess ? (
               isVideoMode ? (
                 <VideoFormConfig
-                  restrictToDirectKeyCompatible={generationAccessState === 'valid_api_key'}
+                  restrictToDirectKeyCompatible={false}
                 />
               ) : (
                 <ImageFormConfig
@@ -2105,7 +2201,11 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
                   </div>
                   <div className="min-w-0">
                     <div className="text-sm font-semibold text-white">
-                      {isCheckingGenerationAccess ? '正在验证访问权限' : '请先登录或验证 API Key'}
+                      {isCheckingGenerationAccess
+                        ? '正在验证访问权限'
+                        : isVideoMode
+                          ? '请先登录后使用视频生成'
+                          : '请先登录或验证 API Key'}
                     </div>
                     <div className="mt-1 text-xs leading-5 text-gray-400">
                       {generationAccessMessage}
@@ -2113,8 +2213,9 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
                   </div>
                 </div>
                 <div className="mt-3 rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-[11px] leading-5 text-gray-400">
-                  登录后可查看并使用全部模型；如果你是旧用户，也可以在设置里输入自己的 API Key，
-                  验证通过后再显示兼容模型。
+                  {isVideoMode
+                    ? '视频模型只支持登录后按账户点数计费。'
+                    : '登录后可查看并使用全部模型；如果你是旧用户，也可以在设置里输入自己的 API Key，验证通过后再显示兼容模型。'}
                 </div>
               </div>
             )}

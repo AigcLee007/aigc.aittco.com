@@ -914,6 +914,10 @@ const collectResultUrls = (value, bucket = []) => {
     }
   });
 
+  if (typeof value.b64_json === "string" && value.b64_json.trim()) {
+    bucket.push(`data:image/png;base64,${value.b64_json.trim()}`);
+  }
+
   Object.keys(value).forEach((key) => {
     const nestedValue = value[key];
     if (nestedValue && typeof nestedValue === "object") {
@@ -3034,6 +3038,25 @@ app.post("/api/generate", generateLimiter, async (req, res) => {
         messages: [{ role: "user", content: requestBody.prompt }],
         stream: false,
       };
+    } else if (requestBody.model === "gpt-image-2") {
+      finalRequestBody = {
+        model: "gpt-image-2",
+        prompt: requestBody.prompt,
+        size: requestBody.size || "auto",
+        quality: requestBody.quality || "auto",
+        output_format: requestBody.output_format || "png",
+        moderation: requestBody.moderation || "auto",
+      };
+
+      if (requestBody.n) finalRequestBody.n = requestBody.n;
+      if (
+        requestBody.output_format &&
+        requestBody.output_format !== "png" &&
+        requestBody.output_compression !== undefined &&
+        requestBody.output_compression !== null
+      ) {
+        finalRequestBody.output_compression = requestBody.output_compression;
+      }
     }
 
     if (shouldUseBilling) {
@@ -3581,29 +3604,88 @@ app.post("/api/edit", generateLimiter, async (req, res) => {
       hasMask: !!requestBody.mask,
     });
 
+    const parseBase64ImageInput = (value, fallbackExt = "png", fallbackMime = "image/png") => {
+      if (typeof value !== "string") return null;
+      const trimmed = value.trim();
+      if (!trimmed) return null;
+
+      const dataUrlMatch = trimmed.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,([A-Za-z0-9+/=\r\n]+)$/);
+      if (dataUrlMatch) {
+        const mime = dataUrlMatch[1].toLowerCase();
+        const extMap = {
+          "image/png": "png",
+          "image/jpeg": "jpg",
+          "image/jpg": "jpg",
+          "image/webp": "webp",
+          "image/gif": "gif",
+        };
+        const ext = extMap[mime] || fallbackExt;
+        const buffer = Buffer.from(dataUrlMatch[2].replace(/\s+/g, ""), "base64");
+        return { buffer, mime, ext };
+      }
+
+      return {
+        buffer: Buffer.from(trimmed, "base64"),
+        mime: fallbackMime,
+        ext: fallbackExt,
+      };
+    };
+
+    const appendImageField = (formDataInstance, fieldName, value, index = 0) => {
+      const parsedImage = parseBase64ImageInput(value, "png", "image/png");
+      if (!parsedImage || parsedImage.buffer.length === 0) return false;
+      formDataInstance.append(fieldName, parsedImage.buffer, {
+        filename: `input-${index + 1}.${parsedImage.ext}`,
+        contentType: parsedImage.mime,
+      });
+      return true;
+    };
+
     const formData = new FormData();
     formData.append("model", requestBody.model);
     formData.append("prompt", requestBody.prompt);
 
-    if (requestBody.n) formData.append("n", String(requestBody.n));
-    if (requestBody.size) formData.append("size", requestBody.size);
-    if (requestBody.image_size) formData.append("image_size", requestBody.image_size);
-    if (requestBody.aspect_ratio) formData.append("aspect_ratio", requestBody.aspect_ratio);
+    const isGptImage2Edit = requestBody.model === "gpt-image-2";
+    if (isGptImage2Edit) {
+      if (requestBody.size) formData.append("size", requestBody.size);
+      if (requestBody.quality) formData.append("quality", requestBody.quality);
+      if (requestBody.output_format) formData.append("output_format", requestBody.output_format);
+      if (requestBody.moderation) formData.append("moderation", requestBody.moderation);
+      if (
+        requestBody.output_format &&
+        requestBody.output_format !== "png" &&
+        requestBody.output_compression !== undefined &&
+        requestBody.output_compression !== null
+      ) {
+        formData.append("output_compression", String(requestBody.output_compression));
+      }
 
-    if (requestBody.image) {
-      const imgBuffer = Buffer.from(requestBody.image, "base64");
-      formData.append("image", imgBuffer, {
-        filename: "image.png",
-        contentType: "image/png",
+      const images = Array.isArray(requestBody.images)
+        ? requestBody.images
+        : requestBody.image
+          ? [requestBody.image]
+          : [];
+      images.forEach((value, index) => {
+        appendImageField(formData, "image", value, index);
       });
+    } else {
+      if (requestBody.n) formData.append("n", String(requestBody.n));
+      if (requestBody.size) formData.append("size", requestBody.size);
+      if (requestBody.image_size) formData.append("image_size", requestBody.image_size);
+      if (requestBody.aspect_ratio) formData.append("aspect_ratio", requestBody.aspect_ratio);
+      if (requestBody.image) {
+        appendImageField(formData, "image", requestBody.image, 0);
+      }
     }
 
     if (requestBody.mask) {
-      const maskBuffer = Buffer.from(requestBody.mask, "base64");
-      formData.append("mask", maskBuffer, {
-        filename: "mask.png",
-        contentType: "image/png",
-      });
+      const parsedMask = parseBase64ImageInput(requestBody.mask, "png", "image/png");
+      if (parsedMask && parsedMask.buffer.length > 0) {
+        formData.append("mask", parsedMask.buffer, {
+          filename: `mask.${parsedMask.ext}`,
+          contentType: parsedMask.mime,
+        });
+      }
     }
 
     const authorization = getRouteAuthorization(route, fallbackAuthorization, {
@@ -3957,16 +4039,24 @@ app.post("/api/gemini/generate", generateLimiter, async (req, res) => {
 });
 // ==================== Video Generation ====================
 app.post("/api/video/generate", generateLimiter, async (req, res) => {
+  let billingAccount = null;
+  let billingCharge = null;
+  let localTaskId = null;
+  let chargeRouteId = null;
   let generationRecord = null;
   try {
     const fallbackAuthorization = req.headers["authorization"];
-    const requestBody = req.body;
+    const requestBody = { ...(req.body || {}) };
     const uiMode = normalizeGenerationUiMode(requestBody?.uiMode);
     const route = await resolveVideoRoute(requestBody?.routeId);
     const requestedVideoModel = await resolveRequestedVideoModel(requestBody);
     if (!route) {
       return sendUserFacingGenerationError(res, 400);
     }
+
+    const pointCost = getRoutePointCost(route, 1, requestBody);
+    billingAccount = await requireBillingAccount(req);
+    chargeRouteId = route.id;
 
     delete requestBody.routeId;
     delete requestBody.modelId;
@@ -3977,12 +4067,16 @@ app.post("/api/video/generate", generateLimiter, async (req, res) => {
       requestedVideoModel?.requestModel || requestBody.model,
     );
 
-    const useUserProvidedApiKey = shouldUseUserProvidedApiKey(
-      route,
-      fallbackAuthorization,
-    );
     const userKey = getRouteAuthorization(route, fallbackAuthorization, {
-      preferUserProvided: useUserProvidedApiKey,
+      preferUserProvided: false,
+    });
+
+    billingCharge = await reservePoints(billingAccount.accountId, pointCost, {
+      action: "video_generate",
+      routeId: route.id,
+      mode: route.mode,
+      model: requestBody.model,
+      modelId: requestedVideoModel?.id || null,
     });
 
     // Detailed File Logging
@@ -4040,7 +4134,7 @@ app.post("/api/video/generate", generateLimiter, async (req, res) => {
 
     generationRecord = await buildGenerationRecordPayload({
       req,
-      billingAccount: null,
+      billingAccount,
       mediaType: "VIDEO",
       actionName: "video_generate",
       prompt: requestBody.prompt,
@@ -4083,14 +4177,26 @@ app.post("/api/video/generate", generateLimiter, async (req, res) => {
       response.data?.data?.task_id;
 
     if (upstreamTaskId) {
-      const localTaskId = buildVideoTaskToken(route.id, upstreamTaskId);
+      const pendingTaskId = buildVideoTaskToken(route.id, upstreamTaskId);
+      await registerPendingTask(pendingTaskId, {
+        accountId: billingAccount.accountId,
+        chargeId: billingCharge?.chargeId || null,
+        points: pointCost,
+        routeId: route.id,
+        action: "video_generate",
+      });
       if (generationRecord?.id) {
-        await attachTaskToGenerationRecord(generationRecord.id, localTaskId);
+        await attachTaskToGenerationRecord(generationRecord.id, pendingTaskId);
       }
+      localTaskId = pendingTaskId;
       const normalizedResponse = {
         ...response.data,
         id: localTaskId,
         task_id: localTaskId,
+        billing: {
+          deductedPoints: pointCost,
+          remainingPoints: billingCharge?.account?.points,
+        },
       };
 
       if (normalizedResponse.data && typeof normalizedResponse.data === "object") {
@@ -4115,10 +4221,23 @@ app.post("/api/video/generate", generateLimiter, async (req, res) => {
       },
     });
 
-    res.json(response.data);
+    res.json({
+      ...response.data,
+      billing: {
+        deductedPoints: pointCost,
+        remainingPoints: billingCharge?.account?.points,
+      },
+    });
   } catch (error) {
+    if (billingCharge?.chargeId && billingAccount?.accountId && !localTaskId) {
+      await refundPoints(billingAccount.accountId, billingCharge.chargeId, {
+        reason: "request_failed",
+        routeId: chargeRouteId,
+      });
+    }
     await completeGenerationRecordFailureSafe({
       recordId: generationRecord?.id,
+      taskId: localTaskId || null,
       errorMessage: error.message,
     });
     console.error("[Video Generate] Error:", error.message);
@@ -4130,6 +4249,7 @@ app.post("/api/video/generate", generateLimiter, async (req, res) => {
 app.get("/api/video/task/:taskId", pollingLimiter, async (req, res) => {
   try {
     const fallbackAuthorization = req.headers["authorization"];
+    await requireBillingAccount(req);
     const encodedTaskId = String(req.params.taskId || "").trim();
     const decodedTask = parseVideoTaskToken(encodedTaskId);
     const route =
@@ -4144,12 +4264,8 @@ app.get("/api/video/task/:taskId", pollingLimiter, async (req, res) => {
       return sendUserFacingGenerationError(res, 400);
     }
 
-    const useUserProvidedApiKey = shouldUseUserProvidedApiKey(
-      route,
-      fallbackAuthorization,
-    );
     const userKey = getRouteAuthorization(route, fallbackAuthorization, {
-      preferUserProvided: useUserProvidedApiKey,
+      preferUserProvided: false,
     });
     const upstreamTaskId = decodedTask?.upstreamTaskId || encodedTaskId;
     const url = buildRouteUrl(route, route.taskPath, { taskId: upstreamTaskId });
@@ -4182,6 +4298,7 @@ app.get("/api/video/task/:taskId", pollingLimiter, async (req, res) => {
 
     const taskStatus = extractResultStatus(response.data);
     if (["SUCCESS", "SUCCEEDED", "COMPLETED"].includes(taskStatus)) {
+      await settlePendingTask(encodedTaskId, "SUCCESS");
       await completeGenerationRecordSuccessSafe({
         taskId: encodedTaskId,
         resultUrls: extractResultUrlsFromPayload(response.data),
@@ -4191,6 +4308,7 @@ app.get("/api/video/task/:taskId", pollingLimiter, async (req, res) => {
         },
       });
     } else if (["FAILURE", "FAILED"].includes(taskStatus)) {
+      await settlePendingTask(encodedTaskId, "FAILED");
       await completeGenerationRecordFailureSafe({
         taskId: encodedTaskId,
         errorMessage:

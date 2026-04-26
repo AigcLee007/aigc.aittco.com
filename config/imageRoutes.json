@@ -63,6 +63,23 @@
       "allowUserApiKeyWithoutLogin": true,
       "apiKeyEnv": "IMAGE_ROUTE_DEFAULT_KEY",
       "pointCost": 12
+    },
+    {
+      "id": "gpt-image-2-default",
+      "label": "Default Route",
+      "description": "GPT-image-2 async image generation route",
+      "modelFamily": "gpt-image-2",
+      "line": "default",
+      "transport": "openai-image",
+      "mode": "async",
+      "baseUrl": "https://api.bltcy.ai",
+      "generatePath": "/v1/images/generations?async=true",
+      "taskPath": "/v1/images/tasks/{taskId}",
+      "editPath": "/v1/images/edits?async=true",
+      "useRequestModel": true,
+      "allowUserApiKeyWithoutLogin": true,
+      "apiKeyEnv": "IMAGE_ROUTE_GPT_IMAGE_2_KEY",
+      "pointCost": 1
     }
   ]
 }

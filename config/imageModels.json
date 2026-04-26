@@ -100,6 +100,26 @@
       "isActive": true,
       "isDefaultModel": false,
       "sortOrder": 4
+    },
+    {
+      "id": "gpt-image-2",
+      "label": "GPT-image-2",
+      "description": "OpenAI GPT-image-2 generation and editing",
+      "modelFamily": "gpt-image-2",
+      "routeFamily": "gpt-image-2",
+      "requestModel": "gpt-image-2",
+      "selectorCost": 1,
+      "iconKind": "sparkles",
+      "panelLayout": "default",
+      "sizeBehavior": "passthrough",
+      "defaultSize": "auto",
+      "sizeOptions": ["auto", "1k", "2k", "4k"],
+      "extraAspectRatios": [],
+      "showSizeSelector": true,
+      "supportsCustomRatio": true,
+      "isActive": true,
+      "isDefaultModel": false,
+      "sortOrder": 5
     }
   ]
 }

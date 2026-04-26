@@ -13,7 +13,7 @@
       "generatePath": "/v2/videos/generations",
       "taskPath": "/v2/videos/generations/{taskId}",
       "upstreamModel": "veo3.1-fast",
-      "allowUserApiKeyWithoutLogin": true,
+      "allowUserApiKeyWithoutLogin": false,
       "apiKeyEnv": "VIDEO_ROUTE_DEFAULT_KEY",
       "pointCost": 5,
       "isDefaultRoute": true
@@ -30,7 +30,7 @@
       "generatePath": "/v2/videos/generations",
       "taskPath": "/v2/videos/generations/{taskId}",
       "upstreamModel": "grok-video-3",
-      "allowUserApiKeyWithoutLogin": true,
+      "allowUserApiKeyWithoutLogin": false,
       "apiKeyEnv": "VIDEO_ROUTE_DEFAULT_KEY",
       "pointCost": 12.5,
       "isDefaultRoute": true
@@ -47,7 +47,7 @@
       "generatePath": "/v2/videos/generations",
       "taskPath": "/v2/videos/generations/{taskId}",
       "upstreamModel": "veo3.1-components",
-      "allowUserApiKeyWithoutLogin": true,
+      "allowUserApiKeyWithoutLogin": false,
       "apiKeyEnv": "VIDEO_ROUTE_DEFAULT_KEY",
       "pointCost": 7.5,
       "isDefaultRoute": true
@@ -64,7 +64,7 @@
       "generatePath": "/v2/videos/generations",
       "taskPath": "/v2/videos/generations/{taskId}",
       "upstreamModel": "veo3.1-pro",
-      "allowUserApiKeyWithoutLogin": true,
+      "allowUserApiKeyWithoutLogin": false,
       "apiKeyEnv": "VIDEO_ROUTE_DEFAULT_KEY",
       "pointCost": 25,
       "isDefaultRoute": true
@@ -81,7 +81,7 @@
       "generatePath": "/v2/videos/generations",
       "taskPath": "/v2/videos/generations/{taskId}",
       "upstreamModel": "veo3.1-fast-4K",
-      "allowUserApiKeyWithoutLogin": true,
+      "allowUserApiKeyWithoutLogin": false,
       "apiKeyEnv": "VIDEO_ROUTE_DEFAULT_KEY",
       "pointCost": 50,
       "isDefaultRoute": true
@@ -98,7 +98,7 @@
       "generatePath": "/v2/videos/generations",
       "taskPath": "/v2/videos/generations/{taskId}",
       "upstreamModel": "veo3.1-fast-components-4K",
-      "allowUserApiKeyWithoutLogin": true,
+      "allowUserApiKeyWithoutLogin": false,
       "apiKeyEnv": "VIDEO_ROUTE_DEFAULT_KEY",
       "pointCost": 50,
       "isDefaultRoute": true
@@ -115,7 +115,7 @@
       "generatePath": "/v2/videos/generations",
       "taskPath": "/v2/videos/generations/{taskId}",
       "upstreamModel": "veo3.1-pro-4k",
-      "allowUserApiKeyWithoutLogin": true,
+      "allowUserApiKeyWithoutLogin": false,
       "apiKeyEnv": "VIDEO_ROUTE_DEFAULT_KEY",
       "pointCost": 50,
       "isDefaultRoute": true

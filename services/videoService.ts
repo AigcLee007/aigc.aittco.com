@@ -1,10 +1,30 @@
-﻿import axios from 'axios';
+import axios from 'axios';
+import { getAuthorizedBillingHeaders } from '../src/services/accountIdentity';
 
 const API_BASE_URL = '/api';
 
+const sanitizeHeader = (value: string) => value.replace(/[^\x00-\x7F]/g, '').trim();
+
+const buildAuthHeaders = (apiKey?: string | null): Record<string, string> => {
+  const trimmed = String(apiKey || '').trim();
+  if (!trimmed) return {};
+
+  const authorization = sanitizeHeader(
+    trimmed.startsWith('Bearer ') ? trimmed : `Bearer ${trimmed}`,
+  );
+  return authorization ? { Authorization: authorization } : {};
+};
+
+const buildVideoRequestHeaders = async (
+  apiKey?: string | null,
+): Promise<Record<string, string>> => ({
+  ...(await getAuthorizedBillingHeaders()),
+  ...buildAuthHeaders(apiKey),
+});
+
 // Extracted polling function for reuse in recovery
 export const pollVideoTask = async (
-  apiKey: string,
+  apiKey: string | undefined,
   taskId: string,
   onProgress?: (progress: number) => void
 ): Promise<string> => {
@@ -24,8 +44,9 @@ export const pollVideoTask = async (
       }
 
       try {
+        const headers = await buildVideoRequestHeaders(apiKey);
         const pollRes = await axios.get(`${API_BASE_URL}/video/task/${taskId}`, {
-          headers: { Authorization: apiKey },
+          headers,
         });
 
         const task = pollRes.data;
@@ -97,7 +118,7 @@ export const pollVideoTask = async (
 };
 
 export const generateVideo = async (
-  apiKey: string,
+  apiKey: string | undefined,
   model: string,
   prompt: string,
   images: string[] | undefined,
@@ -183,12 +204,16 @@ export const generateVideo = async (
     } else {
       Object.assign(payload, options);
       if (images && images.length > 0) {
-      payload.image = images[0];
+        payload.image = images[0];
       }
     }
 
+    const headers = await buildVideoRequestHeaders(apiKey);
     const response = await axios.post(`${API_BASE_URL}/video/generate`, payload, {
-      headers: { Authorization: apiKey },
+      headers: {
+        ...headers,
+        'Content-Type': 'application/json',
+      },
     });
 
     const taskId = response?.data?.id || response?.data?.task_id || response?.data?.data?.task_id;

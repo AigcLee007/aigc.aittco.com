@@ -53,11 +53,6 @@ export const SatelliteLayer: React.FC<SatelliteLayerProps> = ({ onInitGeneration
 
   // Handlers
   const handleGenerate = async (prompt: string, options: any) => {
-    if (options.mode !== 'IMAGE' && !apiKey) {
-      alert("Please set API Key in settings first!");
-      return;
-    }
-
     const { mode, aspectRatio } = options; 
     
     // T2I / T2V
