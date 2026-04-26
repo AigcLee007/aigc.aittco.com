@@ -3,7 +3,7 @@
 // --- 核心配置 ---
 const CONFIG = {
   submitUrl: "/api/generate",
-  queryUrl: "/api/check/{id}",
+  queryUrl: "/api/task/{id}",
   model: "nano-banana-2",
 };
 let refImages = [];

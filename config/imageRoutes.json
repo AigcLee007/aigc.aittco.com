@@ -48,6 +48,37 @@
       "pointCost": 20
     },
     {
+      "id": "nano-banana-pro-line4",
+      "label": "Line 4",
+      "description": "Visionary openai-image sync generation",
+      "modelFamily": "nano-banana",
+      "line": "line4",
+      "transport": "openai-image",
+      "mode": "sync",
+      "baseUrl": "https://visionary.beer",
+      "generatePath": "/openapi/v1/images/generations",
+      "upstreamModel": "Nano_Banana_Pro",
+      "useRequestModel": false,
+      "allowUserApiKeyWithoutLogin": false,
+      "apiKeyEnv": "IMAGE_ROUTE_VISIONARY_NANO_BANANA_PRO_LINE4_KEY",
+      "pointCost": 5,
+      "sizeOverrides": {
+        "1k": {
+          "upstreamModel": "Nano_Banana_Pro",
+          "pointCost": 4
+        },
+        "2k": {
+          "upstreamModel": "Nano_Banana_Pro",
+          "pointCost": 4.5
+        },
+        "4k": {
+          "upstreamModel": "Nano_Banana_Pro",
+          "pointCost": 5
+        }
+      },
+      "sortOrder": 40
+    },
+    {
       "id": "openai-image-default",
       "label": "Default Route",
       "description": "Default async image generation route",

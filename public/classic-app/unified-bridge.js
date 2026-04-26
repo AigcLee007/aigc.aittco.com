@@ -1899,7 +1899,7 @@
     let successNoUrlCount = 0;
     const maxSuccessNoUrlCount = 3;
     const startedAt = Date.now();
-    const maxPollMs = 8 * 60 * 1000;
+    const maxPollMs = 10 * 60 * 1000;
     const trackUi = options.trackUi !== false;
 
     const checkLoop = setInterval(async () => {
@@ -1996,7 +1996,7 @@
           }
         }
       }
-    }, 2000);
+    }, 5000);
   };
   runGen = async function () {
     const key = getStoredApiKey();
@@ -2099,6 +2099,7 @@
     }
 
     const requestModel = selectedModel.requestModel || selectedModel.id;
+    const normalizedRequestSize = String(size || "1K").trim().toLowerCase();
     const promptWithoutAr = stripAspectRatioSuffix(promptBaseText);
     const gptImage2Model = isGptImage2Model(selectedModel, requestModel);
     const currentPrompt = gptImage2Model ? promptWithoutAr : `${promptWithoutAr} --ar ${ratio}`.trim();
@@ -2179,8 +2180,7 @@
       uiMode: "classic",
       model: requestModel,
       prompt: promptForRequest,
-      size,
-      image_size: size,
+      size: normalizedRequestSize,
       aspect_ratio: ratio,
       n: 1,
     };
@@ -2192,12 +2192,19 @@
       const isGrokModel = String(requestModel || "").startsWith("grok-");
       if (isDoubaoModel) {
         payloadBase.image = rawBase64Images.slice();
-        payloadBase.images = rawBase64Images.slice();
       } else if (isGrokModel) {
-        payloadBase.image = normalizedRefImages[0];
-        payloadBase.images = normalizedRefImages.slice();
-        payloadBase.reference_image = normalizedRefImages[0];
-        payloadBase.reference_images = normalizedRefImages.slice();
+        const grokRefMode =
+          typeof getGrokRefMode === "function" ? getGrokRefMode() : "stable_fusion";
+        const rawPrimaryImage = rawBase64Images[0];
+        const isMultiRef = rawBase64Images.length > 1;
+        payloadBase.reference_mode = grokRefMode;
+        payloadBase.image =
+          grokRefMode === "classic_multi" && isMultiRef
+            ? rawBase64Images.slice()
+            : rawPrimaryImage;
+        payloadBase.images = rawBase64Images.slice();
+        payloadBase.reference_image = rawPrimaryImage;
+        payloadBase.reference_images = rawBase64Images.slice();
       } else {
         const collageBase64 = await createClassicCollageFromSrcs(normalizedRefImages);
         const collageRaw = collageBase64.includes(",") ? collageBase64.split(",")[1] : collageBase64;
