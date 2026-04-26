@@ -28,6 +28,32 @@ const DropUpSelect: React.FC<DropUpSelectProps> = ({
 
   const selectedOption = options.find(opt => opt.value === value) || options[0];
 
+  const parseRatio = (raw?: string): { w: number; h: number } | null => {
+    const text = String(raw || "").trim();
+    const match = text.match(/(\d+(?:\.\d+)?)\s*:\s*(\d+(?:\.\d+)?)/);
+    if (!match) return null;
+    const w = Number(match[1]);
+    const h = Number(match[2]);
+    if (!Number.isFinite(w) || !Number.isFinite(h) || w <= 0 || h <= 0) return null;
+    return { w, h };
+  };
+
+  const getMarkerStyle = (option: DropUpOption): React.CSSProperties => {
+    const parsed = parseRatio(option.value) || parseRatio(option.label) || { w: 1, h: 1 };
+    const maxEdge = 18;
+    const minEdge = 6;
+    if (parsed.w >= parsed.h) {
+      return {
+        width: maxEdge,
+        height: Math.max(minEdge, Math.round((maxEdge * parsed.h) / parsed.w)),
+      };
+    }
+    return {
+      width: Math.max(minEdge, Math.round((maxEdge * parsed.w) / parsed.h)),
+      height: maxEdge,
+    };
+  };
+
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
@@ -48,9 +74,14 @@ const DropUpSelect: React.FC<DropUpSelectProps> = ({
         <div className="min-w-0 flex-1 text-left">
           <div className="flex items-center gap-2">
             {showRectMarker ? (
-              <span className="inline-block h-[18px] w-[18px] shrink-0 rounded-[4px] border border-yellow-400/85 bg-yellow-400/8" />
+              <span
+                className="inline-block shrink-0 rounded-[4px] border border-yellow-400/85 bg-yellow-400/8"
+                style={getMarkerStyle(selectedOption)}
+              />
             ) : null}
-            <span className="truncate whitespace-nowrap">{selectedOption?.label}</span>
+            <span className={showRectMarker ? "whitespace-nowrap" : "truncate whitespace-nowrap"}>
+              {selectedOption?.label}
+            </span>
             {selectedOption?.badge ? (
               <span className="shrink-0 rounded-full border border-cyan-500/20 bg-cyan-500/10 px-1.5 py-0.5 text-[9px] text-cyan-100">
                 {selectedOption.badge}
@@ -62,7 +93,13 @@ const DropUpSelect: React.FC<DropUpSelectProps> = ({
       </button>
 
       {isOpen && (
-        <div className="absolute bottom-full mb-1 left-0 w-full min-w-[88px] bg-[#1A1A1A] border border-gray-700 rounded-lg shadow-xl overflow-hidden z-[130] max-h-56 overflow-y-auto sleek-scroll-y">
+        <div
+          className={`absolute bottom-full mb-1 left-0 bg-[#1A1A1A] border border-gray-700 rounded-lg shadow-xl overflow-hidden z-[130] max-h-56 overflow-y-auto sleek-scroll-y ${
+            showRectMarker
+              ? 'w-max min-w-[170px] max-w-[260px]'
+              : 'w-full min-w-[88px]'
+          }`}
+        >
           {options.map((option) => {
             const isActive = value === option.value;
             return (
@@ -83,14 +120,17 @@ const DropUpSelect: React.FC<DropUpSelectProps> = ({
                   <div className="flex items-center gap-2">
                     {showRectMarker ? (
                       <span
-                        className={`inline-block h-[18px] w-[18px] shrink-0 rounded-[4px] border ${
+                        className={`inline-block shrink-0 rounded-[4px] border ${
                           isActive
                             ? 'border-yellow-400/85 bg-yellow-400/10'
                             : 'border-gray-500/70 bg-transparent'
                         }`}
+                        style={getMarkerStyle(option)}
                       />
                     ) : null}
-                    <span className="truncate whitespace-nowrap">{option.label}</span>
+                    <span className={showRectMarker ? "whitespace-nowrap" : "truncate whitespace-nowrap"}>
+                      {option.label}
+                    </span>
                     {option.badge ? (
                       <span className="shrink-0 rounded-full border border-cyan-500/20 bg-cyan-500/10 px-1.5 py-0.5 text-[9px] text-cyan-100">
                         {option.badge}

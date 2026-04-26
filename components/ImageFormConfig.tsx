@@ -160,10 +160,10 @@ export const ImageFormConfig: React.FC<ImageFormConfigProps> = ({
 
   const gridClass =
     currentModel.panelLayout === 'nano-banana'
-      ? 'grid-cols-[1.2fr_1fr_1.2fr_0.8fr] gap-1.5'
+      ? 'grid-cols-[1.45fr_1fr_1.15fr_0.9fr] gap-1.5'
       : currentModel.panelLayout === 'compact'
         ? 'grid-cols-2 gap-2'
-        : 'grid-cols-3 gap-2';
+        : 'grid-cols-[1.35fr_1fr_1fr] gap-2';
 
   const modelOptions = useMemo(
     () =>

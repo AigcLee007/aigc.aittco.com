@@ -736,6 +736,19 @@ document.addEventListener('click', () => {
 function updateDropdownOpenState() {
   const hasOpenDropdown = !!document.querySelector('.dropdown-menu.show');
   document.body.classList.toggle('dropdown-open-active', hasOpenDropdown);
+  document.querySelectorAll('.params-row.dropdown-open-row').forEach((row) =>
+    row.classList.remove('dropdown-open-row'),
+  );
+  document.querySelectorAll('.right-column.dropdown-open-column').forEach((column) =>
+    column.classList.remove('dropdown-open-column'),
+  );
+
+  if (!hasOpenDropdown) return;
+  const openMenu = document.querySelector('.dropdown-menu.show');
+  const openRow = openMenu ? openMenu.closest('.params-row') : null;
+  if (openRow) openRow.classList.add('dropdown-open-row');
+  const openColumn = openMenu ? openMenu.closest('.right-column') : null;
+  if (openColumn) openColumn.classList.add('dropdown-open-column');
 }
 
 function updateModelUI() {
@@ -1367,6 +1380,25 @@ function updateRatioOptions(forceSelectSmart = false) {
   if (!ratioPill) return;
   const menu = ratioPill.querySelector('.dropdown-menu');
   let autoItem = menu.querySelector('.dropdown-item[data-value="auto"]');
+  const getRatioIconClass = (ratioText) => {
+    const normalized = String(ratioText || "").trim().replace(/\s+/g, "");
+    const ratioClassMap = {
+      "1:1": "r-1-1",
+      "16:9": "r-16-9",
+      "9:16": "r-9-16",
+      "21:9": "r-21-9",
+      "9:21": "r-9-21",
+      "4:3": "r-4-3",
+      "3:4": "r-3-4",
+      "3:2": "r-3-2",
+      "2:3": "r-2-3",
+      "5:4": "r-5-4",
+      "4:5": "r-4-5",
+      "4:1": "r-4-1",
+      "1:4": "r-1-4",
+    };
+    return ratioClassMap[normalized] || "r-1-1";
+  };
 
   if (refImages.length > 0 && smartRatio) {
     if (!autoItem) {
@@ -1377,7 +1409,7 @@ function updateRatioOptions(forceSelectSmart = false) {
       menu.insertBefore(autoItem, menu.firstChild);
     }
     autoItem.innerHTML = `<div style="display: flex; align-items: center; gap: 10px;">
-                            <div class="ratio-icon r-1-1"></div> 
+                            <div class="ratio-icon ${getRatioIconClass(smartRatio)}"></div> 
                             <span>智能 (${smartRatio})</span>
                           </div>`;
     if (forceSelectSmart) {
