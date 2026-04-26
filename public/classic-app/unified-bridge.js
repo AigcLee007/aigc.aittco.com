@@ -274,6 +274,125 @@
     const normalized = String(value || "").trim().toLowerCase();
     return ["1k", "2k", "4k"].includes(normalized) ? normalized : "";
   };
+  const normalizeTransport = (route) =>
+    String(route?.transport || "openai-image").trim().toLowerCase();
+  const normalizeRouteMode = (route) => String(route?.mode || "async").trim().toLowerCase();
+  const isGeminiNativeClassicRoute = (route) => normalizeTransport(route) === "gemini-native";
+  const isGptImage2ClassicModel = (model, route) =>
+    String(model?.id || "").trim() === "gpt-image-2" ||
+    String(model?.requestModel || "").trim() === "gpt-image-2" ||
+    String(route?.modelFamily || "").trim() === "gpt-image-2";
+  const GPT_SIZE_PATTERN = /^(\d+)\s*x\s*(\d+)$/i;
+  const GPT_RATIO_PATTERN = /^(\d+)\s*:\s*(\d+)$/;
+  const roundToMultiple = (value, step = 16) => {
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric) || numeric <= 0) {
+      return step;
+    }
+    return Math.max(step, Math.round(numeric / step) * step);
+  };
+  const normalizeClassicGptImageSize = (size) => {
+    const trimmed = String(size || "").trim().toLowerCase();
+    const match = trimmed.match(GPT_SIZE_PATTERN);
+    if (!match) return trimmed;
+    const width = roundToMultiple(Number(match[1]), 16);
+    const height = roundToMultiple(Number(match[2]), 16);
+    return `${width}x${height}`;
+  };
+  const parseClassicGptRatio = (ratio) => {
+    const match = String(ratio || "").trim().match(GPT_RATIO_PATTERN);
+    if (!match) return null;
+    const width = Number(match[1]);
+    const height = Number(match[2]);
+    if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+      return null;
+    }
+    return { width, height };
+  };
+  const calculateClassicGptImageSize = (size, ratio) => {
+    const normalizedSize = String(size || "").trim().toLowerCase();
+    if (!normalizedSize || normalizedSize === "auto") return "auto";
+    if (GPT_SIZE_PATTERN.test(normalizedSize)) {
+      return normalizeClassicGptImageSize(normalizedSize);
+    }
+
+    const tier =
+      normalizedSize === "4k" ? "4k" : normalizedSize === "2k" ? "2k" : "1k";
+    const parsedRatio = parseClassicGptRatio(ratio) || { width: 1, height: 1 };
+    const ratioWidth = parsedRatio.width;
+    const ratioHeight = parsedRatio.height;
+
+    if (ratioWidth === ratioHeight) {
+      const side = tier === "1k" ? 1024 : tier === "2k" ? 2048 : 3840;
+      return `${side}x${side}`;
+    }
+
+    if (tier === "1k") {
+      const shortSide = 1024;
+      const width =
+        ratioWidth > ratioHeight
+          ? roundToMultiple((shortSide * ratioWidth) / ratioHeight, 16)
+          : shortSide;
+      const height =
+        ratioWidth > ratioHeight
+          ? shortSide
+          : roundToMultiple((shortSide * ratioHeight) / ratioWidth, 16);
+      return `${width}x${height}`;
+    }
+
+    const longSide = tier === "2k" ? 2048 : 3840;
+    const width =
+      ratioWidth > ratioHeight
+        ? longSide
+        : roundToMultiple((longSide * ratioWidth) / ratioHeight, 16);
+    const height =
+      ratioWidth > ratioHeight
+        ? roundToMultiple((longSide * ratioHeight) / ratioWidth, 16)
+        : longSide;
+    return `${width}x${height}`;
+  };
+  const blobToDataUrl = (blob) =>
+    new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        if (typeof reader.result === "string" && reader.result.trim()) {
+          resolve(reader.result);
+          return;
+        }
+        reject(new Error("Failed to convert blob to data URL"));
+      };
+      reader.onerror = () => reject(reader.error || new Error("FileReader error"));
+      reader.readAsDataURL(blob);
+    });
+  const normalizeReferenceToDataUrl = async (value) => {
+    const normalized = String(value || "").trim();
+    if (!normalized) return "";
+    if (normalized.startsWith("data:image/")) return normalized;
+    if (
+      normalized.startsWith("http://") ||
+      normalized.startsWith("https://") ||
+      normalized.startsWith("blob:") ||
+      normalized.startsWith("/")
+    ) {
+      const response = await fetch(normalized);
+      if (!response.ok) {
+        throw new Error(`Failed to load reference image: ${response.status}`);
+      }
+      const blob = await response.blob();
+      return blobToDataUrl(blob);
+    }
+    return `data:image/png;base64,${normalized}`;
+  };
+  const parseDataUrlImage = (value) => {
+    const match = String(value || "")
+      .trim()
+      .match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/);
+    if (!match) return null;
+    return {
+      mimeType: match[1],
+      data: match[2],
+    };
+  };
   const normalizeSizeOverrides = (overrides) => {
     const next = {};
     if (!overrides || typeof overrides !== "object") {
@@ -393,6 +512,96 @@
         ? model.sizeOptions
         : [model?.defaultSize || "1k"];
     return options.includes(selectedValue) ? selectedValue : options[0];
+  };
+  const buildClassicGeminiSubmitPlan = async ({
+    prompt,
+    ratio,
+    size,
+    selectedModel,
+    selectedRoute,
+    submitRefImages,
+  }) => {
+    const parts = [{ text: prompt }];
+    const normalizedDataUrls = (
+      await Promise.all((submitRefImages || []).map((value) => normalizeReferenceToDataUrl(value)))
+    ).filter(Boolean);
+
+    normalizedDataUrls.forEach((dataUrl) => {
+      const parsed = parseDataUrlImage(dataUrl);
+      if (!parsed) return;
+      parts.push({
+        inlineData: {
+          mimeType: parsed.mimeType,
+          data: parsed.data,
+        },
+      });
+    });
+
+    return {
+      submitUrl: `${cleanUrl(API_BASE_URL)}/gemini/generate`,
+      payload: {
+        uiMode: "classic",
+        routeId: selectedRoute.id,
+        modelId: selectedModel.id,
+        model: selectedModel.requestModel || selectedModel.id,
+        prompt,
+        aspect_ratio: ratio,
+        image_size: size,
+        strict_native_config: true,
+        n: 1,
+        contents: [
+          {
+            role: "user",
+            parts,
+          },
+        ],
+        generationConfig: {
+          imageConfig: {
+            aspectRatio: ratio,
+            imageSize: size,
+          },
+          candidateCount: 1,
+        },
+      },
+    };
+  };
+  const buildClassicGptSubmitPlan = async ({
+    prompt,
+    ratio,
+    size,
+    selectedModel,
+    selectedRoute,
+    submitRefImages,
+  }) => {
+    const normalizedSize = calculateClassicGptImageSize(size, ratio);
+    const normalizedDataUrls = (
+      await Promise.all((submitRefImages || []).map((value) => normalizeReferenceToDataUrl(value)))
+    ).filter(Boolean);
+    const payload = {
+      uiMode: "classic",
+      routeId: selectedRoute.id,
+      modelId: selectedModel.id,
+      model: "gpt-image-2",
+      prompt,
+      size: normalizedSize,
+      quality: "auto",
+      output_format: "png",
+      moderation: "auto",
+      n: 1,
+    };
+
+    if (normalizedDataUrls.length > 0) {
+      payload.images = normalizedDataUrls;
+      return {
+        submitUrl: `${cleanUrl(API_BASE_URL)}/edit`,
+        payload,
+      };
+    }
+
+    return {
+      submitUrl: `${cleanUrl(API_BASE_URL)}/generate`,
+      payload,
+    };
   };
   const getRoutePointCost = (route, size) => {
     const normalizedSize = normalizeSizeKey(size);
@@ -1593,7 +1802,8 @@
   submitSingleTask = async function (payload, key, size, index, options = {}) {
     try {
       const route = options.route || getCurrentRoute();
-      const response = await fetch(CONFIG.submitUrl, {
+      const submitUrl = options.submitUrl || CONFIG.submitUrl;
+      const response = await fetch(submitUrl, {
         method: "POST",
         headers: buildGenerateHeaders(route, key),
         body: JSON.stringify(payload),
@@ -1888,20 +2098,46 @@
       payloadBase.images = finalRefImages;
     }
 
+    let submitPlan = {
+      submitUrl: CONFIG.submitUrl,
+      payload: payloadBase,
+    };
+
+    if (isGptImage2ClassicModel(selectedModel, selectedRoute)) {
+      submitPlan = await buildClassicGptSubmitPlan({
+        prompt: finalPrompt,
+        ratio,
+        size: size.toLowerCase(),
+        selectedModel,
+        selectedRoute,
+        submitRefImages,
+      });
+    } else if (isGeminiNativeClassicRoute(selectedRoute)) {
+      submitPlan = await buildClassicGeminiSubmitPlan({
+        prompt: finalPrompt,
+        ratio,
+        size,
+        selectedModel,
+        selectedRoute,
+        submitRefImages,
+      });
+    }
+
     for (let i = 0; i < batchSize; i += 1) {
       setTimeout(() => {
         submitSingleTask(
           {
-            ...payloadBase,
+            ...submitPlan.payload,
             n: 1,
           },
           key,
           size,
           i + 1,
           {
+            submitUrl: submitPlan.submitUrl,
             route: selectedRoute,
             modelId: selectedModel.id,
-            model: requestModel,
+            model: submitPlan.payload.model || requestModel,
             runToken,
             trackUi: true,
           },
@@ -1986,4 +2222,3 @@
     void initClassicBridge();
   }
 })();
-

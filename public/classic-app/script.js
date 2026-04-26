@@ -2459,20 +2459,30 @@ function findAllUrlsInObject(obj, foundUrls = []) {
   if (!obj) return foundUrls;
   if (Array.isArray(obj)) {
     obj.forEach((item) => {
-      if (typeof item === "string" && item.startsWith("http"))
+      if (
+        typeof item === "string" &&
+        (item.startsWith("http") || item.startsWith("data:image/"))
+      )
         foundUrls.push(item);
       else findAllUrlsInObject(item, foundUrls);
     });
     return foundUrls;
   }
   if (typeof obj === "object") {
+    if (typeof obj.b64_json === "string" && obj.b64_json.trim()) {
+      foundUrls.push(`data:image/png;base64,${obj.b64_json.trim()}`);
+    }
     for (let key in obj) {
       if (obj.hasOwnProperty(key)) {
         const val = obj[key];
-        if (typeof val === "string" && val.startsWith("http")) {
+        if (
+          typeof val === "string" &&
+          (val.startsWith("http") || val.startsWith("data:image/"))
+        ) {
           const isImageKey = /url|image|output|result/i.test(key);
           const isImageExt = /\.(png|jpg|jpeg|webp|gif)(\?|$)/i.test(val);
-          if (isImageKey || isImageExt) foundUrls.push(val);
+          const isDataImage = val.startsWith("data:image/");
+          if (isImageKey || isImageExt || isDataImage) foundUrls.push(val);
         } else if (typeof val === "object") {
           findAllUrlsInObject(val, foundUrls);
         }
@@ -3495,6 +3505,5 @@ async function publishAnnouncement() {
     });
   }
 }
-
 
 
