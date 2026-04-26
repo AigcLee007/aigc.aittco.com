@@ -1377,7 +1377,7 @@ function updateRatioOptions(forceSelectSmart = false) {
       menu.insertBefore(autoItem, menu.firstChild);
     }
     autoItem.innerHTML = `<div style="display: flex; align-items: center; gap: 10px;">
-                            <div class="ratio-icon r-1-1" style="border-style: dashed; opacity: 0.5;"></div> 
+                            <div class="ratio-icon r-1-1"></div> 
                             <span>智能 (${smartRatio})</span>
                           </div>`;
     if (forceSelectSmart) {

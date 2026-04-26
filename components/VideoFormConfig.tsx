@@ -140,6 +140,7 @@ export const VideoFormConfig: React.FC<VideoFormConfigProps> = ({
                     ? '9:16（竖屏）'
                     : value,
             }))}
+            showRectMarker
           />
         </div>
 

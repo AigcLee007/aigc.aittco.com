@@ -218,6 +218,7 @@ export const ImageFormConfig: React.FC<ImageFormConfigProps> = ({
             value={aspectRatio}
             onChange={(value) => setAspectRatio(value)}
             options={ratioOptions}
+            showRectMarker
           />
           {aspectRatio === 'Custom' && currentModel.supportsCustomRatio !== false && (
             <div className="mt-1 flex items-center gap-1">
