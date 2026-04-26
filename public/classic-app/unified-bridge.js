@@ -61,6 +61,16 @@
     passwordPanelOpen: false,
   };
   const remotePendingPollRegistry = new Set();
+  const HISTORY_INITIAL_PAGE_SIZE = 15;
+  const HISTORY_REFRESH_DEBOUNCE_MS = 2000;
+  const HISTORY_REFRESH_MIN_INTERVAL_MS = 10000;
+  let remoteHistoryRecordsCache = [];
+  let remoteHistoryCursor = {
+    sinceCreatedAt: "",
+    sinceId: "",
+  };
+  let historyRefreshTimer = null;
+  let lastHistoryRefreshAt = 0;
 
   const cleanUrl = (url) => String(url || "").replace(/\/$/, "");
   const escapeHtmlText = (value) =>
@@ -1589,16 +1599,28 @@
     }
     return Array.from(new Set(directUrls.filter(Boolean)));
   };
-  const fetchGenerationRecords = async ({ mediaType = "all", status = "all", page = 1, pageSize = 100 } = {}) =>
-    fetchJson(
-      `/generation-records?mediaType=${encodeURIComponent(mediaType)}&status=${encodeURIComponent(status)}&page=${encodeURIComponent(page)}&pageSize=${encodeURIComponent(pageSize)}`,
-      {
-        headers: {
-          "Content-Type": "application/json",
-          ...buildSessionHeaders(),
-        },
+  const fetchGenerationRecords = async ({
+    mediaType = "all",
+    status = "all",
+    page = 1,
+    pageSize = HISTORY_INITIAL_PAGE_SIZE,
+    sinceCreatedAt = "",
+    sinceId = "",
+  } = {}) => {
+    const params = new URLSearchParams();
+    params.set("mediaType", String(mediaType || "all"));
+    params.set("status", String(status || "all"));
+    params.set("page", String(page || 1));
+    params.set("pageSize", String(pageSize || HISTORY_INITIAL_PAGE_SIZE));
+    if (sinceCreatedAt) params.set("sinceCreatedAt", String(sinceCreatedAt));
+    if (sinceId) params.set("sinceId", String(sinceId));
+    return fetchJson(`/generation-records?${params.toString()}`, {
+      headers: {
+        "Content-Type": "application/json",
+        ...buildSessionHeaders(),
       },
-    );
+    });
+  };
   const deleteGenerationRecords = async ({ mediaType = "all" } = {}) =>
     fetchJson(`/generation-records?mediaType=${encodeURIComponent(mediaType)}`, {
       method: "DELETE",
@@ -1607,6 +1629,50 @@
         ...buildSessionHeaders(),
       },
     });
+  const dedupeHistoryRecords = (records = []) => {
+    const seen = new Set();
+    const ordered = [];
+    (Array.isArray(records) ? records : []).forEach((record) => {
+      const recordId = String(record?.id || "").trim();
+      const key = recordId || `${record?.createdAt || ""}:${record?.previewUrl || ""}`;
+      if (!key || seen.has(key)) return;
+      seen.add(key);
+      ordered.push(record);
+    });
+    ordered.sort((a, b) => {
+      const aTime = String(a?.createdAt || "");
+      const bTime = String(b?.createdAt || "");
+      return bTime.localeCompare(aTime);
+    });
+    return ordered;
+  };
+  const getHistoryCursorFromRecords = (records = []) => {
+    const first = Array.isArray(records) ? records[0] : null;
+    return {
+      sinceCreatedAt: String(first?.createdAt || "").trim(),
+      sinceId: String(first?.id || "").trim(),
+    };
+  };
+  const isHistoryTabVisible = () => {
+    const historyTab = document.getElementById("tab-gallery");
+    return Boolean(historyTab && historyTab.classList.contains("active"));
+  };
+  const scheduleRemoteHistoryRefresh = () => {
+    if (!isSessionAuthenticated()) return;
+    if (!isHistoryTabVisible()) return;
+    if (historyRefreshTimer) return;
+
+    historyRefreshTimer = window.setTimeout(async () => {
+      historyRefreshTimer = null;
+      if (!isSessionAuthenticated() || !isHistoryTabVisible()) return;
+      const elapsed = Date.now() - lastHistoryRefreshAt;
+      if (elapsed < HISTORY_REFRESH_MIN_INTERVAL_MS) {
+        scheduleRemoteHistoryRefresh();
+        return;
+      }
+      await loadHistory({ incremental: true, force: false });
+    }, HISTORY_REFRESH_DEBOUNCE_MS);
+  };
   const formatHistoryClock = (isoString) => {
     if (!isoString) return "";
     const date = new Date(isoString);
@@ -1713,14 +1779,23 @@
     typeof removePendingTask === "function" ? removePendingTask.bind(window) : null;
   const legacyRestorePendingTasks =
     typeof restorePendingTasks === "function" ? restorePendingTasks.bind(window) : null;
+  const legacySwitchTab =
+    typeof switchTab === "function" ? switchTab.bind(window) : null;
+
+  if (legacySwitchTab) {
+    switchTab = function (tabName) {
+      legacySwitchTab(tabName);
+      if (isSessionAuthenticated() && String(tabName || "").trim().toLowerCase() === "gallery") {
+        void loadHistory({ incremental: false, force: true });
+      }
+    };
+  }
 
   saveToHistory = function (url, promptText = "") {
     if (!isSessionAuthenticated()) {
       return legacySaveToHistory ? legacySaveToHistory(url, promptText) : undefined;
     }
-    setTimeout(() => {
-      void loadHistory();
-    }, 120);
+    scheduleRemoteHistoryRefresh();
     return undefined;
   };
 
@@ -1760,19 +1835,36 @@
     });
   };
 
-  loadHistory = async function () {
+  loadHistory = async function ({ incremental = false, force = true } = {}) {
     if (!isSessionAuthenticated()) {
+      remoteHistoryRecordsCache = [];
+      remoteHistoryCursor = {
+        sinceCreatedAt: "",
+        sinceId: "",
+      };
       return legacyLoadHistory ? legacyLoadHistory() : undefined;
     }
 
     try {
+      const useIncremental =
+        incremental &&
+        Boolean(remoteHistoryCursor.sinceCreatedAt) &&
+        (!force || isHistoryTabVisible());
       const result = await fetchGenerationRecords({
         mediaType: "image",
         status: "success",
         page: 1,
-        pageSize: 100,
+        pageSize: HISTORY_INITIAL_PAGE_SIZE,
+        sinceCreatedAt: useIncremental ? remoteHistoryCursor.sinceCreatedAt : "",
+        sinceId: useIncremental ? remoteHistoryCursor.sinceId : "",
       });
-      await renderRemoteHistoryGrid(Array.isArray(result?.records) ? result.records : []);
+      const incoming = Array.isArray(result?.records) ? result.records : [];
+      remoteHistoryRecordsCache = useIncremental
+        ? dedupeHistoryRecords([...incoming, ...remoteHistoryRecordsCache]).slice(0, 200)
+        : dedupeHistoryRecords(incoming);
+      remoteHistoryCursor = getHistoryCursorFromRecords(remoteHistoryRecordsCache);
+      lastHistoryRefreshAt = Date.now();
+      await renderRemoteHistoryGrid(remoteHistoryRecordsCache);
     } catch (error) {
       console.warn("[Classic Bridge] load remote history failed:", error);
       if (legacyLoadHistory) {

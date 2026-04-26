@@ -89,6 +89,15 @@ const parsePositiveInt = (value, fallback = 1) => {
   return parsed > 0 ? parsed : fallback;
 };
 
+const parseCursorTimestamp = (value) => {
+  const raw = String(value || "").trim();
+  if (!raw) return null;
+  const date = new Date(raw);
+  const timestamp = date.getTime();
+  if (!Number.isFinite(timestamp)) return null;
+  return timestamp;
+};
+
 const parseJsonMeta = (value) => {
   if (!value) return null;
   if (typeof value === "object") return value;
@@ -242,6 +251,8 @@ const listGenerationRecordsForUser = async (userId, options = {}) => {
   const status = String(options.status || "all").trim().toUpperCase();
   const page = parsePositiveInt(options.page, 1);
   const pageSize = Math.min(100, parsePositiveInt(options.pageSize, 20));
+  const sinceTimestamp = parseCursorTimestamp(options.sinceCreatedAt);
+  const sinceId = String(options.sinceId || "").trim();
 
   return withStore((store) => {
     const filtered = store.records.filter((record) => {
@@ -252,16 +263,50 @@ const listGenerationRecordsForUser = async (userId, options = {}) => {
       if (status !== "ALL" && normalizeStatus(record.status) !== status) {
         return false;
       }
+      if (sinceTimestamp !== null) {
+        const recordTimestamp = parseCursorTimestamp(record.createdAt);
+        if (recordTimestamp === null) return false;
+        if (recordTimestamp < sinceTimestamp) return false;
+        if (recordTimestamp === sinceTimestamp && sinceId && String(record.id || "") === sinceId) {
+          return false;
+        }
+      }
       return true;
     });
 
-    const total = filtered.length;
+    const sorted = filtered.sort((a, b) =>
+      String(b.createdAt || "").localeCompare(String(a.createdAt || "")),
+    );
+
+    if (sinceTimestamp !== null) {
+      const records = sorted
+        .slice(0, pageSize)
+        .map((record) => publicRecord(record));
+      const cursorRecord = records[0] || null;
+      return {
+        total: records.length,
+        page: 1,
+        pageSize,
+        totalPages: 1,
+        records,
+        incremental: true,
+        cursor: cursorRecord
+          ? {
+              sinceCreatedAt: cursorRecord.createdAt,
+              sinceId: cursorRecord.id,
+            }
+          : null,
+      };
+    }
+
+    const total = sorted.length;
     const totalPages = Math.max(1, Math.ceil(total / pageSize));
     const safePage = Math.min(page, totalPages);
     const start = (safePage - 1) * pageSize;
-    const items = filtered
+    const items = sorted
       .slice(start, start + pageSize)
       .map((record) => publicRecord(record));
+    const cursorRecord = items[0] || null;
 
     return {
       total,
@@ -269,6 +314,12 @@ const listGenerationRecordsForUser = async (userId, options = {}) => {
       pageSize,
       totalPages,
       records: items,
+      cursor: cursorRecord
+        ? {
+            sinceCreatedAt: cursorRecord.createdAt,
+            sinceId: cursorRecord.id,
+          }
+        : null,
     };
   });
 };

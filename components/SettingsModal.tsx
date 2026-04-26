@@ -341,7 +341,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
         mediaType: 'all',
         status: 'success',
         page: 1,
-        pageSize: 200,
+        pageSize: 15,
       });
       const mappedLogs = (Array.isArray(result.records) ? result.records : [])
         .map(mapGenerationRecordToLog)

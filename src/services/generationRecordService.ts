@@ -64,11 +64,15 @@ export const fetchGenerationRecords = async ({
   status = 'all',
   page = 1,
   pageSize = 50,
+  sinceCreatedAt,
+  sinceId,
 }: {
   mediaType?: 'all' | 'image' | 'video';
   status?: 'all' | 'pending' | 'success' | 'failed';
   page?: number;
   pageSize?: number;
+  sinceCreatedAt?: string;
+  sinceId?: string;
 } = {}): Promise<GenerationRecordListPayload> => {
   await ensureBillingIdentity();
 
@@ -77,6 +81,8 @@ export const fetchGenerationRecords = async ({
   params.set('status', status);
   params.set('page', String(page));
   params.set('pageSize', String(pageSize));
+  if (sinceCreatedAt) params.set('sinceCreatedAt', String(sinceCreatedAt));
+  if (sinceId) params.set('sinceId', String(sinceId));
 
   const response = await fetch(
     `${cleanUrl(API_BASE_URL)}/generation-records?${params.toString()}`,

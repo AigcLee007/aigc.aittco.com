@@ -1931,12 +1931,16 @@ app.get("/api/generation-records", async (req, res) => {
     const status = String(req.query?.status || "all").trim().toUpperCase();
     const page = parsePositivePage(req.query?.page, 1);
     const pageSize = Math.min(100, parsePositivePage(req.query?.pageSize, 50));
+    const sinceCreatedAt = String(req.query?.sinceCreatedAt || "").trim() || null;
+    const sinceId = String(req.query?.sinceId || "").trim() || null;
 
     const result = await listGenerationRecordsForUser(user.userId, {
       mediaType,
       status,
       page,
       pageSize,
+      sinceCreatedAt,
+      sinceId,
     });
 
     res.json({

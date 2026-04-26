@@ -72,6 +72,14 @@ const parsePositiveInt = (value, fallback = 1) => {
   return parsed > 0 ? parsed : fallback;
 };
 
+const parseCursorDateTime = (value) => {
+  const raw = String(value || "").trim();
+  if (!raw) return null;
+  const date = new Date(raw);
+  if (Number.isNaN(date.getTime())) return null;
+  return toDbDateTime(date);
+};
+
 const uniqueUrls = (urls = []) =>
   Array.from(
     new Set(
@@ -349,6 +357,8 @@ const listGenerationRecordsForUser = async (userId, options = {}) => {
   const status = String(options.status || "all").trim().toUpperCase();
   const page = parsePositiveInt(options.page, 1);
   const pageSize = Math.min(100, parsePositiveInt(options.pageSize, 20));
+  const sinceCreatedAt = parseCursorDateTime(options.sinceCreatedAt);
+  const sinceId = String(options.sinceId || "").trim();
 
   const where = ["user_id = ?"];
   const params = [normalizedUserId];
@@ -361,8 +371,42 @@ const listGenerationRecordsForUser = async (userId, options = {}) => {
     where.push("status = ?");
     params.push(normalizeStatus(status));
   }
+  if (sinceCreatedAt) {
+    where.push("(created_at > ? OR (created_at = ? AND id <> ?))");
+    params.push(sinceCreatedAt, sinceCreatedAt, sinceId || "__cursor__");
+  }
 
   const pool = await getPool();
+  const safeLimit = Math.max(1, Math.min(100, Number(pageSize || 20)));
+  if (sinceCreatedAt) {
+    const [incrementalRows] = await pool.execute(
+      `
+        SELECT *
+        FROM generation_records
+        WHERE ${where.join(" AND ")}
+        ORDER BY created_at DESC, id DESC
+        LIMIT ${safeLimit}
+      `,
+      params,
+    );
+    const records = incrementalRows.map((row) => publicRecord(row));
+    const cursorRecord = records[0] || null;
+    return {
+      total: records.length,
+      page: 1,
+      pageSize: safeLimit,
+      totalPages: 1,
+      records,
+      incremental: true,
+      cursor: cursorRecord
+        ? {
+            sinceCreatedAt: cursorRecord.createdAt,
+            sinceId: cursorRecord.id,
+          }
+        : null,
+    };
+  }
+
   const [countRows] = await pool.execute(
     `SELECT COUNT(*) AS total FROM generation_records WHERE ${where.join(" AND ")}`,
     params,
@@ -371,7 +415,6 @@ const listGenerationRecordsForUser = async (userId, options = {}) => {
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const safePage = Math.min(page, totalPages);
   const offset = (safePage - 1) * pageSize;
-  const safeLimit = Math.max(1, Math.min(100, Number(pageSize || 20)));
   const safeOffset = Math.max(0, Number(offset || 0));
 
   const [rows] = await pool.execute(
@@ -384,13 +427,21 @@ const listGenerationRecordsForUser = async (userId, options = {}) => {
     `,
     params,
   );
+  const records = rows.map((row) => publicRecord(row));
+  const cursorRecord = records[0] || null;
 
   return {
     total,
     page: safePage,
     pageSize,
     totalPages,
-    records: rows.map((row) => publicRecord(row)),
+    records,
+    cursor: cursorRecord
+      ? {
+          sinceCreatedAt: cursorRecord.createdAt,
+          sinceId: cursorRecord.id,
+        }
+      : null,
   };
 };
 
