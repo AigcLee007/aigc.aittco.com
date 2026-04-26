@@ -160,7 +160,7 @@
               />
               <div id="uploadPlaceholder" onclick="triggerUpload(event)">
                 <div style="font-size: 24px; margin-bottom: 5px">📷</div>
-                <div style="font-size: 12px; color: var(--text-sub)">
+                <div id="uploadHintText" style="font-size: 12px; color: var(--text-sub)">
                   点击或拖拽图片到此处（最多10张）
                 </div>
               </div>
@@ -335,6 +335,65 @@
                     <div class="dropdown-item" data-value="2" onclick="selectPill('qtyPill', this)">2 张 (-2x 余额)</div>
                     <div class="dropdown-item" data-value="3" onclick="selectPill('qtyPill', this)">3 张 (-3x 余额)</div>
                     <div class="dropdown-item" data-value="4" onclick="selectPill('qtyPill', this)">4 张 (-4x 余额)</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="params-row gpt-settings-row" id="gptImageSettingsRow" style="display:none;">
+              <div class="tech-module" title="GPT Quality">
+                <div class="module-header">Quality</div>
+                <div class="pill-dropdown" id="gptQualityPill" data-selected-value="auto">
+                  <div class="pill-trigger" onclick="togglePill(event, 'gptQualityPill')">
+                    <span class="trigger-label">Auto</span>
+                    <span class="arrow">▼</span>
+                  </div>
+                  <div class="dropdown-menu">
+                    <div class="dropdown-item active" data-value="auto" onclick="selectPill('gptQualityPill', this)"><span>Auto</span></div>
+                    <div class="dropdown-item" data-value="low" onclick="selectPill('gptQualityPill', this)"><span>Low</span></div>
+                    <div class="dropdown-item" data-value="medium" onclick="selectPill('gptQualityPill', this)"><span>Medium</span></div>
+                    <div class="dropdown-item" data-value="high" onclick="selectPill('gptQualityPill', this)"><span>High</span></div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="tech-module" title="GPT Output Format">
+                <div class="module-header">Format</div>
+                <div class="pill-dropdown" id="gptOutputFormatPill" data-selected-value="png">
+                  <div class="pill-trigger" onclick="togglePill(event, 'gptOutputFormatPill')">
+                    <span class="trigger-label">PNG</span>
+                    <span class="arrow">▼</span>
+                  </div>
+                  <div class="dropdown-menu">
+                    <div class="dropdown-item active" data-value="png" onclick="selectPill('gptOutputFormatPill', this)"><span>PNG</span></div>
+                    <div class="dropdown-item" data-value="jpeg" onclick="selectPill('gptOutputFormatPill', this)"><span>JPEG</span></div>
+                    <div class="dropdown-item" data-value="webp" onclick="selectPill('gptOutputFormatPill', this)"><span>WebP</span></div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="tech-module" title="GPT Output Compression">
+                <div class="module-header">Compression</div>
+                <input
+                  id="gptOutputCompressionInput"
+                  type="number"
+                  min="0"
+                  max="100"
+                  step="1"
+                  placeholder="0-100"
+                />
+              </div>
+
+              <div class="tech-module" title="GPT Moderation">
+                <div class="module-header">Moderation</div>
+                <div class="pill-dropdown" id="gptModerationPill" data-selected-value="auto">
+                  <div class="pill-trigger" onclick="togglePill(event, 'gptModerationPill')">
+                    <span class="trigger-label">Auto</span>
+                    <span class="arrow">▼</span>
+                  </div>
+                  <div class="dropdown-menu">
+                    <div class="dropdown-item active" data-value="auto" onclick="selectPill('gptModerationPill', this)"><span>Auto</span></div>
+                    <div class="dropdown-item" data-value="low" onclick="selectPill('gptModerationPill', this)"><span>Low</span></div>
                   </div>
                 </div>
               </div>
@@ -922,5 +981,4 @@
     <script src="/classic-app/unified-bridge.js?v=classic_settings_layout_v1"></script>
   </body>
 </html>
-
 

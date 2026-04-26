@@ -15,7 +15,18 @@ let suppressThumbPreviewUntil = 0;
 let historyObjectUrls = [];
 const GROK_REF_MODE_KEY = "nb_grok_ref_mode";
 const PromptTagsUtil = window.PromptTagsUtil || null;
-const MAX_REF_IMAGES = 10;
+const DEFAULT_MAX_REF_IMAGES = 10;
+const GPT_MAX_REF_IMAGES = 16;
+const GPT_IMAGE_QUALITY_KEY = "classic_gpt_image_quality";
+const GPT_IMAGE_OUTPUT_FORMAT_KEY = "classic_gpt_image_output_format";
+const GPT_IMAGE_OUTPUT_COMPRESSION_KEY = "classic_gpt_image_output_compression";
+const GPT_IMAGE_MODERATION_KEY = "classic_gpt_image_moderation";
+const GPT_IMAGE_DEFAULTS = {
+  quality: "auto",
+  outputFormat: "png",
+  outputCompression: null,
+  moderation: "auto",
+};
 const NOTICE_READ_TS_KEY = "nb_notice_last_read_ts";
 const NOTICE_POPUP_DISMISSED_KEY = "nb_notice_popup_dismissed_id";
 const CREATE_MODE_STORAGE_KEY = "preferred-create-ui";
@@ -139,6 +150,143 @@ function parseAspectRatio(ratioText) {
   return { w, h, text: `${w}:${h}` };
 }
 
+function isClassicGptImageModel(modelId = imageModel) {
+  return String(modelId || "").trim() === "gpt-image-2";
+}
+
+function getCurrentRefImageLimit(modelId = imageModel) {
+  return isClassicGptImageModel(modelId) ? GPT_MAX_REF_IMAGES : DEFAULT_MAX_REF_IMAGES;
+}
+
+function readClassicGptOutputCompression() {
+  try {
+    const rawValue = String(localStorage.getItem(GPT_IMAGE_OUTPUT_COMPRESSION_KEY) || "").trim();
+    if (!rawValue) return null;
+    const parsed = Number(rawValue);
+    if (!Number.isFinite(parsed)) return null;
+    return Math.max(0, Math.min(100, Math.round(parsed)));
+  } catch (_) {
+    return null;
+  }
+}
+
+function getClassicGptSettings() {
+  try {
+    const quality = String(localStorage.getItem(GPT_IMAGE_QUALITY_KEY) || GPT_IMAGE_DEFAULTS.quality).trim().toLowerCase();
+    const outputFormat = String(localStorage.getItem(GPT_IMAGE_OUTPUT_FORMAT_KEY) || GPT_IMAGE_DEFAULTS.outputFormat).trim().toLowerCase();
+    const moderation = String(localStorage.getItem(GPT_IMAGE_MODERATION_KEY) || GPT_IMAGE_DEFAULTS.moderation).trim().toLowerCase();
+    return {
+      quality: ["auto", "low", "medium", "high"].includes(quality) ? quality : GPT_IMAGE_DEFAULTS.quality,
+      outputFormat: ["png", "jpeg", "webp"].includes(outputFormat) ? outputFormat : GPT_IMAGE_DEFAULTS.outputFormat,
+      outputCompression: readClassicGptOutputCompression(),
+      moderation: ["auto", "low"].includes(moderation) ? moderation : GPT_IMAGE_DEFAULTS.moderation,
+    };
+  } catch (_) {
+    return { ...GPT_IMAGE_DEFAULTS };
+  }
+}
+
+function setClassicGptCompression(value) {
+  const input = document.getElementById("gptOutputCompressionInput");
+  const format = document.getElementById("gptOutputFormatPill")?.getAttribute("data-selected-value") || "png";
+  if (String(format).toLowerCase() === "png") {
+    localStorage.removeItem(GPT_IMAGE_OUTPUT_COMPRESSION_KEY);
+    if (input) input.value = "";
+    return;
+  }
+
+  const trimmed = String(value || "").trim();
+  if (!trimmed) {
+    localStorage.removeItem(GPT_IMAGE_OUTPUT_COMPRESSION_KEY);
+    if (input) input.value = "";
+    return;
+  }
+
+  const parsed = Number(trimmed);
+  if (!Number.isFinite(parsed)) return;
+  const normalized = Math.max(0, Math.min(100, Math.round(parsed)));
+  localStorage.setItem(GPT_IMAGE_OUTPUT_COMPRESSION_KEY, String(normalized));
+  if (input) input.value = String(normalized);
+}
+
+function updateClassicGptCompressionState() {
+  const input = document.getElementById("gptOutputCompressionInput");
+  const format = String(
+    document.getElementById("gptOutputFormatPill")?.getAttribute("data-selected-value") || GPT_IMAGE_DEFAULTS.outputFormat,
+  ).toLowerCase();
+  if (!input) return;
+
+  const disabled = format === "png";
+  input.disabled = disabled;
+  if (disabled) {
+    input.value = "";
+  } else {
+    const compression = getClassicGptSettings().outputCompression;
+    input.value = compression === null ? "" : String(compression);
+  }
+}
+
+function updateClassicRefUploadHint() {
+  const limit = getCurrentRefImageLimit();
+  const hint = document.getElementById("uploadHintText");
+  if (hint) {
+    hint.textContent = `点击或拖拽图片到此处（最多${limit}张）`;
+  }
+  updateRefCountBadge();
+}
+
+function enforceCurrentRefImageLimit() {
+  const limit = getCurrentRefImageLimit();
+  if (!Array.isArray(refImages) || refImages.length <= limit) {
+    updateClassicRefUploadHint();
+    return false;
+  }
+  refImages = refImages.slice(0, limit);
+  renderThumbs();
+  showSoftToast(`当前模型最多支持 ${limit} 张参考图，已保留前 ${limit} 张`);
+  return true;
+}
+
+function updateClassicGptSettingsUi() {
+  const row = document.getElementById("gptImageSettingsRow");
+  const isVisible = isClassicGptImageModel();
+  if (row) {
+    row.style.display = isVisible ? "grid" : "none";
+  }
+
+  const settings = getClassicGptSettings();
+  const qualityPill = document.getElementById("gptQualityPill");
+  const formatPill = document.getElementById("gptOutputFormatPill");
+  const moderationPill = document.getElementById("gptModerationPill");
+  const compressionInput = document.getElementById("gptOutputCompressionInput");
+
+  const syncPill = (pill, value) => {
+    if (!pill) return;
+    const target = pill.querySelector(`.dropdown-item[data-value="${value}"]`);
+    if (!target) return;
+    pill.querySelectorAll(".dropdown-item").forEach((item) => item.classList.remove("active"));
+    target.classList.add("active");
+    pill.setAttribute("data-selected-value", value);
+    const triggerLabel = pill.querySelector(".trigger-label");
+    if (triggerLabel) {
+      triggerLabel.innerText = target.querySelector("span")?.innerText || target.innerText;
+    }
+  };
+
+  syncPill(qualityPill, settings.quality);
+  syncPill(formatPill, settings.outputFormat);
+  syncPill(moderationPill, settings.moderation);
+  if (compressionInput) {
+    compressionInput.value = settings.outputCompression === null ? "" : String(settings.outputCompression);
+  }
+  updateClassicGptCompressionState();
+}
+
+window.getClassicGptSettings = getClassicGptSettings;
+window.setClassicGptCompression = setClassicGptCompression;
+window.updateClassicGptSettingsUi = updateClassicGptSettingsUi;
+window.updateClassicRefUploadHint = updateClassicRefUploadHint;
+
 function buildGrokSizeInstruction(size, ratioValue, smartRatioValue) {
   const qualityBase = { "1K": 1024, "2K": 2048, "4K": 3840 }[size] || 1024;
   const ratioRaw = ratioValue === "auto" ? (smartRatioValue || "1:1") : ratioValue;
@@ -245,7 +393,7 @@ function updateRefCountBadge() {
   const badge = document.getElementById("refCountBadge");
   if (!badge) return;
   const current = Array.isArray(refImages) ? refImages.length : 0;
-  badge.textContent = `${current}/${MAX_REF_IMAGES}`;
+  badge.textContent = `${current}/${getCurrentRefImageLimit()}`;
 }
 
 function updateRefMentionSummary(state) {
@@ -551,6 +699,13 @@ window.selectPill = function(pillId, element, costLabel = null) {
   } else if (pillId === 'grokRefModePill') {
     const mode = val === "classic_multi" ? "classic_multi" : "stable_fusion";
     localStorage.setItem(GROK_REF_MODE_KEY, mode);
+  } else if (pillId === 'gptQualityPill') {
+    localStorage.setItem(GPT_IMAGE_QUALITY_KEY, val);
+  } else if (pillId === 'gptOutputFormatPill') {
+    localStorage.setItem(GPT_IMAGE_OUTPUT_FORMAT_KEY, val);
+    updateClassicGptCompressionState();
+  } else if (pillId === 'gptModerationPill') {
+    localStorage.setItem(GPT_IMAGE_MODERATION_KEY, val);
   }
 
   if (pillId === 'modelPill' || pillId === 'linePill' || pillId === 'sizePill') {
@@ -632,6 +787,10 @@ function updateModelUI() {
       if (defaultItem) selectPill('ratioPill', defaultItem);
     }
   }
+
+  updateClassicRefUploadHint();
+  updateClassicGptSettingsUi();
+  enforceCurrentRefImageLimit();
 }
 
 function getGrokRefMode() {
@@ -657,6 +816,18 @@ document.addEventListener('DOMContentLoaded', () => {
   // 初始化模型显示
   updateModelUI();
   initGrokRefModeUI();
+  updateClassicRefUploadHint();
+  updateClassicGptSettingsUi();
+
+  const compressionInput = document.getElementById("gptOutputCompressionInput");
+  if (compressionInput) {
+    compressionInput.addEventListener("change", (event) => {
+      setClassicGptCompression(event.target.value);
+    });
+    compressionInput.addEventListener("blur", (event) => {
+      setClassicGptCompression(event.target.value);
+    });
+  }
 
   // 同步已保存的线路值
   const savedLine = localStorage.getItem('nb_line') || '1';
@@ -1103,10 +1274,11 @@ async function handleFiles(files) {
   const allFiles = Array.from(files || []).filter(
     (f) => !!f && typeof f.type === "string" && f.type.startsWith("image/"),
   );
-  const remainingSlots = MAX_REF_IMAGES - refImages.length;
+  const maxRefImages = getCurrentRefImageLimit();
+  const remainingSlots = maxRefImages - refImages.length;
 
   if (remainingSlots <= 0) {
-    showSoftToast(`参考图最多 ${MAX_REF_IMAGES} 张`);
+    showSoftToast(`参考图最多 ${maxRefImages} 张`);
     return;
   }
   if (allFiles.length === 0) {
@@ -1137,7 +1309,7 @@ async function handleFiles(files) {
     console.log("Final refImages count after processing:", refImages.length);
 
     if (ignoredCount > 0) {
-      showSoftToast(`最多 ${MAX_REF_IMAGES} 张，已忽略 ${ignoredCount} 张`);
+      showSoftToast(`最多 ${maxRefImages} 张，已忽略 ${ignoredCount} 张`);
     }
 
     if (isFirstBatch && refImages.length > 0) {
@@ -2459,19 +2631,28 @@ function findAllUrlsInObject(obj, foundUrls = []) {
   if (!obj) return foundUrls;
   if (Array.isArray(obj)) {
     obj.forEach((item) => {
-      if (typeof item === "string" && item.startsWith("http"))
+      if (typeof item === "string" && (item.startsWith("http") || item.startsWith("data:")))
         foundUrls.push(item);
       else findAllUrlsInObject(item, foundUrls);
     });
     return foundUrls;
   }
   if (typeof obj === "object") {
+    if (typeof obj.b64_json === "string" && obj.b64_json.trim()) {
+      foundUrls.push(`data:image/png;base64,${obj.b64_json.trim()}`);
+    }
+    if (obj.inlineData?.data) {
+      foundUrls.push(`data:${obj.inlineData.mimeType || "image/png"};base64,${obj.inlineData.data}`);
+    }
+    if (obj.inline_data?.data) {
+      foundUrls.push(`data:${obj.inline_data.mime_type || "image/png"};base64,${obj.inline_data.data}`);
+    }
     for (let key in obj) {
       if (obj.hasOwnProperty(key)) {
         const val = obj[key];
-        if (typeof val === "string" && val.startsWith("http")) {
+        if (typeof val === "string" && (val.startsWith("http") || val.startsWith("data:"))) {
           const isImageKey = /url|image|output|result/i.test(key);
-          const isImageExt = /\.(png|jpg|jpeg|webp|gif)(\?|$)/i.test(val);
+          const isImageExt = /\.(png|jpg|jpeg|webp|gif)(\?|$)/i.test(val) || val.startsWith("data:image/");
           if (isImageKey || isImageExt) foundUrls.push(val);
         } else if (typeof val === "object") {
           findAllUrlsInObject(val, foundUrls);

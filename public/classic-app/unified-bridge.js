@@ -11,6 +11,7 @@
   const USER_FACING_GENERATION_ERROR_MESSAGE =
     "请检查提示词或参考图，可能触发了安全限制，请更换后重试";
   const SIZE_LABELS = {
+    auto: "Auto (自适应)",
     "1k": "1K (标准)",
     "2k": "2K (高清)",
     "3k": "3K (高精)",
@@ -299,6 +300,14 @@
     line: String(raw.line || "default").trim(),
     transport: String(raw.transport || "openai-image").trim(),
     mode: String(raw.mode || "async").trim(),
+    baseUrl: String(raw.baseUrl || "").trim(),
+    generatePath: String(raw.generatePath || "").trim(),
+    taskPath: String(raw.taskPath || "").trim(),
+    editPath: String(raw.editPath || "").trim(),
+    chatPath: String(raw.chatPath || "").trim(),
+    upstreamModel: String(raw.upstreamModel || "").trim(),
+    useRequestModel: raw.useRequestModel === true,
+    requiresDataUriReferences: raw.requiresDataUriReferences === true,
     pointCost: toPointNumber(raw.pointCost || 0, 0),
     sizeOverrides: normalizeSizeOverrides(raw.sizeOverrides),
     isActive: raw.isActive !== false,
@@ -416,6 +425,226 @@
       routes.find((route) => route.isDefaultNanoBananaLine) ||
       routes[0]
     );
+  };
+  const isGptImage2Model = (model, requestModel = "") => {
+    const modelId = String(model?.id || "").trim();
+    const resolvedRequestModel = String(requestModel || model?.requestModel || "").trim();
+    return modelId === "gpt-image-2" || resolvedRequestModel === "gpt-image-2";
+  };
+  const isGeminiNativeSyncRoute = (route) =>
+    String(route?.transport || "").trim() === "gemini-native" &&
+    String(route?.mode || "").trim() === "sync";
+  const stripAspectRatioSuffix = (promptText) =>
+    String(promptText || "")
+      .replace(/\s*--ar\s*\d+\s*[:：]\s*\d+/gi, "")
+      .trim();
+  const GPT_SIZE_PATTERN = /^\s*(\d+)\s*[xX]\s*(\d+)\s*$/;
+  const GPT_RATIO_PATTERN = /^\s*(\d+(?:\.\d+)?)\s*[:xX]\s*(\d+(?:\.\d+)?)\s*$/;
+  const roundToMultiple = (value, multiple) =>
+    Math.max(multiple, Math.round(Number(value || 0) / multiple) * multiple);
+  const normalizeGptImageSize = (size) => {
+    const trimmed = String(size || "").trim();
+    const match = trimmed.match(GPT_SIZE_PATTERN);
+    if (!match) return trimmed;
+    return `${roundToMultiple(Number(match[1]), 16)}x${roundToMultiple(Number(match[2]), 16)}`;
+  };
+  const parseGptRatio = (ratio) => {
+    const match = String(ratio || "").trim().match(GPT_RATIO_PATTERN);
+    if (!match) return null;
+    const width = Number(match[1]);
+    const height = Number(match[2]);
+    if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+      return null;
+    }
+    return { width, height };
+  };
+  const calculateClassicGptImageSize = (size, ratio) => {
+    const normalizedSize = String(size || "").trim().toLowerCase();
+    if (normalizedSize === "auto") return "auto";
+    if (GPT_SIZE_PATTERN.test(normalizedSize)) return normalizeGptImageSize(normalizedSize);
+
+    const tier = normalizedSize === "4k" ? "4k" : normalizedSize === "2k" ? "2k" : "1k";
+    const parsedRatio = parseGptRatio(ratio) || { width: 1, height: 1 };
+    const ratioWidth = parsedRatio.width;
+    const ratioHeight = parsedRatio.height;
+
+    if (ratioWidth === ratioHeight) {
+      const side = tier === "1k" ? 1024 : tier === "2k" ? 2048 : 3840;
+      return `${side}x${side}`;
+    }
+
+    if (tier === "1k") {
+      const shortSide = 1024;
+      const width =
+        ratioWidth > ratioHeight
+          ? roundToMultiple((shortSide * ratioWidth) / ratioHeight, 16)
+          : shortSide;
+      const height =
+        ratioWidth > ratioHeight
+          ? shortSide
+          : roundToMultiple((shortSide * ratioHeight) / ratioWidth, 16);
+      return `${width}x${height}`;
+    }
+
+    const longSide = tier === "2k" ? 2048 : 3840;
+    const width =
+      ratioWidth > ratioHeight
+        ? longSide
+        : roundToMultiple((longSide * ratioWidth) / ratioHeight, 16);
+    const height =
+      ratioWidth > ratioHeight
+        ? roundToMultiple((longSide * ratioHeight) / ratioWidth, 16)
+        : longSide;
+    return `${width}x${height}`;
+  };
+  const getClassicGptSettings = () =>
+    typeof window.getClassicGptSettings === "function"
+      ? window.getClassicGptSettings()
+      : {
+          quality: "auto",
+          outputFormat: "png",
+          outputCompression: null,
+          moderation: "auto",
+        };
+  const getGrokPrompt = (basePrompt, ratio, size, modelName) => {
+    if (!String(modelName || "").startsWith("grok-")) return basePrompt;
+    return `${basePrompt}，${ratio}，超高品质${String(size || "").toUpperCase()}分辨率`;
+  };
+  const buildClassicGptPayload = ({
+    selectedModel,
+    selectedRoute,
+    prompt,
+    size,
+    ratio,
+    n = 1,
+  }) => {
+    const gptSettings = getClassicGptSettings();
+    const payload = {
+      model: "gpt-image-2",
+      modelId: selectedModel.id,
+      routeId: selectedRoute.id,
+      uiMode: "classic",
+      prompt,
+      size: calculateClassicGptImageSize(size, ratio),
+      quality: gptSettings.quality,
+      output_format: gptSettings.outputFormat,
+      moderation: gptSettings.moderation,
+      n,
+    };
+    if (gptSettings.outputFormat !== "png" && gptSettings.outputCompression !== null) {
+      payload.output_compression = Math.max(
+        0,
+        Math.min(100, Math.round(Number(gptSettings.outputCompression))),
+      );
+    }
+    return payload;
+  };
+  const buildClassicGeminiPayload = ({
+    selectedModel,
+    selectedRoute,
+    prompt,
+    ratio,
+    size,
+    quantity,
+    referenceImages,
+  }) => {
+    const parts = [{ text: prompt }];
+    referenceImages.forEach((imageValue) => {
+      const rawValue = String(imageValue || "").trim();
+      if (!rawValue) return;
+      const match = rawValue.match(/^data:([^;]+);base64,(.+)$/);
+      if (match) {
+        parts.push({
+          inlineData: {
+            mimeType: match[1],
+            data: match[2],
+          },
+        });
+      } else {
+        parts.push({
+          inlineData: {
+            mimeType: "image/jpeg",
+            data: rawValue,
+          },
+        });
+      }
+    });
+    return {
+      model: String(selectedModel.requestModel || selectedModel.id || "").trim(),
+      modelId: selectedModel.id,
+      routeId: selectedRoute.id,
+      uiMode: "classic",
+      prompt,
+      aspect_ratio: ratio,
+      image_size: String(size || "1K").trim().toUpperCase(),
+      strict_native_config: true,
+      n: quantity,
+      contents: [
+        {
+          role: "user",
+          parts,
+        },
+      ],
+      generationConfig: {
+        imageConfig: {
+          aspectRatio: ratio,
+          imageSize: String(size || "1K").trim().toUpperCase(),
+        },
+        candidateCount: quantity,
+      },
+    };
+  };
+  const createClassicCollageFromSrcs = async (srcs) => {
+    if (!Array.isArray(srcs) || srcs.length === 0) return "";
+    return new Promise((resolve, reject) => {
+      const loadedImages = [];
+      let loadedCount = 0;
+      let hasError = false;
+      srcs.forEach((src) => {
+        const img = new Image();
+        img.crossOrigin = "anonymous";
+        img.onload = () => {
+          if (hasError) return;
+          loadedCount += 1;
+          if (loadedCount === srcs.length) renderCollage();
+        };
+        img.onerror = () => {
+          hasError = true;
+          reject(new Error("加载参考图失败"));
+        };
+        img.src = src;
+        loadedImages.push(img);
+      });
+      const renderCollage = () => {
+        const gap = 10;
+        let maxHeight = 0;
+        loadedImages.forEach((img) => {
+          maxHeight = Math.max(maxHeight, img.height);
+        });
+        const scale = maxHeight > 1024 ? 1024 / maxHeight : 1;
+        let scaledTotalWidth = 0;
+        loadedImages.forEach((img) => {
+          scaledTotalWidth += img.width * scale + gap;
+        });
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.max(1, Math.round(scaledTotalWidth - gap));
+        canvas.height = Math.max(1, Math.round(maxHeight * scale));
+        const ctx = canvas.getContext("2d");
+        if (!ctx) {
+          reject(new Error("Canvas 创建失败"));
+          return;
+        }
+        ctx.fillStyle = "#ffffff";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        let currentX = 0;
+        loadedImages.forEach((img) => {
+          const width = img.width * scale;
+          ctx.drawImage(img, currentX, 0, width, img.height * scale);
+          currentX += width + gap;
+        });
+        resolve(canvas.toDataURL("image/jpeg", 0.9));
+      };
+    });
   };
   const renderModelMenu = () => {
     const pill = document.getElementById("modelPill");
@@ -785,6 +1014,12 @@
     updateRatioAvailabilityForModel();
     updateBrandHeader();
     updateLegacyAdminVisibility();
+    if (typeof window.updateClassicRefUploadHint === "function") {
+      window.updateClassicRefUploadHint();
+    }
+    if (typeof window.updateClassicGptSettingsUi === "function") {
+      window.updateClassicGptSettingsUi();
+    }
   };
   window.refreshClassicCatalogUi = renderCatalogUi;
   const loadClassicCatalogs = async () => {
@@ -1593,7 +1828,8 @@
   submitSingleTask = async function (payload, key, size, index, options = {}) {
     try {
       const route = options.route || getCurrentRoute();
-      const response = await fetch(CONFIG.submitUrl, {
+      const endpoint = String(options.endpoint || CONFIG.submitUrl || "/api/generate").trim();
+      const response = await fetch(endpoint, {
         method: "POST",
         headers: buildGenerateHeaders(route, key),
         body: JSON.stringify(payload),
@@ -1610,6 +1846,7 @@
       const directImageUrls = extractImmediateImageUrls(data);
       if (directImageUrls.length > 0) {
         const promptText = document.getElementById("prompt")?.value?.trim() || "";
+        const expectedCount = Math.max(1, Number(options.expectedCount || directImageUrls.length || 1));
         directImageUrls.forEach((imageUrl) => {
           if (canUpdateMainUi(options.runToken, options.trackUi !== false)) {
             appendImageToGrid(imageUrl, size, null, {
@@ -1620,6 +1857,11 @@
             saveToHistory(imageUrl, promptText);
           }
         });
+        const missingCount = Math.max(0, expectedCount - directImageUrls.length);
+        for (let missingIndex = 0; missingIndex < missingCount; missingIndex += 1) {
+          if (!canUpdateMainUi(options.runToken, options.trackUi !== false)) break;
+          handleSingleError(USER_FACING_GENERATION_ERROR_MESSAGE, size);
+        }
         return;
       }
 
@@ -1645,7 +1887,10 @@
     } catch (error) {
       console.error("[Classic Bridge] submit task failed:", error);
       if (!canUpdateMainUi(options.runToken, options.trackUi !== false)) return;
-      handleSingleError(USER_FACING_GENERATION_ERROR_MESSAGE, size);
+      const expectedCount = Math.max(1, Number(options.expectedCount || 1));
+      for (let failureIndex = 0; failureIndex < expectedCount; failureIndex += 1) {
+        handleSingleError(USER_FACING_GENERATION_ERROR_MESSAGE, size);
+      }
     }
   };
   pollSingleTask = async function (taskId, key, size, index, options = {}) {
@@ -1843,11 +2088,6 @@
     loadedImageCount = 0;
     startFakeProgress();
 
-    let finalPrompt = promptBaseText;
-    if (size === "4K") {
-      finalPrompt += ", (best quality, 4k resolution, ultra detailed, masterpiece)";
-    }
-
     let submitRefImages = refImages.slice();
     let submitReferenceIndices = [];
     if (tagState?.hasAnyTag && PromptTagsUtil) {
@@ -1859,33 +2099,115 @@
     }
 
     const requestModel = selectedModel.requestModel || selectedModel.id;
+    const promptWithoutAr = stripAspectRatioSuffix(promptBaseText);
+    const gptImage2Model = isGptImage2Model(selectedModel, requestModel);
+    const currentPrompt = gptImage2Model ? promptWithoutAr : `${promptWithoutAr} --ar ${ratio}`.trim();
+
+    if (submitReferenceIndices.length > 0) {
+      submitReferenceIndices = submitReferenceIndices.slice();
+    }
+
+    const normalizedRefImages = submitRefImages
+      .map((imgData) => String(imgData || "").trim())
+      .filter((imgData) => imgData.length > 0);
+    const rawBase64Images = normalizedRefImages.map((imgData) =>
+      imgData.includes(",") ? imgData.split(",")[1] : imgData,
+    );
+
+    if (isGeminiNativeSyncRoute(selectedRoute)) {
+      submitSingleTask(
+        buildClassicGeminiPayload({
+          selectedModel,
+          selectedRoute,
+          prompt: currentPrompt,
+          ratio,
+          size,
+          quantity: batchSize,
+          referenceImages: normalizedRefImages,
+        }),
+        key,
+        size,
+        1,
+        {
+          route: selectedRoute,
+          modelId: selectedModel.id,
+          model: requestModel,
+          runToken,
+          trackUi: true,
+          endpoint: "/api/gemini/generate",
+          expectedCount: batchSize,
+        },
+      );
+      return;
+    }
+
+    if (gptImage2Model) {
+      for (let i = 0; i < batchSize; i += 1) {
+        setTimeout(() => {
+          const payload = buildClassicGptPayload({
+            selectedModel,
+            selectedRoute,
+            prompt: currentPrompt,
+            size,
+            ratio,
+            n: 1,
+          });
+          if (submitReferenceIndices.length > 0) {
+            payload.reference_indices = submitReferenceIndices.slice();
+          }
+          if (normalizedRefImages.length > 0) {
+            payload.images = normalizedRefImages.slice();
+          }
+          submitSingleTask(payload, key, size, i + 1, {
+            route: selectedRoute,
+            modelId: selectedModel.id,
+            model: requestModel,
+            runToken,
+            trackUi: true,
+            endpoint: normalizedRefImages.length > 0 ? "/api/edit" : CONFIG.submitUrl,
+            expectedCount: 1,
+          });
+        }, i * 180);
+      }
+      return;
+    }
+
+    const promptForRequest = getGrokPrompt(currentPrompt, ratio, size, requestModel);
     const payloadBase = {
       modelId: selectedModel.id,
       routeId: selectedRoute.id,
       uiMode: "classic",
       model: requestModel,
-      prompt: finalPrompt,
+      prompt: promptForRequest,
       size,
       image_size: size,
       aspect_ratio: ratio,
       n: 1,
     };
-
     if (submitReferenceIndices.length > 0) {
       payloadBase.reference_indices = submitReferenceIndices.slice();
     }
-
-    if (submitRefImages.length > 0) {
-      const normalizedRefImages = submitRefImages
-        .map((imgData) => String(imgData || "").trim())
-        .filter((imgData) => imgData.length > 0);
-      const rawBase64Images = normalizedRefImages.map((imgData) =>
-        imgData.includes(",") ? imgData.split(",")[1] : imgData,
-      );
-      const useDataUriReferences = selectedRoute?.requiresDataUriReferences === true;
-      const finalRefImages = useDataUriReferences ? normalizedRefImages : rawBase64Images;
-      payloadBase.image = finalRefImages;
-      payloadBase.images = finalRefImages;
+    if (normalizedRefImages.length > 0) {
+      const isDoubaoModel = String(selectedModel?.sizeBehavior || "").startsWith("doubao");
+      const isGrokModel = String(requestModel || "").startsWith("grok-");
+      if (isDoubaoModel) {
+        payloadBase.image = rawBase64Images.slice();
+        payloadBase.images = rawBase64Images.slice();
+      } else if (isGrokModel) {
+        payloadBase.image = normalizedRefImages[0];
+        payloadBase.images = normalizedRefImages.slice();
+        payloadBase.reference_image = normalizedRefImages[0];
+        payloadBase.reference_images = normalizedRefImages.slice();
+      } else {
+        const collageBase64 = await createClassicCollageFromSrcs(normalizedRefImages);
+        const collageRaw = collageBase64.includes(",") ? collageBase64.split(",")[1] : collageBase64;
+        payloadBase.prompt =
+          normalizedRefImages.length > 1
+            ? `[多图参考] 输入是 ${normalizedRefImages.length} 张图片的拼贴。${currentPrompt}`
+            : currentPrompt;
+        payloadBase.image = collageRaw;
+        payloadBase.images = [collageRaw];
+      }
     }
 
     for (let i = 0; i < batchSize; i += 1) {

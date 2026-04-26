@@ -3684,9 +3684,40 @@ select option {
     justify-content: stretch;
   }
 
-  .api-guide-btn {
-    flex: 1;
-    min-width: 0;
-  }
+.api-guide-btn {
+  flex: 1;
+  min-width: 0;
+}
 }
 
+.gpt-settings-row {
+  grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+}
+
+.gpt-settings-row input[type="number"] {
+  width: 100%;
+  min-height: 42px;
+  border-radius: 14px;
+  border: 1px solid var(--module-border-color, rgba(255, 255, 255, 0.08));
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--text-main);
+  padding: 10px 12px;
+  font-size: 13px;
+  outline: none;
+}
+
+.gpt-settings-row input[type="number"]:focus {
+  border-color: rgba(255, 214, 10, 0.38);
+  box-shadow: 0 0 0 2px rgba(255, 214, 10, 0.1);
+}
+
+.gpt-settings-row input[type="number"]:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+@media (max-width: 720px) {
+  .gpt-settings-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+}
