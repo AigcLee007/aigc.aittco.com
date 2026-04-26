@@ -3694,6 +3694,30 @@ select option {
   grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
 }
 
+/* 经典版参数下拉层级修复：确保 GPT/比例等下拉不会被相邻模块遮挡 */
+.params-row,
+.gpt-settings-row,
+.right-column {
+  position: relative;
+  overflow: visible;
+}
+
+.params-row .tech-module,
+.gpt-settings-row .tech-module {
+  position: relative;
+  z-index: 1;
+}
+
+.params-row .tech-module.dropdown-open,
+.gpt-settings-row .tech-module.dropdown-open {
+  z-index: 8200 !important;
+}
+
+.params-row .tech-module .dropdown-menu,
+.gpt-settings-row .tech-module .dropdown-menu {
+  z-index: 8300;
+}
+
 .gpt-settings-row input[type="number"] {
   width: 100%;
   min-height: 42px;

@@ -118,7 +118,7 @@ export const VideoFormConfig: React.FC<VideoFormConfigProps> = ({
   if (visibleVideoModels.length === 0) {
     return (
       <div className="rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3 text-xs leading-6 text-gray-400">
-        No video models are currently available for direct API Key use.
+        当前没有可用于直连 API Key 的视频模型。
       </div>
     );
   }
@@ -127,7 +127,7 @@ export const VideoFormConfig: React.FC<VideoFormConfigProps> = ({
     <div className="flex flex-col gap-3">
       <div className={`grid ${showLineSelector ? 'grid-cols-3' : 'grid-cols-2'} gap-2`}>
         <div>
-          <label className="mb-1 block text-[10px] text-gray-500">Aspect ratio</label>
+          <label className="mb-1 block text-[10px] text-gray-500">画面比例</label>
           <DropUpSelect
             value={videoAspectRatio}
             onChange={(value) => setVideoAspectRatio(value)}
@@ -135,16 +135,16 @@ export const VideoFormConfig: React.FC<VideoFormConfigProps> = ({
               value,
               label:
                 value === '16:9'
-                  ? '16:9 (Landscape)'
+                  ? '16:9（横屏）'
                   : value === '9:16'
-                    ? '9:16 (Portrait)'
+                    ? '9:16（竖屏）'
                     : value,
             }))}
           />
         </div>
 
         <div>
-          <label className="mb-1 block text-[10px] text-gray-500">Duration</label>
+          <label className="mb-1 block text-[10px] text-gray-500">时长</label>
           <DropUpSelect
             value={videoDuration}
             onChange={(value) => setVideoDuration(value)}
@@ -157,7 +157,7 @@ export const VideoFormConfig: React.FC<VideoFormConfigProps> = ({
 
         {showLineSelector && (
           <div>
-            <label className="mb-1 block text-[10px] text-gray-500">Route</label>
+            <label className="mb-1 block text-[10px] text-gray-500">线路</label>
             <DropUpSelect
               value={videoLine}
               onChange={(value) => setVideoLine(value)}
@@ -165,7 +165,7 @@ export const VideoFormConfig: React.FC<VideoFormConfigProps> = ({
             />
             {restrictToDirectKeyCompatible && (
               <div className="mt-1 text-[10px] leading-4 text-cyan-300">
-                Only routes that support direct API Key use are shown here.
+                此处仅展示支持直连 API Key 的线路。
               </div>
             )}
           </div>
@@ -174,7 +174,7 @@ export const VideoFormConfig: React.FC<VideoFormConfigProps> = ({
 
       <div>
         <div className="mb-1 flex items-center justify-between">
-          <label className="block text-[10px] text-gray-500">Video model</label>
+          <label className="block text-[10px] text-gray-500">视频模型</label>
           {supportsHd && (
             <label className="flex cursor-pointer items-center gap-1.5">
               <input
@@ -184,7 +184,7 @@ export const VideoFormConfig: React.FC<VideoFormConfigProps> = ({
                 className="h-3 w-3 rounded border-gray-600 bg-gray-700 text-purple-600 focus:ring-purple-500"
               />
               <span className="text-[10px] font-medium text-purple-300">
-                {isGrokModel ? '1080P HD' : 'HD mode'}
+                {isGrokModel ? '1080P 高清' : '高清模式'}
               </span>
             </label>
           )}

@@ -11,7 +11,7 @@
   const USER_FACING_GENERATION_ERROR_MESSAGE =
     "请检查提示词或参考图，可能触发了安全限制，请更换后重试";
   const SIZE_LABELS = {
-    auto: "Auto (自适应)",
+    auto: "自动",
     "1k": "1K (标准)",
     "2k": "2K (高清)",
     "3k": "3K (高精)",
@@ -295,7 +295,7 @@
   };
   const normalizeRoute = (raw = {}) => ({
     id: String(raw.id || "").trim(),
-    label: String(raw.label || raw.id || "Route").trim(),
+    label: String(raw.label || raw.id || "线路").trim(),
     modelFamily: String(raw.modelFamily || "default").trim(),
     line: String(raw.line || "default").trim(),
     transport: String(raw.transport || "openai-image").trim(),
@@ -350,9 +350,9 @@
   const getFriendlyRouteLabel = (route) => {
     const line = String(route?.line || "").trim();
     const match = line.match(/^line\s*([0-9]+)$/i);
-    if (match?.[1]) return `Line ${match[1]}`;
+    if (match?.[1]) return `线路 ${match[1]}`;
     if (line.toLowerCase() === "default") return "默认线路";
-    return String(route?.label || route?.id || "Route").trim() || "Route";
+    return String(route?.label || route?.id || "线路").trim() || "线路";
   };
   const getCurrentModel = () => {
     const visibleModels = getVisibleModels();

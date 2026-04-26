@@ -23,8 +23,8 @@ import { useImageRouteCatalog } from '../src/hooks/useImageRouteCatalog';
 import { useImageModelCatalog } from '../src/hooks/useImageModelCatalog';
 
 const BASE_RATIO_OPTIONS = [
-  { label: 'Smart', value: 'Smart' },
-  { label: 'Custom', value: 'Custom' },
+  { label: '智能', value: 'Smart' },
+  { label: '自定义', value: 'Custom' },
   { label: '1:1', value: '1:1' },
   { label: '16:9', value: '16:9' },
   { label: '9:16', value: '9:16' },
@@ -194,7 +194,7 @@ export const ImageFormConfig: React.FC<ImageFormConfigProps> = ({
   if (visibleImageModels.length === 0) {
     return (
       <div className="rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3 text-xs leading-6 text-gray-400">
-        No image models are currently available for direct API Key use.
+        当前没有可用于直连 API Key 的图像模型。
       </div>
     );
   }
@@ -202,7 +202,7 @@ export const ImageFormConfig: React.FC<ImageFormConfigProps> = ({
   return (
     <>
       <div className="mb-2">
-        <label className="mb-1 block text-[10px] text-gray-500">Image model</label>
+        <label className="mb-1 block text-[10px] text-gray-500">图像模型</label>
         <ModelSelector
           dropUp
           value={currentModel.id}
@@ -213,7 +213,7 @@ export const ImageFormConfig: React.FC<ImageFormConfigProps> = ({
 
       <div className={`grid ${gridClass}`}>
         <div>
-          <label className="mb-1 block text-[10px] text-gray-500">Aspect ratio</label>
+          <label className="mb-1 block text-[10px] text-gray-500">画面比例</label>
           <DropUpSelect
             value={aspectRatio}
             onChange={(value) => setAspectRatio(value)}
@@ -234,13 +234,13 @@ export const ImageFormConfig: React.FC<ImageFormConfigProps> = ({
 
         {showSizeSelector && (
           <div>
-            <label className="mb-1 block text-[10px] text-gray-500">Size</label>
+            <label className="mb-1 block text-[10px] text-gray-500">画质尺寸</label>
             <DropUpSelect
               value={normalizedSize}
               onChange={(value) => setImageSize(value)}
               options={sizeOptions.map((value) => ({
                 value,
-                label: value.toUpperCase(),
+                label: value.toLowerCase() === 'auto' ? '自动' : value.toUpperCase(),
               }))}
             />
           </div>
@@ -248,7 +248,7 @@ export const ImageFormConfig: React.FC<ImageFormConfigProps> = ({
 
         {showLineSelector && (
           <div>
-            <label className="mb-1 block text-[10px] text-gray-500">Route</label>
+            <label className="mb-1 block text-[10px] text-gray-500">线路</label>
             <DropUpSelect
               value={imageLine}
               onChange={(value) => setImageLine(value)}
@@ -256,7 +256,7 @@ export const ImageFormConfig: React.FC<ImageFormConfigProps> = ({
             />
             {restrictToDirectKeyCompatible && (
               <div className="mt-1 text-[10px] leading-4 text-cyan-300">
-                Only routes that support direct API Key use are shown here.
+                此处仅展示支持直连 API Key 的线路。
               </div>
             )}
           </div>
@@ -264,17 +264,17 @@ export const ImageFormConfig: React.FC<ImageFormConfigProps> = ({
 
         {isGptImage2 && (
           <div>
-            <label className="mb-1 block text-[10px] text-gray-500">Quality</label>
+            <label className="mb-1 block text-[10px] text-gray-500">质量</label>
             <DropUpSelect
               value={gptImageQuality}
               onChange={(value) =>
                 setGptImageQuality(value as 'auto' | 'low' | 'medium' | 'high')
               }
               options={[
-                { value: 'auto', label: 'Auto' },
-                { value: 'low', label: 'Low' },
-                { value: 'medium', label: 'Medium' },
-                { value: 'high', label: 'High' },
+                { value: 'auto', label: '自动' },
+                { value: 'low', label: '低' },
+                { value: 'medium', label: '中' },
+                { value: 'high', label: '高' },
               ]}
             />
           </div>
@@ -282,7 +282,7 @@ export const ImageFormConfig: React.FC<ImageFormConfigProps> = ({
 
         {isGptImage2 && (
           <div>
-            <label className="mb-1 block text-[10px] text-gray-500">Format</label>
+            <label className="mb-1 block text-[10px] text-gray-500">格式</label>
             <DropUpSelect
               value={gptImageOutputFormat}
               onChange={(value) =>
@@ -299,7 +299,7 @@ export const ImageFormConfig: React.FC<ImageFormConfigProps> = ({
 
         {isGptImage2 && (
           <div>
-            <label className="mb-1 block text-[10px] text-gray-500">Compression</label>
+            <label className="mb-1 block text-[10px] text-gray-500">压缩率</label>
             <input
               type="number"
               min={0}
@@ -315,20 +315,20 @@ export const ImageFormConfig: React.FC<ImageFormConfigProps> = ({
 
         {isGptImage2 && (
           <div>
-            <label className="mb-1 block text-[10px] text-gray-500">Moderation</label>
+            <label className="mb-1 block text-[10px] text-gray-500">审核强度</label>
             <DropUpSelect
               value={gptImageModeration}
               onChange={(value) => setGptImageModeration(value as 'auto' | 'low')}
               options={[
-                { value: 'auto', label: 'Auto' },
-                { value: 'low', label: 'Low' },
+                { value: 'auto', label: '自动' },
+                { value: 'low', label: '低' },
               ]}
             />
           </div>
         )}
 
         <div>
-          <label className="mb-1 block text-[10px] text-gray-500">Count</label>
+          <label className="mb-1 block text-[10px] text-gray-500">数量</label>
           <DropUpSelect
             value={String(quantity)}
             onChange={(value) => setQuantity(parseInt(value, 10))}

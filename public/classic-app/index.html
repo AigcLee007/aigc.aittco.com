@@ -172,7 +172,7 @@
           <div class="right-column">
             <!-- 模型选择 -->
             <div class="tech-module model-selector-module inline-module">
-              <div class="module-header">模型 (MODEL)</div>
+              <div class="module-header">图像模型</div>
               <div class="pill-dropdown" id="modelPill" data-selected-value="nano-banana">
                 <div class="pill-trigger" onclick="togglePill(event, 'modelPill')">
                    <span class="trigger-label">🍌🍌 Nano Banana Pro</span>
@@ -200,16 +200,16 @@
 
             <!-- 线路选择 -->
             <div class="tech-module line-selector-module inline-module" id="lineModule" style="display: none;">
-              <div class="module-header">线路 (LINE)</div>
+              <div class="module-header">线路</div>
               <div class="pill-dropdown" id="linePill" data-selected-value="1">
                 <div class="pill-trigger" onclick="togglePill(event, 'linePill')">
                   <span class="trigger-label">线路一 (异步增强)</span>
                   <span class="arrow">▼</span>
                 </div>
                 <div class="dropdown-menu">
-                  <div class="dropdown-item active" data-value="1" onclick="selectPill('linePill', this)">Line 1</div>
-                  <div class="dropdown-item" data-value="2" onclick="selectPill('linePill', this)">Line 2</div>
-                  <div class="dropdown-item" data-value="3" onclick="selectPill('linePill', this)">Line 3</div>
+                  <div class="dropdown-item active" data-value="1" onclick="selectPill('linePill', this)">线路 1</div>
+                  <div class="dropdown-item" data-value="2" onclick="selectPill('linePill', this)">线路 2</div>
+                  <div class="dropdown-item" data-value="3" onclick="selectPill('linePill', this)">线路 3</div>
                 </div>
               </div>
             </div>
@@ -235,7 +235,7 @@
             </div>
 
             <div class="params-row">
-              <div class="tech-module" title="比例 (RATIO)">
+              <div class="tech-module" title="画面比例">
                 <div class="pill-dropdown" id="ratioPill" data-selected-value="16:9">
                   <div class="pill-trigger" onclick="togglePill(event, 'ratioPill')">
                     <div class="trigger-left" style="display: flex; align-items: center; gap: 8px;">
@@ -310,7 +310,7 @@
                 </div>
               </div>
 
-              <div class="tech-module" id="sizeModule" title="画质 (SIZE)">
+              <div class="tech-module" id="sizeModule" title="画质尺寸">
                 <div class="pill-dropdown" id="sizePill" data-selected-value="1K">
                   <div class="pill-trigger" onclick="togglePill(event, 'sizePill')">
                     <span class="trigger-label">1K (标准)</span>
@@ -324,7 +324,7 @@
                 </div>
               </div>
 
-              <div class="tech-module" title="数量 (QTY)">
+              <div class="tech-module" title="生成数量">
                 <div class="pill-dropdown" id="qtyPill" data-selected-value="1">
                   <div class="pill-trigger" onclick="togglePill(event, 'qtyPill')">
                     <span class="trigger-label">1 张 (标准)</span>
@@ -341,24 +341,24 @@
             </div>
 
             <div class="params-row gpt-settings-row" id="gptImageSettingsRow" style="display:none;">
-              <div class="tech-module" title="GPT Quality">
-                <div class="module-header">Quality</div>
+              <div class="tech-module" title="质量">
+                <div class="module-header">质量</div>
                 <div class="pill-dropdown" id="gptQualityPill" data-selected-value="auto">
                   <div class="pill-trigger" onclick="togglePill(event, 'gptQualityPill')">
-                    <span class="trigger-label">Auto</span>
+                    <span class="trigger-label">自动</span>
                     <span class="arrow">▼</span>
                   </div>
                   <div class="dropdown-menu">
-                    <div class="dropdown-item active" data-value="auto" onclick="selectPill('gptQualityPill', this)"><span>Auto</span></div>
-                    <div class="dropdown-item" data-value="low" onclick="selectPill('gptQualityPill', this)"><span>Low</span></div>
-                    <div class="dropdown-item" data-value="medium" onclick="selectPill('gptQualityPill', this)"><span>Medium</span></div>
-                    <div class="dropdown-item" data-value="high" onclick="selectPill('gptQualityPill', this)"><span>High</span></div>
+                    <div class="dropdown-item active" data-value="auto" onclick="selectPill('gptQualityPill', this)"><span>自动</span></div>
+                    <div class="dropdown-item" data-value="low" onclick="selectPill('gptQualityPill', this)"><span>低</span></div>
+                    <div class="dropdown-item" data-value="medium" onclick="selectPill('gptQualityPill', this)"><span>中</span></div>
+                    <div class="dropdown-item" data-value="high" onclick="selectPill('gptQualityPill', this)"><span>高</span></div>
                   </div>
                 </div>
               </div>
 
-              <div class="tech-module" title="GPT Output Format">
-                <div class="module-header">Format</div>
+              <div class="tech-module" title="输出格式">
+                <div class="module-header">格式</div>
                 <div class="pill-dropdown" id="gptOutputFormatPill" data-selected-value="png">
                   <div class="pill-trigger" onclick="togglePill(event, 'gptOutputFormatPill')">
                     <span class="trigger-label">PNG</span>
@@ -372,8 +372,8 @@
                 </div>
               </div>
 
-              <div class="tech-module" title="GPT Output Compression">
-                <div class="module-header">Compression</div>
+              <div class="tech-module" title="输出压缩率">
+                <div class="module-header">压缩率</div>
                 <input
                   id="gptOutputCompressionInput"
                   type="number"
@@ -384,16 +384,16 @@
                 />
               </div>
 
-              <div class="tech-module" title="GPT Moderation">
-                <div class="module-header">Moderation</div>
+              <div class="tech-module" title="审核强度">
+                <div class="module-header">审核强度</div>
                 <div class="pill-dropdown" id="gptModerationPill" data-selected-value="auto">
                   <div class="pill-trigger" onclick="togglePill(event, 'gptModerationPill')">
-                    <span class="trigger-label">Auto</span>
+                    <span class="trigger-label">自动</span>
                     <span class="arrow">▼</span>
                   </div>
                   <div class="dropdown-menu">
-                    <div class="dropdown-item active" data-value="auto" onclick="selectPill('gptModerationPill', this)"><span>Auto</span></div>
-                    <div class="dropdown-item" data-value="low" onclick="selectPill('gptModerationPill', this)"><span>Low</span></div>
+                    <div class="dropdown-item active" data-value="auto" onclick="selectPill('gptModerationPill', this)"><span>自动</span></div>
+                    <div class="dropdown-item" data-value="low" onclick="selectPill('gptModerationPill', this)"><span>低</span></div>
                   </div>
                 </div>
               </div>
@@ -981,4 +981,3 @@
     <script src="/classic-app/unified-bridge.js?v=classic_settings_layout_v1"></script>
   </body>
 </html>
-

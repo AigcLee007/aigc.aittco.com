@@ -239,15 +239,15 @@ const buildUserFacingRouteLabel = (line: string, fallbackLabel?: string) => {
   const normalizedLine = String(line || '').trim().toLowerCase();
   const lineMatch = normalizedLine.match(/^line\s*([0-9]+)$/i);
   if (lineMatch?.[1]) {
-    return `Line ${lineMatch[1]}`;
+    return `线路 ${lineMatch[1]}`;
   }
 
   if (normalizedLine === 'default') {
-    return 'Default';
+    return '默认';
   }
 
   const sanitizedFallback = String(fallbackLabel || '').trim();
-  return sanitizedFallback || 'Route';
+  return sanitizedFallback || '线路';
 };
 
 export const getNanoBananaRouteByLine = (line?: string): ImageRouteConfig => {

@@ -19,6 +19,11 @@ import { MainLayout } from "./src/layouts/MainLayout";
 import { ModalsContainer } from "./src/layouts/ModalsContainer";
 import { assetStorage } from "./src/services/assetStorage";
 import { isLowEndDevice } from "./src/utils/performance";
+import {
+  AUTH_SESSION_CHANGE_EVENT,
+  fetchCurrentAuthSession,
+  getStoredAuthSessionToken,
+} from "./src/services/accountIdentity";
 import wechatQr from "./wechat.png";
 
 // New Hooks
@@ -66,6 +71,9 @@ const App: React.FC = () => {
   } = useCanvasStore();
 
   const [hydrated, setHydrated] = useState(false);
+  const [isAccountAuthenticated, setIsAccountAuthenticated] = useState<boolean>(() =>
+    Boolean(getStoredAuthSessionToken()),
+  );
 
   useEffect(() => {
     // Check if already hydrated
@@ -105,6 +113,42 @@ const App: React.FC = () => {
     };
     hydrate();
   }, [hydrated]); // Removed nodes from dep array to avoid infinite loop. Runs once on hydration.
+
+  useEffect(() => {
+    let active = true;
+    const syncAuthState = async () => {
+      const hasToken = Boolean(getStoredAuthSessionToken());
+      if (!hasToken) {
+        if (active) setIsAccountAuthenticated(false);
+        return;
+      }
+      if (active) setIsAccountAuthenticated(true);
+      try {
+        const session = await fetchCurrentAuthSession();
+        if (!active) return;
+        setIsAccountAuthenticated(Boolean(session?.authenticated));
+      } catch (_) {
+        if (!active) return;
+        setIsAccountAuthenticated(false);
+      }
+    };
+
+    void syncAuthState();
+
+    if (typeof window === "undefined") {
+      return () => {
+        active = false;
+      };
+    }
+
+    window.addEventListener(AUTH_SESSION_CHANGE_EVENT, syncAuthState);
+    window.addEventListener("storage", syncAuthState);
+    return () => {
+      active = false;
+      window.removeEventListener(AUTH_SESSION_CHANGE_EVENT, syncAuthState);
+      window.removeEventListener("storage", syncAuthState);
+    };
+  }, []);
 
   const {
     selectedIds,
@@ -570,7 +614,7 @@ const App: React.FC = () => {
           }}
         />
 
-        {nodes.length === 0 && status === AppStatus.IDLE && (
+        {nodes.length === 0 && status === AppStatus.IDLE && !isAccountAuthenticated && (
           <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 pointer-events-none flex flex-col items-center justify-center select-none w-full max-w-2xl mt-[-5vh]">
             <h1 className="text-3xl font-light text-white tracking-[0.3em] uppercase opacity-40 mb-12 flex items-center justify-center font-sans">
               Nano Banana Pro
