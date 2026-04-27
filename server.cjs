@@ -103,6 +103,9 @@ const {
   listAdminChanges,
   recordAdminChange,
 } = require("./adminChangeLogStore.cjs");
+const {
+  persistGeneratedImageResults,
+} = require("./generatedAssetService.cjs");
 const { toPointNumber } = require("./pointMath.cjs");
 
 // Logger Configuration
@@ -1014,6 +1017,74 @@ const completeGenerationRecordSuccessSafe = async ({
     await completeGenerationRecordByTaskId(taskId, updates).catch(() => null);
   }
 };
+const buildGeneratedAssetContext = ({
+  req = null,
+  billingAccount = null,
+  generationRecord = null,
+  route = null,
+  modelId = null,
+  taskId = null,
+  requestId = null,
+} = {}) => ({
+  userId:
+    req?.authUser?.userId ||
+    generationRecord?.userId ||
+    billingAccount?.userId ||
+    billingAccount?.ownerUserId ||
+    "anonymous",
+  recordId: generationRecord?.id || null,
+  taskId: taskId || generationRecord?.taskId || null,
+  routeId: route?.id || null,
+  modelId: modelId || generationRecord?.modelId || null,
+  requestId,
+});
+const mergeGeneratedAssetMeta = (meta = null, persisted = null) => {
+  if (!persisted?.enabled) return meta || null;
+  return {
+    ...(meta || {}),
+    assetPersistence: {
+      enabled: true,
+      stored: persisted.assets?.length || 0,
+      failed: persisted.errors?.length || 0,
+      assets: (persisted.assets || []).map((asset) => ({
+        objectKey: asset.objectKey || null,
+        storedUrl: asset.storedUrl || null,
+        mimeType: asset.mimeType || null,
+        size: asset.size || null,
+        skipped: asset.skipped === true,
+        reason: asset.reason || null,
+      })),
+      errors: (persisted.errors || []).map((item) => ({
+        error: item.error || "Generated asset persistence failed",
+      })),
+    },
+  };
+};
+const persistImageResultPayloadSafe = async ({
+  payload = null,
+  resultUrls = [],
+  req = null,
+  billingAccount = null,
+  generationRecord = null,
+  route = null,
+  modelId = null,
+  taskId = null,
+  requestId = null,
+} = {}) =>
+  persistGeneratedImageResults({
+    payload,
+    resultUrls,
+    context: buildGeneratedAssetContext({
+      req,
+      billingAccount,
+      generationRecord,
+      route,
+      modelId,
+      taskId,
+      requestId,
+    }),
+    logger,
+  });
 const completeGenerationRecordFailureSafe = async ({
   recordId = null,
   taskId = null,
@@ -2805,26 +2876,37 @@ app.post("/api/generate", generateLimiter, async (req, res) => {
           fallbackAuthorization,
           logTag: "Generate",
         });
+        const resultUrls = extractResultUrlsFromPayload(result);
+        const persistedResult = await persistImageResultPayloadSafe({
+          payload: result,
+          resultUrls,
+          req,
+          billingAccount,
+          generationRecord,
+          route,
+          modelId: requestedImageModel?.id || null,
+        });
         await completeGenerationRecordSuccessSafe({
           recordId: generationRecord?.id,
-          resultUrls: extractResultUrlsFromPayload(result),
+          resultUrls: persistedResult.resultUrls,
+          previewUrl: persistedResult.previewUrl,
           outputSize: requestBody.image_size || requestBody.size || null,
           aspectRatio: requestBody.aspect_ratio || requestBody.aspectRatio || null,
-          meta: {
+          meta: mergeGeneratedAssetMeta({
             transport: route.transport,
             routeMode: route.mode,
-          },
+          }, persistedResult),
         });
         return res.json(
           shouldUseBilling
             ? {
-                ...result,
+                ...persistedResult.payload,
                 billing: {
                   deductedPoints: pointCost,
                   remainingPoints: billingCharge.account.points,
                 },
               }
-            : result,
+            : persistedResult.payload,
         );
       } catch (error) {
         if (shouldUseBilling && billingCharge?.chargeId) {
@@ -3183,8 +3265,25 @@ app.post("/api/generate", generateLimiter, async (req, res) => {
             );
           }
 
-          const successPayload = {
+          let successPayload = {
             ...toImmediateImagePayload(settledPayload),
+            id: localTaskId,
+            task_id: localTaskId,
+            upstream_id: upstreamTaskId || settledPayload?.id || null,
+            status: "succeeded",
+          };
+          const persistedResult = await persistImageResultPayloadSafe({
+            payload: successPayload,
+            resultUrls,
+            req,
+            billingAccount,
+            generationRecord,
+            route,
+            modelId: requestedImageModel?.id || null,
+            taskId: localTaskId,
+          });
+          successPayload = {
+            ...persistedResult.payload,
             id: localTaskId,
             task_id: localTaskId,
             upstream_id: upstreamTaskId || settledPayload?.id || null,
@@ -3199,16 +3298,16 @@ app.post("/api/generate", generateLimiter, async (req, res) => {
           await completeGenerationRecordSuccessSafe({
             recordId: generationRecord?.id,
             taskId: localTaskId,
-            resultUrls,
-            previewUrl: resultUrls[0] || null,
+            resultUrls: persistedResult.resultUrls,
+            previewUrl: persistedResult.previewUrl,
             outputSize: requestBody.size || requestBody.image_size || null,
             aspectRatio: requestBody.aspect_ratio || null,
-            meta: {
+            meta: mergeGeneratedAssetMeta({
               transport: route.transport,
               routeMode: "sync",
               upstreamStatus: settledStatus,
               settled: "visionary_background_job",
-            },
+            }, persistedResult),
           });
         } catch (error) {
           setLocalImageJob(localJobId, {
@@ -3303,29 +3402,38 @@ app.post("/api/generate", generateLimiter, async (req, res) => {
             ? response.data.images
             : syncImmediateResultUrls,
         };
+        const persistedResult = await persistImageResultPayloadSafe({
+          payload: immediatePayload,
+          resultUrls: syncImmediateResultUrls,
+          req,
+          billingAccount,
+          generationRecord,
+          route,
+          modelId: requestedImageModel?.id || null,
+        });
         await completeGenerationRecordSuccessSafe({
           recordId: generationRecord?.id,
-          resultUrls: syncImmediateResultUrls,
-          previewUrl: syncImmediateResultUrls[0] || null,
+          resultUrls: persistedResult.resultUrls,
+          previewUrl: persistedResult.previewUrl,
           outputSize: requestBody.size || requestBody.image_size || null,
           aspectRatio: requestBody.aspect_ratio || null,
-          meta: {
+          meta: mergeGeneratedAssetMeta({
             transport: route.transport,
             routeMode: "sync",
             upstreamStatus: syncUpstreamStatus,
             settled: "sync_immediate_result",
-          },
+          }, persistedResult),
         });
         return res.json(
           shouldUseBilling
             ? {
-                ...immediatePayload,
+                ...persistedResult.payload,
                 billing: {
                   deductedPoints: pointCost,
                   remainingPoints: billingCharge?.account?.points,
                 },
               }
-            : immediatePayload,
+            : persistedResult.payload,
         );
       }
 
@@ -3382,40 +3490,50 @@ app.post("/api/generate", generateLimiter, async (req, res) => {
 
       const urlMatch = chatContent.match(/https?:\/\/[^\s^)^>]+/);
       const syncResultUrl = urlMatch ? urlMatch[0] : chatContent;
+      const persistedResult = await persistImageResultPayloadSafe({
+        payload: { url: syncResultUrl },
+        resultUrls: syncResultUrl ? [syncResultUrl] : [],
+        req,
+        billingAccount,
+        generationRecord,
+        route,
+        modelId: requestedImageModel?.id || null,
+      });
+      const persistedSyncResultUrl = persistedResult.previewUrl || syncResultUrl;
       await completeGenerationRecordSuccessSafe({
         recordId: generationRecord?.id,
-        resultUrls: syncResultUrl ? [syncResultUrl] : [],
-        previewUrl: syncResultUrl || null,
+        resultUrls: persistedResult.resultUrls,
+        previewUrl: persistedSyncResultUrl || null,
         outputSize: requestBody.size || requestBody.image_size || null,
         aspectRatio: requestBody.aspect_ratio || null,
-        meta: {
+        meta: mergeGeneratedAssetMeta({
           transport: route.transport,
           routeMode: "sync",
-        },
+        }, persistedResult),
       });
       if (urlMatch) {
         return res.json(
           shouldUseBilling
             ? {
-                url: syncResultUrl,
+                url: persistedSyncResultUrl,
                 billing: {
                   deductedPoints: pointCost,
                   remainingPoints: billingCharge?.account?.points,
                 },
               }
-            : { url: urlMatch[0] },
+            : { url: persistedSyncResultUrl },
         );
       }
       return res.json(
         shouldUseBilling
           ? {
-              url: syncResultUrl,
+              url: persistedSyncResultUrl,
               billing: {
                 deductedPoints: pointCost,
                 remainingPoints: billingCharge?.account?.points,
               },
             }
-          : { url: chatContent },
+          : { url: persistedSyncResultUrl },
       );
     }
 
@@ -3445,29 +3563,38 @@ app.post("/api/generate", generateLimiter, async (req, res) => {
           ? response.data.images
           : immediateResultUrls,
       };
+      const persistedResult = await persistImageResultPayloadSafe({
+        payload: immediatePayload,
+        resultUrls: immediateResultUrls,
+        req,
+        billingAccount,
+        generationRecord,
+        route,
+        modelId: requestedImageModel?.id || null,
+      });
       await completeGenerationRecordSuccessSafe({
         recordId: generationRecord?.id,
-        resultUrls: immediateResultUrls,
-        previewUrl: immediateResultUrls[0] || null,
+        resultUrls: persistedResult.resultUrls,
+        previewUrl: persistedResult.previewUrl,
         outputSize: requestBody.size || requestBody.image_size || null,
         aspectRatio: requestBody.aspect_ratio || null,
-        meta: {
+        meta: mergeGeneratedAssetMeta({
           transport: route.transport,
           routeMode: route.mode,
           upstreamStatus,
           settled: "immediate_result",
-        },
+        }, persistedResult),
       });
       return res.json(
         shouldUseBilling
           ? {
-              ...immediatePayload,
+              ...persistedResult.payload,
               billing: {
                 deductedPoints: pointCost,
                 remainingPoints: billingCharge?.account?.points,
               },
             }
-          : immediatePayload,
+          : persistedResult.payload,
       );
     }
 
@@ -3516,27 +3643,38 @@ app.post("/api/generate", generateLimiter, async (req, res) => {
       return res.json(normalizedResponse);
     }
 
+    const finalResultUrls = extractResultUrlsFromPayload(response.data);
+    const persistedResult = await persistImageResultPayloadSafe({
+      payload: response.data,
+      resultUrls: finalResultUrls,
+      req,
+      billingAccount,
+      generationRecord,
+      route,
+      modelId: requestedImageModel?.id || null,
+    });
     await completeGenerationRecordSuccessSafe({
       recordId: generationRecord?.id,
-      resultUrls: extractResultUrlsFromPayload(response.data),
+      resultUrls: persistedResult.resultUrls,
+      previewUrl: persistedResult.previewUrl,
       outputSize: requestBody.size || requestBody.image_size || null,
       aspectRatio: requestBody.aspect_ratio || null,
-      meta: {
+      meta: mergeGeneratedAssetMeta({
         transport: route.transport,
         routeMode: route.mode,
-      },
+      }, persistedResult),
     });
 
     res.json(
       shouldUseBilling
         ? {
-            ...response.data,
+            ...persistedResult.payload,
             billing: {
               deductedPoints: pointCost,
               remainingPoints: billingCharge?.account?.points,
             },
           }
-        : response.data,
+        : persistedResult.payload,
     );
   } catch (error) {
     if (billingCharge?.chargeId && billingAccount?.accountId && !localTaskId) {
@@ -3764,16 +3902,26 @@ app.post("/api/edit", generateLimiter, async (req, res) => {
       return res.json(normalizedResponse);
     }
 
+    const editResultUrls = extractResultUrlsFromPayload(response.data);
+    const persistedResult = await persistImageResultPayloadSafe({
+      payload: response.data,
+      resultUrls: editResultUrls,
+      req,
+      billingAccount,
+      route,
+      modelId: requestedImageModel?.id || null,
+      taskId: localTaskId,
+    });
     res.json(
       shouldUseBilling
         ? {
-            ...response.data,
+            ...persistedResult.payload,
             billing: {
               deductedPoints: pointCost,
               remainingPoints: billingCharge?.account?.points,
             },
           }
-        : response.data,
+        : persistedResult.payload,
     );
   } catch (error) {
     if (billingCharge?.chargeId && billingAccount?.accountId && !localTaskId) {
@@ -3894,14 +4042,23 @@ app.get("/api/task/:taskId", pollingLimiter, async (req, res) => {
       responseData?.status || responseData?.state || responseData?.data?.status || "",
     ).toUpperCase();
     if (["SUCCESS", "SUCCEEDED", "COMPLETED"].includes(taskStatus)) {
+      const persistedResult = await persistImageResultPayloadSafe({
+        payload: responseData,
+        resultUrls: extractResultUrlsFromPayload(responseData),
+        req,
+        route,
+        taskId: encodedTask,
+      });
+      responseData = persistedResult.payload;
       await settlePendingTask(encodedTask, "SUCCESS");
       await completeGenerationRecordSuccessSafe({
         taskId: encodedTask,
-        resultUrls: extractResultUrlsFromPayload(responseData),
-        meta: {
+        resultUrls: persistedResult.resultUrls,
+        previewUrl: persistedResult.previewUrl,
+        meta: mergeGeneratedAssetMeta({
           polledAt: new Date().toISOString(),
           source: "image_task_poll",
-        },
+        }, persistedResult),
       });
     } else if (["FAILURE", "FAILED"].includes(taskStatus)) {
       await settlePendingTask(encodedTask, "FAILED");
@@ -3987,20 +4144,31 @@ app.post("/api/gemini/generate", generateLimiter, async (req, res) => {
       fallbackAuthorization,
       logTag: "Gemini Generate",
     });
+    const resultUrls = extractResultUrlsFromPayload(result);
+    const persistedResult = await persistImageResultPayloadSafe({
+      payload: result,
+      resultUrls,
+      req,
+      billingAccount,
+      generationRecord,
+      route,
+      modelId: requestedImageModel?.id || null,
+    });
 
     await completeGenerationRecordSuccessSafe({
       recordId: generationRecord?.id,
-      resultUrls: extractResultUrlsFromPayload(result),
+      resultUrls: persistedResult.resultUrls,
+      previewUrl: persistedResult.previewUrl,
       outputSize: requestBody.image_size || requestBody.size || null,
       aspectRatio: requestBody.aspect_ratio || requestBody.aspectRatio || null,
-      meta: {
+      meta: mergeGeneratedAssetMeta({
         transport: route.transport,
         routeMode: route.mode,
-      },
+      }, persistedResult),
     });
 
     res.json({
-      ...result,
+      ...persistedResult.payload,
       billing: {
         deductedPoints: pointCost,
         remainingPoints: billingCharge?.account?.points,
