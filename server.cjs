@@ -4536,8 +4536,26 @@ app.post("/api/reverse-prompt", async (req, res) => {
     });
 
     const parsedImage = parseDataUrlForPromptTool(image);
-    const systemInstruction =
-      "You are a senior visual designer and image prompt engineer. Analyze the image and return JSON only with this exact shape: {\"plainPrompt\":\"...\",\"jsonPrompt\":{\"subject\":\"...\",\"scene\":\"...\",\"style\":\"...\",\"lighting\":\"...\",\"composition\":\"...\",\"camera\":\"...\",\"details\":[\"...\"],\"colors\":\"...\",\"negativePrompt\":\"...\"}}. The plainPrompt must be a detailed reusable Chinese image generation prompt. The jsonPrompt fields should be Chinese strings or arrays.";
+    const systemInstruction = [
+      "You are a professional image prompt engineer for commercial AI image generation.",
+      "Your task is not to casually describe the image. You must reverse-engineer it into a production-ready image generation prompt.",
+      "Analyze the image through these layers: subject, identity/role, pose/action, expression, clothing, scene, era/location, foreground/background, composition, camera angle, lens/framing, lighting, color palette, texture/materials, artistic medium, rendering style, mood, quality modifiers, and negative prompt.",
+      "Return JSON only. Do not use markdown. Do not add explanations outside JSON.",
+      "The exact JSON shape must be:",
+      "{\"plainPrompt\":\"...\",\"jsonPrompt\":{\"subject\":\"...\",\"coreDescription\":\"...\",\"scene\":\"...\",\"composition\":\"...\",\"camera\":\"...\",\"lighting\":\"...\",\"colorPalette\":\"...\",\"style\":\"...\",\"medium\":\"...\",\"textureAndDetails\":[\"...\"],\"qualityModifiers\":[\"...\"],\"negativePrompt\":\"...\",\"englishPrompt\":\"...\"}}",
+      "Rules for plainPrompt:",
+      "1. Write in Chinese.",
+      "2. It must be a fluent professional generation prompt, not a bullet list.",
+      "3. Put important visual elements first, then scene, composition, light, style, quality details.",
+      "4. Avoid uncertain wording like '可能', '似乎', '看起来'. Use confident prompt language.",
+      "5. Keep concrete visual details from the image, but do not identify real people.",
+      "6. Include professional image-generation words such as composition, lighting, lens/framing, material texture, art style, high-detail quality where appropriate.",
+      "Rules for jsonPrompt:",
+      "1. Every field must be useful for generation.",
+      "2. textureAndDetails and qualityModifiers must be arrays of concise Chinese phrases.",
+      "3. englishPrompt should be an English professional prompt equivalent to plainPrompt for models that perform better in English.",
+      "4. negativePrompt should include common visual defects to avoid, adapted to the image style.",
+    ].join(" ");
 
     const { response, model: usedModel } = await postGeminiWithModels({
       models: [modelName],
@@ -4545,7 +4563,10 @@ app.post("/api/reverse-prompt", async (req, res) => {
         contents: [
           {
             parts: [
-              { text: "请分析这张图片，同时生成普通格式提示词和 JSON 格式提示词。" },
+              {
+                text:
+                  "请按专业生图提示词结构逆推这张图片。输出必须包含：一段可直接复制使用的中文普通提示词，以及结构化 JSON 提示词。不要只描述画面，要把它改写成高质量生图提示词。",
+              },
               {
                 inline_data: {
                   mime_type: parsedImage.mimeType,
@@ -4574,14 +4595,18 @@ app.post("/api/reverse-prompt", async (req, res) => {
     let plainPrompt = String(resultPrompt).trim();
     let jsonPrompt = {
       subject: "",
+      coreDescription: "",
       scene: "",
-      style: "",
-      lighting: "",
       composition: "",
       camera: "",
-      details: [],
-      colors: "",
+      lighting: "",
+      colorPalette: "",
+      style: "",
+      medium: "",
+      textureAndDetails: [],
+      qualityModifiers: [],
       negativePrompt: "",
+      englishPrompt: "",
     };
     try {
       const parsed = parseGeminiJsonText(resultPrompt);
