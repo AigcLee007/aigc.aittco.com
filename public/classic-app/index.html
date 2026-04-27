@@ -49,14 +49,6 @@
             >👤 我的</span
           >
         </div>
-        <a
-          href="/create/canvas"
-          class="mode-switch-link"
-          onclick="try { localStorage.setItem('preferred-create-ui', 'canvas'); } catch (_) {}"
-          title="切换到画布版"
-        >
-          画布版
-        </a>
         <button
           id="noticeBellBtn"
           class="notice-bell-btn"
@@ -69,6 +61,37 @@
           </svg>
           <span id="noticeUnreadDot" class="notice-unread-dot" style="display:none;"></span>
         </button>
+        <button
+          id="priceTableBtn"
+          class="price-table-btn"
+          onclick="togglePriceCenter(event)"
+          title="价格表"
+        >
+          <svg class="price-table-icon" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M14 2H7a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7Z"/>
+            <path d="M14 2v5h5"/>
+            <path d="M9 13h6"/>
+            <path d="M9 17h3"/>
+            <path d="M9 9h1"/>
+          </svg>
+        </button>
+        <button
+          id="classicTopAccountBtn"
+          class="classic-top-account-btn"
+          onclick="openClassicAccountPanel()"
+          title="余额 / 用户信息"
+        >
+          <span class="classic-top-account-icon">👤</span>
+          <span id="classicTopAccountText" class="classic-top-account-text">登录 / 账户</span>
+        </button>
+        <a
+          href="/create/canvas"
+          class="mode-switch-link"
+          onclick="try { localStorage.setItem('preferred-create-ui', 'canvas'); } catch (_) {}"
+          title="切换到画布版"
+        >
+          画布版
+        </a>
       </div>
     </div>
 
@@ -88,6 +111,40 @@
           <button id="noticeMarkAllBtn" class="notice-mark-read-btn" onclick="markAllNoticesRead()">✓ 全部已读</button>
         </div>
         <div id="noticeList" class="notice-list"></div>
+      </div>
+    </div>
+
+    <div id="priceOverlay" class="price-overlay" style="display:none;" onclick="handlePriceOverlayClick(event)">
+      <div class="price-panel">
+        <div class="price-panel-header">
+          <div>
+            <div class="price-panel-title">价格表</div>
+            <div class="price-panel-subtitle">按模型、线路、画质尺寸查询单张消耗</div>
+          </div>
+          <button class="price-close-btn" onclick="closePriceCenter()" aria-label="关闭价格表">×</button>
+        </div>
+        <div class="price-current-card" id="priceCurrentCard">
+          <div>
+            <div class="price-current-label">当前配置消耗</div>
+            <div class="price-current-meta" id="priceCurrentMeta">正在计算...</div>
+          </div>
+          <div class="price-current-total" id="priceCurrentTotal">-- 🪙</div>
+        </div>
+        <div class="price-lowest-section">
+          <div class="price-lowest-head">
+            <span>最低价速览</span>
+            <em>仅展示已启用模型和线路</em>
+          </div>
+          <div id="priceLowestList" class="price-lowest-list"></div>
+        </div>
+        <div class="price-filter-row">
+          <label class="price-filter-label" for="priceLineFilter">线路</label>
+          <select id="priceLineFilter" class="price-filter-select" onchange="renderPriceTable()">
+            <option value="__all__">全部线路</option>
+          </select>
+        </div>
+        <div id="priceTableList" class="price-table-list"></div>
+        <div class="price-note">最终消耗按模型、线路、画质尺寸和数量实时计算。比例、格式等未显示加价时表示当前不单独计费。</div>
       </div>
     </div>
 
@@ -338,6 +395,14 @@
                   </div>
                 </div>
               </div>
+            </div>
+
+            <div class="current-price-card" id="currentPriceCard">
+              <div>
+                <div class="current-price-label">当前配置消耗</div>
+                <div class="current-price-meta" id="currentPriceMeta">Nano Banana Pro / 1K / 1 张</div>
+              </div>
+              <div class="current-price-total" id="currentPriceTotal">-- 🪙</div>
             </div>
 
             <div class="params-row gpt-settings-row" id="gptImageSettingsRow" style="display:none;">

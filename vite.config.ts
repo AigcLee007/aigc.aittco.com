@@ -4,6 +4,7 @@ import react from '@vitejs/plugin-react';
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, '.', '');
+  const backendPort = Number.parseInt(String(env.PORT || '3355'), 10) || 3355;
   
   return {
     server: {
@@ -11,13 +12,26 @@ export default defineConfig(({ mode }) => {
       host: '0.0.0.0',
       proxy: {
         '/api': {
-          target: 'http://localhost:3355',
+          target: `http://localhost:${backendPort}`,
           changeOrigin: true,
           secure: false,
         }
       },
     },
-    plugins: [react()],
+    plugins: [
+      {
+        name: 'classic-create-route',
+        configureServer(server) {
+          server.middlewares.use((req, _res, next) => {
+            if (req.url === '/create/classic' || req.url === '/create/classic/') {
+              req.url = '/classic-app/index.html';
+            }
+            next();
+          });
+        },
+      },
+      react(),
+    ],
     define: {
       'process.env.API_KEY': JSON.stringify(env.GEMINI_API_KEY),
       'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY)

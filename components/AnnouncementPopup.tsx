@@ -1,5 +1,12 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Bell, CheckCheck, Megaphone, X } from 'lucide-react';
+import { Bell, CheckCheck, Megaphone, ReceiptText, UserRound, Wallet, X } from 'lucide-react';
+import PricingReferencePanel from './PricingReferencePanel';
+import { fetchBillingAccount } from '../src/services/accountService';
+import {
+  AUTH_SESSION_CHANGE_EVENT,
+  getStoredAuthSessionToken,
+} from '../src/services/accountIdentity';
+import { formatPoint } from '../src/utils/pointFormat';
 
 interface Announcement {
   id: string;
@@ -38,12 +45,22 @@ const formatAnnouncementDate = (input?: string) => {
   return date.toLocaleDateString();
 };
 
-const AnnouncementPopup: React.FC = () => {
+interface AnnouncementPopupProps {
+  onOpenSettings?: () => void;
+}
+
+const AnnouncementPopup: React.FC<AnnouncementPopupProps> = ({ onOpenSettings }) => {
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [seenIds, setSeenIds] = useState<string[]>(() => readSeenAnnouncementIds());
   const [isCenterOpen, setIsCenterOpen] = useState(false);
+  const [isPricingOpen, setIsPricingOpen] = useState(false);
   const [isPopupOpen, setIsPopupOpen] = useState(false);
   const [selectedAnnouncement, setSelectedAnnouncement] = useState<Announcement | null>(null);
+  const [accountSummary, setAccountSummary] = useState<{
+    email: string;
+    displayName: string;
+    points: number;
+  } | null>(null);
   const centerRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -70,6 +87,41 @@ const AnnouncementPopup: React.FC = () => {
         console.warn('[Announcement] Failed to fetch announcements', err);
       });
   }, [seenIds]);
+
+  useEffect(() => {
+    let active = true;
+    const loadAccountSummary = async () => {
+      if (!getStoredAuthSessionToken()) {
+        if (active) setAccountSummary(null);
+        return;
+      }
+      try {
+        const data = await fetchBillingAccount({ ledgerPageSize: 1 });
+        if (!active) return;
+        setAccountSummary({
+          email: data.user?.email || data.account.ownerEmail || '',
+          displayName: data.user?.displayName || data.user?.email || '已登录',
+          points: data.account.points || 0,
+        });
+      } catch (_) {
+        if (active) setAccountSummary(null);
+      }
+    };
+
+    void loadAccountSummary();
+    if (typeof window === 'undefined') {
+      return () => {
+        active = false;
+      };
+    }
+    window.addEventListener(AUTH_SESSION_CHANGE_EVENT, loadAccountSummary);
+    window.addEventListener('storage', loadAccountSummary);
+    return () => {
+      active = false;
+      window.removeEventListener(AUTH_SESSION_CHANGE_EVENT, loadAccountSummary);
+      window.removeEventListener('storage', loadAccountSummary);
+    };
+  }, []);
 
   useEffect(() => {
     if (!isCenterOpen) return;
@@ -115,7 +167,7 @@ const AnnouncementPopup: React.FC = () => {
 
   return (
     <>
-      <div className="fixed top-4 right-4 sm:top-5 sm:right-6 z-[72]">
+      <div className="fixed top-4 right-4 sm:top-5 sm:right-6 z-[72] flex items-center gap-2">
         <button
           type="button"
           onClick={() => setIsCenterOpen((prev) => !prev)}
@@ -127,7 +179,31 @@ const AnnouncementPopup: React.FC = () => {
             <span className="absolute top-2 right-2 h-2.5 w-2.5 rounded-full bg-red-500 shadow-[0_0_10px_rgba(239,68,68,0.85)]" />
           )}
         </button>
+        <button
+          type="button"
+          onClick={() => {
+            setIsPricingOpen(true);
+            setIsCenterOpen(false);
+          }}
+          className="relative inline-flex h-10 w-10 items-center justify-center rounded-xl border border-yellow-400/25 bg-[#171b24]/92 text-yellow-200 shadow-[0_10px_30px_rgba(0,0,0,0.35)] backdrop-blur-xl transition-all hover:border-yellow-300/45 hover:bg-[#24220f] hover:text-yellow-100"
+          title="查看价格表"
+        >
+          <ReceiptText size={16} />
+        </button>
+        <button
+          type="button"
+          onClick={onOpenSettings}
+          className="hidden h-10 max-w-[220px] items-center gap-2 rounded-xl border border-white/12 bg-[#171b24]/92 px-3 text-left text-gray-200 shadow-[0_10px_30px_rgba(0,0,0,0.35)] backdrop-blur-xl transition-all hover:border-white/25 hover:bg-[#1d2431] hover:text-white sm:inline-flex"
+          title={accountSummary ? '账户余额' : '登录 / 账户'}
+        >
+          {accountSummary ? <Wallet size={16} className="text-emerald-300" /> : <UserRound size={16} />}
+          <span className="min-w-0 truncate text-xs font-semibold">
+            {accountSummary ? `${formatPoint(accountSummary.points)} 点` : '登录 / 账户'}
+          </span>
+        </button>
       </div>
+
+      <PricingReferencePanel isOpen={isPricingOpen} onClose={() => setIsPricingOpen(false)} />
 
       {isCenterOpen && (
         <div ref={centerRef} className="fixed top-16 right-4 sm:top-[72px] sm:right-6 z-[72] w-[360px] max-w-[calc(100vw-1.5rem)]">

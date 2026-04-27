@@ -57,10 +57,7 @@ export interface ImageRouteOption {
   isDirectUserApiKeyCompatible?: boolean;
 }
 
-const API_BASE_URL =
-  typeof window !== 'undefined' && window.location.hostname === 'localhost'
-    ? 'http://localhost:3355/api'
-    : '/api';
+const API_BASE_URL = '/api';
 
 const cleanUrl = (url: string) => url.replace(/\/$/, '');
 
@@ -287,6 +284,41 @@ export const getSelectedImageRoute = (
   );
 };
 
+export const getLowestCostImageRouteForModel = (
+  imageModel: string,
+  imageSize?: string,
+  {
+    directKeyOnly = false,
+  }: {
+    directKeyOnly?: boolean;
+  } = {},
+): ImageRouteConfig | null => {
+  const modelConfig = getImageModelById(imageModel);
+  const routeFamily = String(modelConfig?.routeFamily || 'default').trim() || 'default';
+  const familyRoutes = getImageRoutesByModelFamily(routeFamily).filter((route) => {
+    if (route.isActive === false) return false;
+    return directKeyOnly ? route.allowUserApiKeyWithoutLogin === true : true;
+  });
+
+  if (familyRoutes.length === 0) return null;
+
+  return [...familyRoutes].sort((left, right) => {
+    const leftCost = getImageRoutePointCost(left, imageSize);
+    const rightCost = getImageRoutePointCost(right, imageSize);
+    if (leftCost !== rightCost) return leftCost - rightCost;
+
+    const leftDefault = left.isDefaultRoute || left.isDefaultNanoBananaLine ? 1 : 0;
+    const rightDefault = right.isDefaultRoute || right.isDefaultNanoBananaLine ? 1 : 0;
+    if (leftDefault !== rightDefault) return rightDefault - leftDefault;
+
+    if ((left.sortOrder || 0) !== (right.sortOrder || 0)) {
+      return (left.sortOrder || 0) - (right.sortOrder || 0);
+    }
+
+    return left.label.localeCompare(right.label);
+  })[0];
+};
+
 export const getImageRouteOptions = (
   imageModel: string,
   {
@@ -305,9 +337,10 @@ export const getImageRouteOptions = (
     return [];
   }
 
-  const familyRoutes = getImageRoutesByModelFamily(routeFamily).filter((route) =>
-    directKeyOnly ? route.allowUserApiKeyWithoutLogin === true : true,
-  );
+  const familyRoutes = getImageRoutesByModelFamily(routeFamily).filter((route) => {
+    if (route.isActive === false) return false;
+    return directKeyOnly ? route.allowUserApiKeyWithoutLogin === true : true;
+  });
   if (familyRoutes.length <= 1) {
     return [];
   }
@@ -339,7 +372,7 @@ export const canUseDirectUserApiKeyForImageModel = (imageModel: string): boolean
   if (!routeFamily) return false;
 
   return getImageRoutesByModelFamily(routeFamily).some(
-    (route) => route.allowUserApiKeyWithoutLogin === true,
+    (route) => route.isActive !== false && route.allowUserApiKeyWithoutLogin === true,
   );
 };
 

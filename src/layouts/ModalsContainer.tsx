@@ -11,6 +11,7 @@ interface ModalsContainerProps {
   settingsOpen: boolean;
   settingsTab: 'settings' | 'history';
   onCloseSettings: () => void;
+  onOpenSettings?: () => void;
   onReusePrompt: (prompt: string, type: 'image' | 'video') => void;
   onViewImage: (src: string) => void;
   onUseAsReference: (src: string) => void;
@@ -47,6 +48,7 @@ export const ModalsContainer: React.FC<ModalsContainerProps> = ({
   settingsOpen,
   settingsTab,
   onCloseSettings,
+  onOpenSettings,
   onReusePrompt,
   onViewImage,
   onUseAsReference,
@@ -73,7 +75,7 @@ export const ModalsContainer: React.FC<ModalsContainerProps> = ({
 }) => {
   return (
     <>
-      <AnnouncementPopup />
+      <AnnouncementPopup onOpenSettings={onOpenSettings} />
       <SettingsModal
         isOpen={settingsOpen}
         initialTab={settingsTab}

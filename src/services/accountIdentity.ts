@@ -1,7 +1,5 @@
 ﻿const API_BASE_URL =
-  typeof window !== 'undefined' && window.location.hostname === 'localhost'
-    ? 'http://localhost:3355/api'
-    : '/api';
+  '/api';
 
 const cleanUrl = (url: string) => url.replace(/\/$/, '');
 const STORAGE_KEY = 'auth-session-v1';

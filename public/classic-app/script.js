@@ -30,10 +30,60 @@ const GPT_IMAGE_DEFAULTS = {
 const NOTICE_READ_TS_KEY = "nb_notice_last_read_ts";
 const NOTICE_POPUP_DISMISSED_KEY = "nb_notice_popup_dismissed_id";
 const CREATE_MODE_STORAGE_KEY = "preferred-create-ui";
+const PRICE_LINE_ALL = "__all__";
+const AUTH_SESSION_STORAGE_KEY = "auth-session-v1";
 
 try {
   localStorage.setItem(CREATE_MODE_STORAGE_KEY, "classic");
 } catch (_) {}
+
+let classicPricingCatalog = {
+  models: [
+    {
+      id: "nano-banana",
+      label: "Nano Banana Pro",
+      routeFamily: "nano-banana",
+      sizeOptions: ["1k", "2k", "4k"],
+      defaultSize: "2k",
+      selectorCost: 5,
+    },
+    {
+      id: "gemini-flash",
+      label: "Nano Banana 2",
+      routeFamily: "default",
+      sizeOptions: ["1k", "2k", "4k"],
+      defaultSize: "2k",
+      selectorCost: 2.5,
+    },
+    {
+      id: "gpt-image-2",
+      label: "GPT-image-2",
+      routeFamily: "gpt-image-2",
+      sizeOptions: ["auto", "1k", "2k", "4k"],
+      defaultSize: "auto",
+      selectorCost: 1,
+    },
+  ],
+  routes: [
+    { id: "nano-banana-pro-line1", label: "Line 1", modelFamily: "nano-banana", line: "line1", pointCost: 10 },
+    { id: "nano-banana-pro-line2", label: "Line 2", modelFamily: "nano-banana", line: "line2", pointCost: 18 },
+    { id: "nano-banana-pro-line3", label: "Line 3", modelFamily: "nano-banana", line: "line3", pointCost: 20 },
+    {
+      id: "nano-banana-pro-line4",
+      label: "Line 4",
+      modelFamily: "nano-banana",
+      line: "line4",
+      pointCost: 5,
+      sizeOverrides: {
+        "1k": { pointCost: 4 },
+        "2k": { pointCost: 4.5 },
+        "4k": { pointCost: 5 },
+      },
+    },
+    { id: "openai-image-default", label: "Default Route", modelFamily: "default", line: "default", pointCost: 12 },
+    { id: "gpt-image-2-default", label: "Default Route", modelFamily: "gpt-image-2", line: "default", pointCost: 1 },
+  ],
+};
 
 const HISTORY_CACHE_DB = "nb_history_cache_db";
 const HISTORY_CACHE_STORE = "images";
@@ -693,6 +743,7 @@ window.selectPill = function(pillId, element, costLabel = null) {
   if (pillId === 'modelPill') {
     imageModel = val;
     localStorage.setItem('nb_image_model', val);
+    selectClassicLineSilently(getLowestClassicRouteForModel(val));
     updateModelUI();
   } else if (pillId === 'linePill') {
     localStorage.setItem('nb_line', val);
@@ -708,7 +759,7 @@ window.selectPill = function(pillId, element, costLabel = null) {
     localStorage.setItem(GPT_IMAGE_MODERATION_KEY, val);
   }
 
-  if (pillId === 'modelPill' || pillId === 'linePill' || pillId === 'sizePill') {
+  if (pillId === 'modelPill' || pillId === 'linePill' || pillId === 'sizePill' || pillId === 'qtyPill') {
     if (typeof window.refreshClassicCatalogUi === 'function') {
       window.refreshClassicCatalogUi();
     }
@@ -804,7 +855,406 @@ function updateModelUI() {
   updateClassicRefUploadHint();
   updateClassicGptSettingsUi();
   enforceCurrentRefImageLimit();
+  updateCurrentPriceCard();
 }
+
+function formatClassicPoint(value) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed.toFixed(1) : "0.0";
+}
+
+function normalizeClassicSize(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  return normalized || "1k";
+}
+
+function formatClassicSizeLabel(value) {
+  const normalized = normalizeClassicSize(value);
+  return normalized === "auto" ? "自动" : normalized.toUpperCase();
+}
+
+function normalizeClassicLine(value) {
+  const raw = String(value || "").trim().toLowerCase();
+  if (/^\d+$/.test(raw)) return `line${raw}`;
+  return raw || "default";
+}
+
+function getClassicLineDomValue(line) {
+  const normalized = normalizeClassicLine(line);
+  const match = normalized.match(/^line([0-9]+)$/);
+  return match?.[1] || normalized;
+}
+
+function getClassicLineLabel(line, fallback = "") {
+  const normalized = normalizeClassicLine(line);
+  const match = normalized.match(/^line([0-9]+)$/);
+  if (match?.[1]) return `线路 ${match[1]}`;
+  if (normalized === "default") return "默认线路";
+  return String(fallback || line || "线路").trim();
+}
+
+function getClassicModelAlias(modelId = imageModel) {
+  const value = String(modelId || "").trim();
+  if (value === "nano-banana-2") return "gemini-flash";
+  return value;
+}
+
+function getClassicModels() {
+  return Array.isArray(classicPricingCatalog?.models)
+    ? classicPricingCatalog.models.filter((model) => model?.isActive !== false)
+    : [];
+}
+
+function getClassicRoutes() {
+  return Array.isArray(classicPricingCatalog?.routes)
+    ? classicPricingCatalog.routes.filter((route) => route?.isActive !== false)
+    : [];
+}
+
+function getClassicModelConfig(modelId = imageModel) {
+  const alias = getClassicModelAlias(modelId);
+  return (
+    getClassicModels().find((model) => model.id === alias) ||
+    getClassicModels().find((model) => model.id === modelId) ||
+    getClassicModels()[0] ||
+    null
+  );
+}
+
+function getClassicRoutesForModel(model) {
+  if (!model) return [];
+  const family = String(model.routeFamily || model.modelFamily || model.id || "").trim();
+  return getClassicRoutes().filter((route) => String(route.modelFamily || "").trim() === family);
+}
+
+function getClassicSelectedRoute(model = getClassicModelConfig()) {
+  const routes = getClassicRoutesForModel(model);
+  if (!routes.length) return null;
+  const selectedLine = imageModel === "nano-banana"
+    ? normalizeClassicLine(document.getElementById("linePill")?.getAttribute("data-selected-value") || "1")
+    : "default";
+  return (
+    routes.find((route) => normalizeClassicLine(route.line) === selectedLine) ||
+    routes.find((route) => route.isDefaultRoute) ||
+    routes[0]
+  );
+}
+
+function getLowestClassicRouteForModel(modelId = imageModel, size = null) {
+  const model = getClassicModelConfig(modelId);
+  if (!model) return null;
+  const currentSize = size || getClassicCurrentSize(model);
+  const routes = getClassicRoutesForModel(model);
+  if (!routes.length) return null;
+  return [...routes].sort((left, right) => {
+    const leftCost = getClassicRouteCost(left, currentSize, model.selectorCost || 0);
+    const rightCost = getClassicRouteCost(right, currentSize, model.selectorCost || 0);
+    if (leftCost !== rightCost) return leftCost - rightCost;
+
+    const leftDefault = left.isDefaultRoute || left.isDefaultNanoBananaLine ? 1 : 0;
+    const rightDefault = right.isDefaultRoute || right.isDefaultNanoBananaLine ? 1 : 0;
+    if (leftDefault !== rightDefault) return rightDefault - leftDefault;
+
+    if ((left.sortOrder || 0) !== (right.sortOrder || 0)) {
+      return (left.sortOrder || 0) - (right.sortOrder || 0);
+    }
+
+    return String(left.label || "").localeCompare(String(right.label || ""));
+  })[0];
+}
+
+function selectClassicLineSilently(route) {
+  const linePill = document.getElementById("linePill");
+  if (!linePill || !route) return;
+  const lineValue = getClassicLineDomValue(route.line);
+  let lineItem = linePill.querySelector(`.dropdown-item[data-value="${lineValue}"]`);
+  if (!lineItem) {
+    lineItem = document.createElement("div");
+    lineItem.className = "dropdown-item";
+    lineItem.dataset.value = lineValue;
+    lineItem.textContent = getClassicLineLabel(route.line, route.label);
+    lineItem.onclick = function () { selectPill("linePill", this); };
+    linePill.querySelector(".dropdown-menu")?.appendChild(lineItem);
+  }
+
+  linePill.querySelectorAll(".dropdown-item").forEach((item) => item.classList.remove("active"));
+  lineItem.classList.add("active");
+  linePill.setAttribute("data-selected-value", lineValue);
+  const triggerLabel = linePill.querySelector(".trigger-label");
+  if (triggerLabel) triggerLabel.innerText = getClassicLineLabel(route.line, route.label);
+  localStorage.setItem("nb_line", lineValue);
+}
+
+function getClassicSizeOptions(model) {
+  const raw = Array.isArray(model?.sizeOptions) && model.sizeOptions.length
+    ? model.sizeOptions
+    : [model?.defaultSize || "1k"];
+  return Array.from(new Set(raw.map((size) => normalizeClassicSize(size)).filter(Boolean)));
+}
+
+function getClassicCurrentSize(model = getClassicModelConfig()) {
+  const selected = normalizeClassicSize(document.getElementById("sizePill")?.getAttribute("data-selected-value") || "1K");
+  const options = getClassicSizeOptions(model);
+  return options.includes(selected) ? selected : normalizeClassicSize(model?.defaultSize || options[0] || selected);
+}
+
+function getClassicRouteCost(route, size, fallback = 0) {
+  const key = normalizeClassicSize(size);
+  const override = route?.sizeOverrides?.[key];
+  const value = override && Number.isFinite(Number(override.pointCost))
+    ? Number(override.pointCost)
+    : Number(route?.pointCost ?? fallback);
+  return Number.isFinite(value) ? Math.max(0, value) : 0;
+}
+
+function getClassicQuantity() {
+  const value = Number.parseInt(
+    document.getElementById("qtyPill")?.getAttribute("data-selected-value") || "1",
+    10,
+  );
+  return Number.isFinite(value) && value > 0 ? value : 1;
+}
+
+function getClassicCurrentPricing() {
+  const model = getClassicModelConfig();
+  const route = getClassicSelectedRoute(model);
+  const size = getClassicCurrentSize(model);
+  const quantity = getClassicQuantity();
+  const unitCost = getClassicRouteCost(route, size, model?.selectorCost || 0);
+  return {
+    model,
+    route,
+    size,
+    quantity,
+    unitCost,
+    totalCost: unitCost * quantity,
+  };
+}
+
+function updateCurrentPriceCard() {
+  const meta = document.getElementById("currentPriceMeta");
+  const total = document.getElementById("currentPriceTotal");
+  if (!meta || !total) return;
+  const pricing = getClassicCurrentPricing();
+  const modelLabel = pricing.model?.label || "当前模型";
+  const routeLabel = getClassicLineLabel(pricing.route?.line || "", pricing.route?.label || "");
+  meta.textContent = `${modelLabel} / ${routeLabel} / ${formatClassicSizeLabel(pricing.size)} / ${pricing.quantity} 张`;
+  total.textContent = `${formatClassicPoint(pricing.totalCost)} 🪙`;
+
+  const modalMeta = document.getElementById("priceCurrentMeta");
+  const modalTotal = document.getElementById("priceCurrentTotal");
+  if (modalMeta) {
+    modalMeta.textContent = `${modelLabel} / ${routeLabel} / ${formatClassicSizeLabel(pricing.size)} / 单张 ${formatClassicPoint(pricing.unitCost)}`;
+  }
+  if (modalTotal) {
+    modalTotal.textContent = `${formatClassicPoint(pricing.totalCost)} 🪙`;
+  }
+}
+
+async function loadClassicPricingCatalog() {
+  try {
+    const [modelRes, routeRes] = await Promise.all([
+      fetch("/api/image-models/catalog"),
+      fetch("/api/image-routes/catalog"),
+    ]);
+    if (!modelRes.ok || !routeRes.ok) return;
+    const modelCatalog = await modelRes.json();
+    const routeCatalog = await routeRes.json();
+    const models = Array.isArray(modelCatalog?.models) ? modelCatalog.models : [];
+    const routes = Array.isArray(routeCatalog?.routes) ? routeCatalog.routes : [];
+    if (!models.length || !routes.length) return;
+    classicPricingCatalog = { models, routes };
+    renderPriceLineFilter();
+    selectClassicLineSilently(getLowestClassicRouteForModel(imageModel));
+    updateCurrentPriceCard();
+  } catch (error) {
+    console.warn("加载价格表失败，使用本地价格兜底", error);
+  }
+}
+
+function renderPriceLineFilter() {
+  const select = document.getElementById("priceLineFilter");
+  if (!select) return;
+  const previous = select.value || PRICE_LINE_ALL;
+  const lines = new Map();
+  getClassicRoutes().forEach((route) => {
+    lines.set(normalizeClassicLine(route.line), getClassicLineLabel(route.line, route.label));
+  });
+  select.innerHTML = `<option value="${PRICE_LINE_ALL}">全部线路</option>`;
+  lines.forEach((label, value) => {
+    const option = document.createElement("option");
+    option.value = value;
+    option.textContent = label;
+    select.appendChild(option);
+  });
+  select.value = Array.from(lines.keys()).includes(previous) ? previous : PRICE_LINE_ALL;
+}
+
+function renderPriceTable() {
+  const list = document.getElementById("priceTableList");
+  if (!list) return;
+  const current = getClassicCurrentPricing();
+  const lineFilter = document.getElementById("priceLineFilter")?.value || PRICE_LINE_ALL;
+  const rows = [];
+
+  getClassicModels().forEach((model) => {
+    getClassicRoutesForModel(model)
+      .filter((route) => lineFilter === PRICE_LINE_ALL || normalizeClassicLine(route.line) === lineFilter)
+      .forEach((route) => {
+        rows.push({ model, route, sizes: getClassicSizeOptions(model) });
+      });
+  });
+
+  if (!rows.length) {
+    list.innerHTML = `<div class="notice-empty">暂无价格数据</div>`;
+    renderLowestPriceList();
+    updateCurrentPriceCard();
+    return;
+  }
+
+  list.innerHTML = rows.map(({ model, route, sizes }) => {
+    const isCurrent = current.model?.id === model.id && current.route?.id === route.id;
+    const cells = sizes.map((size) => {
+      const isCurrentSize = isCurrent && normalizeClassicSize(size) === current.size;
+      return `
+        <div class="price-size-cell ${isCurrentSize ? "is-current" : ""}">
+          <div class="price-size-label">${formatClassicSizeLabel(size)}</div>
+          <div class="price-size-cost">${formatClassicPoint(getClassicRouteCost(route, size, model.selectorCost || 0))} 🪙</div>
+        </div>
+      `;
+    }).join("");
+
+    return `
+      <div class="price-row-card ${isCurrent ? "is-current" : ""}">
+        <div class="price-row-head">
+          <div>
+            <div class="price-row-name">${escapeHtml(model.label || model.id || "模型")}</div>
+            <div class="price-row-route">${escapeHtml(getClassicLineLabel(route.line, route.label))}</div>
+          </div>
+          ${isCurrent ? '<div class="price-current-badge">当前使用</div>' : ""}
+        </div>
+        <div class="price-size-grid">${cells}</div>
+      </div>
+    `;
+  }).join("");
+
+  renderLowestPriceList();
+  updateCurrentPriceCard();
+}
+
+function getClassicLowestPrices() {
+  return getClassicModels()
+    .map((model) => {
+      const candidates = getClassicRoutesForModel(model).flatMap((route) =>
+        getClassicSizeOptions(model).map((size) => ({
+          model,
+          route,
+          size,
+          cost: getClassicRouteCost(route, size, model.selectorCost || 0),
+        })),
+      );
+      return candidates.sort((left, right) => left.cost - right.cost)[0] || null;
+    })
+    .filter(Boolean);
+}
+
+function renderLowestPriceList() {
+  const root = document.getElementById("priceLowestList");
+  if (!root) return;
+  const items = getClassicLowestPrices();
+  if (!items.length) {
+    root.innerHTML = `<div class="notice-empty">暂无可用价格</div>`;
+    return;
+  }
+  root.innerHTML = items.map((item) => `
+    <div class="price-lowest-card">
+      <div class="price-lowest-model">${escapeHtml(item.model?.label || item.model?.id || "模型")}</div>
+      <div class="price-lowest-cost">${formatClassicPoint(item.cost)} 🪙</div>
+      <div class="price-lowest-meta">${escapeHtml(getClassicLineLabel(item.route?.line, item.route?.label))} / ${formatClassicSizeLabel(item.size)}</div>
+    </div>
+  `).join("");
+}
+
+window.refreshClassicCatalogUi = function () {
+  updateCurrentPriceCard();
+  renderPriceTable();
+};
+
+window.openPriceCenter = function () {
+  const overlay = document.getElementById("priceOverlay");
+  if (!overlay) return;
+  renderPriceLineFilter();
+  renderPriceTable();
+  overlay.style.display = "flex";
+};
+
+window.closePriceCenter = function () {
+  const overlay = document.getElementById("priceOverlay");
+  if (overlay) overlay.style.display = "none";
+};
+
+window.togglePriceCenter = function (event) {
+  if (event) event.stopPropagation();
+  const overlay = document.getElementById("priceOverlay");
+  if (!overlay || overlay.style.display === "flex") {
+    closePriceCenter();
+  } else {
+    openPriceCenter();
+  }
+};
+
+window.handlePriceOverlayClick = function (event) {
+  if (event.target?.id === "priceOverlay") {
+    closePriceCenter();
+  }
+};
+
+function getClassicAuthSessionToken() {
+  try {
+    return String(localStorage.getItem(AUTH_SESSION_STORAGE_KEY) || "").trim();
+  } catch (_) {
+    return "";
+  }
+}
+
+function setClassicTopAccountText(text, icon = "👤") {
+  const label = document.getElementById("classicTopAccountText");
+  const iconEl = document.querySelector("#classicTopAccountBtn .classic-top-account-icon");
+  if (label) label.textContent = text;
+  if (iconEl) iconEl.textContent = icon;
+}
+
+async function refreshClassicTopAccount() {
+  const token = getClassicAuthSessionToken();
+  if (!token) {
+    setClassicTopAccountText("登录 / 账户", "👤");
+    return;
+  }
+
+  try {
+    const res = await fetch("/api/account/me?ledgerPage=1&ledgerPageSize=1", {
+      method: "GET",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Auth-Session": token,
+      },
+    });
+    if (!res.ok) throw new Error(`account status ${res.status}`);
+    const data = await res.json();
+    const points = Number(data?.account?.points || 0);
+    setClassicTopAccountText(`${formatClassicPoint(points)} 点`, "💰");
+  } catch (_) {
+    setClassicTopAccountText("登录 / 账户", "👤");
+  }
+}
+
+window.openClassicAccountPanel = function () {
+  if (typeof switchTab === "function") {
+    switchTab("profile");
+  } else {
+    window.location.href = "/billing";
+  }
+};
 
 function getGrokRefMode() {
   const mode = localStorage.getItem(GROK_REF_MODE_KEY) || "stable_fusion";
@@ -828,6 +1278,10 @@ function initGrokRefModeUI() {
 document.addEventListener('DOMContentLoaded', () => {
   // 初始化模型显示
   updateModelUI();
+  renderPriceLineFilter();
+  updateCurrentPriceCard();
+  loadClassicPricingCatalog();
+  refreshClassicTopAccount();
   initGrokRefModeUI();
   updateClassicRefUploadHint();
   updateClassicGptSettingsUi();
@@ -846,7 +1300,11 @@ document.addEventListener('DOMContentLoaded', () => {
   const savedLine = localStorage.getItem('nb_line') || '1';
   const linePill = document.getElementById('linePill');
   const lineItem = linePill?.querySelector(`[data-value="${savedLine}"]`);
-  if (lineItem) selectPill('linePill', lineItem);
+  if (lineItem) {
+    selectPill('linePill', lineItem);
+  } else {
+    selectClassicLineSilently(getLowestClassicRouteForModel(imageModel));
+  }
 });
 
 // --- Theme Logic ---
@@ -897,6 +1355,8 @@ window.addEventListener("load", () => {
   initTheme();
   loadHistory();
   updateModelUI(); // 初始化模型 UI 状态
+  updateCurrentPriceCard();
+  refreshClassicTopAccount();
   initPromptTagUi();
   refreshReferencedThumbHighlight();
   const savedKey = localStorage.getItem("nb_key");
@@ -1819,6 +2279,15 @@ async function runGen() {
 
   // 读取线路选择
   const line = (imageModel === 'nano-banana') ? (document.getElementById('linePill')?.getAttribute('data-selected-value') || '1') : '1';
+  const classicModelConfig = getClassicModelConfig(imageModel);
+  const classicRoute = getClassicSelectedRoute(classicModelConfig);
+  if (classicModelConfig?.id) {
+    basePayload.modelId = classicModelConfig.id;
+  }
+  if (classicRoute?.id) {
+    basePayload.routeId = classicRoute.id;
+  }
+  basePayload.imageSize = size.toLowerCase();
 
   // Grok：单次请求，前端双占位，轮询后映射到2张图
   if (isGrokModel) {

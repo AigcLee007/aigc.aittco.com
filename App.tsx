@@ -403,6 +403,7 @@ const App: React.FC = () => {
              settingsOpen={modalOpen}
              settingsTab={modalTab}
              onCloseSettings={() => setModalOpen(false)}
+             onOpenSettings={() => openModal("settings")}
              onReusePrompt={(prompt, type) => {
                setModalOpen(false);
                useSelectionStore
@@ -469,6 +470,7 @@ const App: React.FC = () => {
           settingsOpen={modalOpen}
           settingsTab={modalTab}
           onCloseSettings={() => setModalOpen(false)}
+          onOpenSettings={() => openModal("settings")}
           onReusePrompt={(prompt, type) => {
             setModalOpen(false);
             useSelectionStore
@@ -564,6 +566,7 @@ const App: React.FC = () => {
           settingsOpen={modalOpen}
           settingsTab={modalTab}
           onCloseSettings={() => setModalOpen(false)}
+          onOpenSettings={() => openModal("settings")}
           onReusePrompt={(prompt, type) => {
             setModalOpen(false);
             useSelectionStore

@@ -1,8 +1,9 @@
-import React, { useEffect, useMemo } from 'react';
+import React, { useEffect, useMemo, useRef } from 'react';
 import { useSelectionStore } from '../src/store/selectionStore';
 import DropUpSelect from './DropUpSelect';
 import ModelSelector from './ModelSelector';
 import ImageModelIcon from './ImageModelIcon';
+import CoinIcon from './CoinIcon';
 import {
   DEFAULT_IMAGE_MODEL_ID,
   getDefaultImageSizeForModel,
@@ -15,9 +16,11 @@ import {
 } from '../src/config/imageModels';
 import {
   canUseDirectUserApiKeyForImageModel,
+  getLowestCostImageRouteForModel,
   getImageRoutePointCost,
   getImageRouteOptions,
   getImageRoutesByModelFamily,
+  getSelectedImageRoute,
 } from '../src/config/imageRoutes';
 import { useImageRouteCatalog } from '../src/hooks/useImageRouteCatalog';
 import { useImageModelCatalog } from '../src/hooks/useImageModelCatalog';
@@ -69,11 +72,13 @@ export const ImageFormConfig: React.FC<ImageFormConfigProps> = ({
     gptImageModeration,
     setGptImageModeration,
   } = useSelectionStore();
+  const lastAutoPricedModelRef = useRef<string | null>(null);
 
   const visibleImageModels = useMemo(
     () =>
       getImageModelOptions().filter((model) =>
-        restrictToDirectKeyCompatible ? canUseDirectUserApiKeyForImageModel(model.id) : true,
+        model.isActive !== false &&
+        (restrictToDirectKeyCompatible ? canUseDirectUserApiKeyForImageModel(model.id) : true),
       ),
     [restrictToDirectKeyCompatible],
   );
@@ -85,9 +90,10 @@ export const ImageFormConfig: React.FC<ImageFormConfigProps> = ({
 
   const availableRoutes = useMemo(
     () =>
-      getImageRoutesByModelFamily(currentModel.routeFamily).filter((route) =>
-        restrictToDirectKeyCompatible ? route.allowUserApiKeyWithoutLogin === true : true,
-      ),
+      getImageRoutesByModelFamily(currentModel.routeFamily).filter((route) => {
+        if (route.isActive === false) return false;
+        return restrictToDirectKeyCompatible ? route.allowUserApiKeyWithoutLogin === true : true;
+      }),
     [currentModel.routeFamily, restrictToDirectKeyCompatible],
   );
 
@@ -110,6 +116,9 @@ export const ImageFormConfig: React.FC<ImageFormConfigProps> = ({
   const showLineSelector = availableRoutes.length > 1;
   const showSizeSelector = shouldShowImageSizeSelector(currentModel.id);
   const isGptImage2 = currentModel.id === 'gpt-image-2';
+  const selectedRoute = getSelectedImageRoute(currentModel.id, imageLine);
+  const currentUnitCost = getImageRoutePointCost(selectedRoute, normalizedSize);
+  const currentTotalCost = currentUnitCost * Math.max(1, Number(quantity || 1));
 
   const commitGptCompression = (value: string) => {
     const trimmed = value.trim();
@@ -136,8 +145,37 @@ export const ImageFormConfig: React.FC<ImageFormConfigProps> = ({
   useEffect(() => {
     if (availableRoutes.length === 0) return;
     if (availableRoutes.some((route) => route.line === imageLine)) return;
-    setImageLine(availableRoutes[0].line);
-  }, [availableRoutes, imageLine, setImageLine]);
+    const cheapestRoute = getLowestCostImageRouteForModel(currentModel.id, normalizedSize, {
+      directKeyOnly: restrictToDirectKeyCompatible,
+    });
+    setImageLine((cheapestRoute || availableRoutes[0]).line);
+  }, [
+    availableRoutes,
+    currentModel.id,
+    imageLine,
+    normalizedSize,
+    restrictToDirectKeyCompatible,
+    setImageLine,
+  ]);
+
+  useEffect(() => {
+    if (availableRoutes.length === 0) return;
+    if (lastAutoPricedModelRef.current === currentModel.id) return;
+    lastAutoPricedModelRef.current = currentModel.id;
+    const cheapestRoute = getLowestCostImageRouteForModel(currentModel.id, normalizedSize, {
+      directKeyOnly: restrictToDirectKeyCompatible,
+    });
+    if (cheapestRoute && cheapestRoute.line !== imageLine) {
+      setImageLine(cheapestRoute.line);
+    }
+  }, [
+    availableRoutes.length,
+    currentModel.id,
+    imageLine,
+    normalizedSize,
+    restrictToDirectKeyCompatible,
+    setImageLine,
+  ]);
 
   const ratioOptions = useMemo(() => {
     const extraRatios = getImageModelExtraAspectRatios(currentModel.id).map((value) => ({
@@ -168,9 +206,10 @@ export const ImageFormConfig: React.FC<ImageFormConfigProps> = ({
   const modelOptions = useMemo(
     () =>
       visibleImageModels.map((model) => {
-        const familyRoutes = getImageRoutesByModelFamily(model.routeFamily).filter((route) =>
-          restrictToDirectKeyCompatible ? route.allowUserApiKeyWithoutLogin === true : true,
-        );
+        const familyRoutes = getImageRoutesByModelFamily(model.routeFamily).filter((route) => {
+          if (route.isActive === false) return false;
+          return restrictToDirectKeyCompatible ? route.allowUserApiKeyWithoutLogin === true : true;
+        });
         const displayRoute =
           familyRoutes.find((route) => route.line === imageLine) ||
           familyRoutes.find((route) => route.isDefaultRoute) ||
@@ -206,7 +245,16 @@ export const ImageFormConfig: React.FC<ImageFormConfigProps> = ({
         <ModelSelector
           dropUp
           value={currentModel.id}
-          onChange={(value) => setImageModel(value)}
+          onChange={(value) => {
+            setImageModel(value);
+            const nextSize = getNormalizedImageSizeForModel(value, imageSize);
+            const cheapestRoute = getLowestCostImageRouteForModel(value, nextSize, {
+              directKeyOnly: restrictToDirectKeyCompatible,
+            });
+            if (cheapestRoute) {
+              setImageLine(cheapestRoute.line);
+            }
+          }}
           options={modelOptions}
         />
       </div>
@@ -339,6 +387,24 @@ export const ImageFormConfig: React.FC<ImageFormConfigProps> = ({
               { value: '4', label: '4' },
             ]}
           />
+        </div>
+      </div>
+
+      <div className="mt-3 rounded-xl border border-yellow-400/[0.18] bg-yellow-400/[0.06] px-3 py-2.5">
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <div className="text-[10px] text-gray-400">当前配置消耗</div>
+            <div className="mt-0.5 truncate text-[11px] text-gray-500">
+              {currentModel.label} / {selectedRoute.label} / {normalizedSize.toUpperCase()} / {quantity} 张
+            </div>
+          </div>
+          <div className="flex shrink-0 items-center gap-1.5 rounded-lg border border-yellow-400/20 bg-black/20 px-2.5 py-1.5 text-sm font-semibold text-yellow-300">
+            <CoinIcon size={15} />
+            {currentTotalCost.toFixed(1)}
+          </div>
+        </div>
+        <div className="mt-2 text-[10px] leading-4 text-gray-500">
+          单张 {currentUnitCost.toFixed(1)} 点，最终按数量自动合计。
         </div>
       </div>
     </>
