@@ -1,77 +1,93 @@
-﻿//const BACKEND_URL = 'http://localhost:3002';
-// 鑷姩鍒ゆ柇鐜锛氭湰鍦板紑鍙戠敤 3323锛岀嚎涓婇儴缃茬敤鐩稿璺緞// 鑷姩鍒ゆ柇鐜
-const BACKEND_URL = typeof window !== 'undefined' && window.location.hostname === 'localhost'
-  ? 'http://localhost:3355'
-  : '';
+import {
+  AUTH_SESSION_CHANGE_EVENT,
+  getAuthorizedBillingHeaders,
+} from '../src/services/accountIdentity';
 
-interface ReversePromptResponse {
-    success: boolean;
-    prompt?: string;
-    error?: string;
+const BACKEND_URL = '/api';
+
+export interface ReversePromptResult {
+  plainPrompt: string;
+  jsonPrompt: Record<string, unknown>;
+  prompt: string;
+  model?: string;
+  cost?: number;
+  billing?: {
+    deductedPoints?: number;
+    remainingPoints?: number;
+  };
 }
 
-/**
- * 灏嗘枃浠惰浆鎹负 Base64 瀛楃涓? */
+interface ReversePromptResponse extends Partial<ReversePromptResult> {
+  success: boolean;
+  error?: string;
+}
+
 const fileToBase64 = (file: File): Promise<string> => {
-    return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.readAsDataURL(file);
-        reader.onload = () => resolve(reader.result as string);
-        reader.onerror = (error) => reject(error);
-    });
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.readAsDataURL(file);
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = (error) => reject(error);
+  });
 };
 
-/**
- * 璋冪敤鍚庣 API 杩涜鍥剧墖閫嗘帹鎻愮ず璇? * @param apiKey 鐢ㄦ埛鐨?API Key
- * @param imageFile 涓婁紶鐨勫浘鐗囨枃浠? * @returns 閫嗘帹鐢熸垚鐨勬彁绀鸿瘝
- */
-export async function reversePrompt(apiKey: string, imageFile: File): Promise<string> {
-    if (!apiKey) {
-        throw new Error('API Key 涓嶈兘涓虹┖');
+export async function reversePrompt(imageFile: File): Promise<ReversePromptResult> {
+  if (!imageFile) {
+    throw new Error('请先选择图片');
+  }
+
+  if (!imageFile.type.startsWith('image/')) {
+    throw new Error('请上传有效的图片文件');
+  }
+
+  if (imageFile.size > 4 * 1024 * 1024) {
+    throw new Error('图片大小不能超过 4MB');
+  }
+
+  try {
+    const base64Image = await fileToBase64(imageFile);
+    const response = await fetch(`${BACKEND_URL}/reverse-prompt`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(await getAuthorizedBillingHeaders()),
+      },
+      body: JSON.stringify({ image: base64Image }),
+    });
+
+    const data: ReversePromptResponse = await response.json().catch(() => ({
+      success: false,
+      error: '图片逆推请求失败',
+    }));
+
+    if (!response.ok) {
+      throw new Error(data.error || `请求失败: ${response.status}`);
     }
-    if (!imageFile) {
-        throw new Error('璇峰厛閫夋嫨鍥剧墖');
+
+    const plainPrompt = String(data.plainPrompt || data.prompt || '').trim();
+    if (!data.success || !plainPrompt) {
+      throw new Error(data.error || '逆推失败：未返回结果');
     }
 
-    // 楠岃瘉鏂囦欢绫诲瀷
-    if (!imageFile.type.startsWith('image/')) {
-        throw new Error('璇蜂笂浼犳湁鏁堢殑鍥剧墖鏂囦欢');
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new Event(AUTH_SESSION_CHANGE_EVENT));
     }
 
-    // 楠岃瘉鏂囦欢澶у皬 (渚嬪闄愬埗 4MB, Gemini API 鏈夐檺鍒?
-    if (imageFile.size > 4 * 1024 * 1024) {
-        throw new Error('鍥剧墖澶у皬涓嶈兘瓒呰繃 4MB');
+    return {
+      prompt: plainPrompt,
+      plainPrompt,
+      jsonPrompt:
+        data.jsonPrompt && typeof data.jsonPrompt === 'object'
+          ? data.jsonPrompt
+          : { subject: plainPrompt },
+      model: data.model,
+      cost: data.cost,
+      billing: data.billing,
+    };
+  } catch (error: any) {
+    if (String(error?.message || '').includes('fetch')) {
+      throw new Error('连接失败：请确认后端服务正在运行');
     }
-
-    try {
-        const base64Image = await fileToBase64(imageFile);
-
-        const response = await fetch(`${BACKEND_URL}/api/reverse-prompt`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${apiKey}`
-            },
-            body: JSON.stringify({ image: base64Image })
-        });
-
-        if (!response.ok) {
-            const errorData = await response.json().catch(() => ({}));
-            throw new Error(errorData.error || `璇锋眰澶辫触: ${response.status}`);
-        }
-
-        const data: ReversePromptResponse = await response.json();
-
-        if (!data.success || !data.prompt) {
-            throw new Error(data.error || '閫嗘帹澶辫触锛氭湭杩斿洖缁撴灉');
-        }
-
-        return data.prompt;
-    } catch (error: any) {
-        if (error.message.includes('fetch')) {
-            throw new Error('杩炴帴澶辫触锛氳纭繚鍚庣鏈嶅姟姝ｅ湪杩愯 (绔彛 3325)');
-        }
-        throw error;
-    }
+    throw error;
+  }
 }
-

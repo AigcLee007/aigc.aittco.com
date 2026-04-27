@@ -1,12 +1,9 @@
-﻿/**
- * Prompt Optimization Service
- * 璋冪敤 Gemini API 浼樺寲鐢ㄦ埛杈撳叆鐨勬彁绀鸿瘝锛岀敓鎴愬涓?Nano Banana Pro 鏍煎紡鐨勬柟妗? */
+import {
+  AUTH_SESSION_CHANGE_EVENT,
+  getAuthorizedBillingHeaders,
+} from '../src/services/accountIdentity';
 
-//const BACKEND_URL = 'http://localhost:3002';
-// 鑷姩鍒ゆ柇鐜锛氭湰鍦板紑鍙戠敤 3325锛岀嚎涓婇儴缃茬敤鐩稿璺緞
-const BACKEND_URL = typeof window !== 'undefined' && window.location.hostname === 'localhost'
-  ? 'http://localhost:3355'
-  : '';
+const BACKEND_URL = '/api';
 
 export interface PromptOption {
   style: string;
@@ -16,47 +13,83 @@ export interface PromptOption {
 export interface OptimizePromptResponse {
   success: boolean;
   options?: PromptOption[];
+  model?: string;
+  cost?: number;
+  billing?: {
+    deductedPoints?: number;
+    remainingPoints?: number;
+  };
   error?: string;
 }
 
-/**
- * 浼樺寲鎻愮ず璇? * @param apiKey - API Key
- * @param prompt - 鐢ㄦ埛杈撳叆鐨勫師濮嬫彁绀鸿瘝
- * @param type - 浼樺寲绫诲瀷 ('IMAGE' | 'VIDEO'), 榛樿 'IMAGE'
- * @returns 浼樺寲鍚庣殑鎻愮ず璇嶆柟妗堟暟缁? */
-export async function optimizePrompt(apiKey: string, prompt: string, type: 'IMAGE' | 'VIDEO' = 'IMAGE'): Promise<PromptOption[]> {
-  if (!apiKey || !prompt.trim()) {
-    throw new Error('API Key 鍜屾彁绀鸿瘝涓嶈兘涓虹┖');
+export interface PromptToolConfig {
+  success: boolean;
+  model: string;
+  optimizeCost: number;
+  reverseCost: number;
+}
+
+export async function fetchPromptToolConfig(): Promise<PromptToolConfig> {
+  const response = await fetch(`${BACKEND_URL}/prompt-tools/config`, {
+    method: 'GET',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+  });
+  const data = (await response.json().catch(() => ({}))) as Partial<PromptToolConfig> & {
+    error?: string;
+  };
+  if (!response.ok) {
+    throw new Error(data.error || '读取提示词工具配置失败');
+  }
+  return {
+    success: data.success !== false,
+    model: String(data.model || 'gemini-3.1-pro-preview'),
+    optimizeCost: Number(data.optimizeCost ?? 0.5),
+    reverseCost: Number(data.reverseCost ?? 1),
+  };
+}
+
+export async function optimizePrompt(
+  prompt: string,
+  type: 'IMAGE' | 'VIDEO' = 'IMAGE',
+): Promise<PromptOption[]> {
+  if (!prompt.trim()) {
+    throw new Error('请先输入提示词');
   }
 
   try {
-    const response = await fetch(`${BACKEND_URL}/api/optimize-prompt`, {
+    const response = await fetch(`${BACKEND_URL}/optimize-prompt`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`
+        ...(await getAuthorizedBillingHeaders()),
       },
-      body: JSON.stringify({ prompt: prompt.trim(), type })
+      body: JSON.stringify({ prompt: prompt.trim(), type }),
     });
 
+    const data: OptimizePromptResponse = await response.json().catch(() => ({
+      success: false,
+      error: '优化请求失败',
+    }));
+
     if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      throw new Error(errorData.error || `璇锋眰澶辫触: ${response.status}`);
+      throw new Error(data.error || `请求失败: ${response.status}`);
     }
 
-    const data: OptimizePromptResponse = await response.json();
-
     if (!data.success || !data.options || data.options.length === 0) {
-      throw new Error(data.error || '浼樺寲澶辫触锛氭湭杩斿洖缁撴灉');
+      throw new Error(data.error || '优化失败：未返回结果');
+    }
+
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new Event(AUTH_SESSION_CHANGE_EVENT));
     }
 
     return data.options;
   } catch (error: any) {
-    if (error.message.includes('fetch')) {
-      throw new Error('杩炴帴澶辫触锛氳纭繚鍚庣鏈嶅姟姝ｅ湪杩愯 (绔彛 3325)');
+    if (String(error?.message || '').includes('fetch')) {
+      throw new Error('连接失败：请确认后端服务正在运行');
     }
     throw error;
   }
 }
-
-

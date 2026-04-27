@@ -76,6 +76,14 @@
           </svg>
         </button>
         <button
+          id="classicReversePromptBtn"
+          class="classic-prompt-tool-btn"
+          onclick="openClassicReversePrompt(event)"
+          title="图片逆推提示词"
+        >
+          🔎
+        </button>
+        <button
           id="classicTopAccountBtn"
           class="classic-top-account-btn"
           onclick="openClassicAccountPanel()"
@@ -172,13 +180,23 @@
         <!-- 顶部通栏: 提示词 -->
         <div class="tech-module prompt-module">
           <div class="module-header">
-            创意提示词 (PROMPT)
-            <span
-              class="trash-icon"
-              onclick="clearPrompt()"
-              title="清空提示词"
-              >🗑️</span
-            >
+            <span>创意提示词 (PROMPT)</span>
+            <div class="prompt-header-actions">
+              <button
+                id="classicOptimizePromptBtn"
+                class="classic-inline-tool-btn"
+                onclick="optimizeClassicPrompt()"
+                title="优化提示词"
+              >
+                ✨ 优化
+              </button>
+              <span
+                class="trash-icon"
+                onclick="clearPrompt()"
+                title="清空提示词"
+                >🗑️</span
+              >
+            </div>
           </div>
           <div class="prompt-input-wrap">
             <textarea
@@ -1040,6 +1058,51 @@
 
 <div id="refContextMenu" class="ref-context-menu" style="display:none;"></div>
 <div id="softToast" class="soft-toast" style="display:none;"></div>
+
+<div id="classicPromptToolModal" class="classic-prompt-tool-modal" style="display:none;" onclick="handleClassicPromptToolBackdrop(event)">
+  <div class="classic-prompt-tool-card" onclick="event.stopPropagation()">
+    <div class="classic-prompt-tool-header">
+      <div>
+        <div class="classic-prompt-tool-title" id="classicPromptToolTitle">提示词工具</div>
+        <div class="classic-prompt-tool-sub" id="classicPromptToolSub">gemini-3.1-pro-preview</div>
+      </div>
+      <button class="classic-prompt-tool-close" onclick="closeClassicPromptTool()">×</button>
+    </div>
+
+    <div id="classicOptimizePanel" class="classic-prompt-tool-section" style="display:none;">
+      <div id="classicOptimizeStatus" class="classic-prompt-tool-status"></div>
+      <div id="classicOptimizeOptions" class="classic-optimize-options"></div>
+    </div>
+
+    <div id="classicReversePanel" class="classic-prompt-tool-section" style="display:none;">
+      <div id="classicReverseUpload" class="classic-reverse-upload" onclick="document.getElementById('classicReverseFileInput').click()">
+        <div class="classic-reverse-upload-icon">🖼️</div>
+        <div class="classic-reverse-upload-title">点击上传图片</div>
+        <div class="classic-reverse-upload-sub">支持 JPG、PNG、WEBP，最大 4MB</div>
+      </div>
+      <input id="classicReverseFileInput" type="file" accept="image/*" style="display:none;" onchange="handleClassicReverseFileChange(event)" />
+      <div id="classicReversePreviewWrap" class="classic-reverse-preview-wrap" style="display:none;">
+        <img id="classicReversePreview" class="classic-reverse-preview" alt="逆推图片预览" />
+        <button class="classic-inline-tool-btn" onclick="document.getElementById('classicReverseFileInput').click()">更换图片</button>
+      </div>
+      <button id="classicReverseAnalyzeBtn" class="classic-prompt-primary-btn" onclick="analyzeClassicReversePrompt()" disabled>
+        开始分析
+      </button>
+      <div id="classicReverseStatus" class="classic-prompt-tool-status"></div>
+      <div id="classicReverseResult" class="classic-reverse-result" style="display:none;">
+        <div class="classic-result-tabs">
+          <button id="classicPlainPromptTab" class="classic-result-tab active" onclick="setClassicReverseResultTab('plain')">普通提示词</button>
+          <button id="classicJsonPromptTab" class="classic-result-tab" onclick="setClassicReverseResultTab('json')">JSON 提示词</button>
+        </div>
+        <pre id="classicReverseResultText" class="classic-result-text"></pre>
+        <div class="classic-result-actions">
+          <button class="classic-inline-tool-btn" onclick="copyClassicReverseResult()">复制</button>
+          <button class="classic-prompt-primary-btn compact" onclick="useClassicReverseResult()">使用当前提示词</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
 
     <script src="/classic-app/promptTags.js?v=classic_settings_layout_v1"></script>
     <script src="/classic-app/script.js?v=classic_settings_layout_v1"></script>

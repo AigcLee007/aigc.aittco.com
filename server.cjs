@@ -4335,21 +4335,64 @@ app.get("/api/video/task/:taskId", pollingLimiter, async (req, res) => {
 });
 
 // ==================== Shared Prompt Tool Helpers ====================
-// Shared model fallback for prompt tools
-const GEMINI_FALLBACK_MODELS = [
-  "gemini-3.1-pro-preview",
-  "gemini-3-po-preview",
-  "gemini-3-flash-preview",
-];
+const PROMPT_TOOL_DEFAULT_MODEL = "gemini-3.1-pro-preview";
+const getPromptToolModel = () =>
+  String(process.env.PROMPT_TOOL_MODEL || PROMPT_TOOL_DEFAULT_MODEL).trim() ||
+  PROMPT_TOOL_DEFAULT_MODEL;
+const getPromptOptimizeCost = () =>
+  Math.max(0, toPointNumber(process.env.PROMPT_OPTIMIZE_COST || "0.5", 0.5));
+const getReversePromptCost = () =>
+  Math.max(0, toPointNumber(process.env.REVERSE_PROMPT_COST || "1", 1));
+const getPromptToolAuthorization = () => {
+  const authorization = normalizeAuthorization(process.env.GEMINI_API_KEY || "");
+  if (!authorization) {
+    throw new Error("GEMINI_API_KEY is not configured on the server");
+  }
+  return authorization;
+};
 
 function buildGeminiGenerateEndpoint(model) {
-  return `https://api.bltcy.ai/v1beta/models/${model}:generateContent`;
+  const baseUrl = trimTrailingSlash(process.env.GEMINI_API_BASE_URL || UPSTREAM_URL);
+  return `${baseUrl}/v1beta/models/${encodeURIComponent(model)}:generateContent`;
 }
 
-async function postGeminiWithFallback({
+const parseGeminiJsonText = (rawText) => {
+  let cleaned = String(rawText || "").trim();
+  if (cleaned.startsWith("```json")) cleaned = cleaned.slice(7);
+  else if (cleaned.startsWith("```")) cleaned = cleaned.slice(3);
+  if (cleaned.endsWith("```")) cleaned = cleaned.slice(0, -3);
+  return JSON.parse(cleaned.trim());
+};
+
+const parseDataUrlForPromptTool = (value) => {
+  const raw = String(value || "").trim();
+  const match = raw.match(/^data:(image\/(?:png|jpe?g|webp));base64,([A-Za-z0-9+/=\r\n]+)$/i);
+  if (match) {
+    const mimeType = match[1].toLowerCase() === "image/jpg" ? "image/jpeg" : match[1].toLowerCase();
+    return {
+      mimeType,
+      data: match[2].replace(/\s+/g, ""),
+    };
+  }
+  return {
+    mimeType: "image/jpeg",
+    data: raw.replace(/\s+/g, ""),
+  };
+};
+
+app.get("/api/prompt-tools/config", (req, res) => {
+  res.json({
+    success: true,
+    model: getPromptToolModel(),
+    optimizeCost: getPromptOptimizeCost(),
+    reverseCost: getReversePromptCost(),
+  });
+});
+
+async function postGeminiWithModels({
   models,
   payload,
-  userKey,
+  authorization,
   timeout,
   logTag,
   extraAxiosConfig = {},
@@ -4365,7 +4408,7 @@ async function postGeminiWithFallback({
             payload,
             {
               headers: {
-                Authorization: userKey,
+                Authorization: authorization,
                 "Content-Type": "application/json",
               },
               timeout,
@@ -4392,62 +4435,75 @@ async function postGeminiWithFallback({
 }
 
 app.post("/api/optimize-prompt", async (req, res) => {
+  let billingAccount = null;
+  let billingCharge = null;
+  const pointCost = getPromptOptimizeCost();
+  const modelName = getPromptToolModel();
   try {
-    const userKey = req.headers["authorization"];
-    if (!userKey || String(userKey).length < 10) {
-      return res.status(401).json({ error: "Invalid API Key" });
-    }
-
     const { prompt, type = "IMAGE" } = req.body || {};
     if (!prompt || !String(prompt).trim()) {
       return res.status(400).json({ error: "Prompt is required" });
     }
 
-    const geminiModels = [...GEMINI_FALLBACK_MODELS];
+    billingAccount = await requireBillingAccount(req);
+    const authorization = getPromptToolAuthorization();
+    billingCharge = await reservePoints(billingAccount.accountId, pointCost, {
+      action: "prompt_optimize",
+      model: modelName,
+      type: String(type || "IMAGE").toUpperCase(),
+      prompt: String(prompt).slice(0, 240),
+    });
+
     const isVideo = String(type).toUpperCase() === "VIDEO";
     const systemInstruction = isVideo
       ? "You are a professional video prompt optimizer. Return exactly 3 Chinese prompt options in JSON array format: [{\"style\":\"...\",\"prompt\":\"...\"}]. No markdown."
       : "You are a professional image prompt optimizer. Return exactly 3 Chinese prompt options in JSON array format: [{\"style\":\"...\",\"prompt\":\"...\"}]. No markdown.";
 
-    const { response, model: usedModel } = await postGeminiWithFallback({
-      models: geminiModels,
+    const { response, model: usedModel } = await postGeminiWithModels({
+      models: [modelName],
       payload: {
         contents: [{ parts: [{ text: String(prompt) }] }],
         systemInstruction: { parts: [{ text: systemInstruction }] },
       },
-      userKey,
+      authorization,
       timeout: 30000,
       logTag: "Optimize",
     });
 
-    if (usedModel !== geminiModels[0]) {
-      console.log(`[Optimize] Fallback model in use: ${usedModel}`);
-    }
-
     const rawText = response.data?.candidates?.[0]?.content?.parts?.[0]?.text;
     if (!rawText) {
-      return res.status(500).json({ error: "Optimize failed: empty response" });
+      throw new Error("Optimize failed: empty response");
     }
 
     let options;
     try {
-      let cleaned = String(rawText).trim();
-      if (cleaned.startsWith("```json")) cleaned = cleaned.slice(7);
-      else if (cleaned.startsWith("```")) cleaned = cleaned.slice(3);
-      if (cleaned.endsWith("```")) cleaned = cleaned.slice(0, -3);
-      cleaned = cleaned.trim();
-      options = JSON.parse(cleaned);
+      options = parseGeminiJsonText(rawText);
       if (!Array.isArray(options) || options.length === 0) throw new Error("Invalid options format");
     } catch (parseError) {
-      return res.json({
-        success: true,
-        options: [{ style: "优化结果", prompt: String(rawText).trim() }],
-      });
+      options = [{ style: "优化结果", prompt: String(rawText).trim() }];
     }
 
-    return res.json({ success: true, options });
+    return res.json({
+      success: true,
+      model: usedModel,
+      cost: pointCost,
+      billing: {
+        deductedPoints: pointCost,
+        remainingPoints: billingCharge?.account?.points,
+      },
+      options,
+    });
   } catch (error) {
     console.error("[Optimize] Error:", error.message);
+    if (billingCharge?.chargeId && billingAccount?.accountId) {
+      await refundPoints(billingAccount.accountId, billingCharge.chargeId, {
+        reason: "prompt_optimize_failed",
+        model: modelName,
+      }).catch((refundError) => {
+        console.error("[Optimize] Refund failed:", refundError.message);
+      });
+    }
+    if (sendBillingError(res, error)) return;
     if (error.response) {
       return res
         .status(error.response.status)
@@ -4462,33 +4518,38 @@ app.post("/api/optimize-prompt", async (req, res) => {
 
 // ==================== Reverse Prompt API ====================
 app.post("/api/reverse-prompt", async (req, res) => {
+  let billingAccount = null;
+  let billingCharge = null;
+  const pointCost = getReversePromptCost();
+  const modelName = getPromptToolModel();
   try {
-    const userKey = req.headers["authorization"];
-    if (!userKey || String(userKey).length < 10) {
-      return res.status(401).json({ error: "Invalid API Key" });
-    }
-
     const image = req.body?.image;
     if (!image) {
       return res.status(400).json({ error: "Image is required" });
     }
 
-    const base64Image = String(image).replace(/^data:image\/(png|jpeg|webp);base64,/, "");
-    const geminiModels = [...GEMINI_FALLBACK_MODELS];
-    const systemInstruction =
-      "You are a senior visual designer. Analyze the input image and output one detailed Chinese generation prompt. Output plain text only.";
+    billingAccount = await requireBillingAccount(req);
+    const authorization = getPromptToolAuthorization();
+    billingCharge = await reservePoints(billingAccount.accountId, pointCost, {
+      action: "reverse_prompt",
+      model: modelName,
+    });
 
-    const { response, model: usedModel } = await postGeminiWithFallback({
-      models: geminiModels,
+    const parsedImage = parseDataUrlForPromptTool(image);
+    const systemInstruction =
+      "You are a senior visual designer and image prompt engineer. Analyze the image and return JSON only with this exact shape: {\"plainPrompt\":\"...\",\"jsonPrompt\":{\"subject\":\"...\",\"scene\":\"...\",\"style\":\"...\",\"lighting\":\"...\",\"composition\":\"...\",\"camera\":\"...\",\"details\":[\"...\"],\"colors\":\"...\",\"negativePrompt\":\"...\"}}. The plainPrompt must be a detailed reusable Chinese image generation prompt. The jsonPrompt fields should be Chinese strings or arrays.";
+
+    const { response, model: usedModel } = await postGeminiWithModels({
+      models: [modelName],
       payload: {
         contents: [
           {
             parts: [
-              { text: "Generate one detailed Chinese prompt from this image." },
+              { text: "请分析这张图片，同时生成普通格式提示词和 JSON 格式提示词。" },
               {
                 inline_data: {
-                  mime_type: "image/jpeg",
-                  data: base64Image,
+                  mime_type: parsedImage.mimeType,
+                  data: parsedImage.data,
                 },
               },
             ],
@@ -4496,7 +4557,7 @@ app.post("/api/reverse-prompt", async (req, res) => {
         ],
         systemInstruction: { parts: [{ text: systemInstruction }] },
       },
-      userKey,
+      authorization,
       timeout: 300000,
       logTag: "Reverse",
       extraAxiosConfig: {
@@ -4505,18 +4566,59 @@ app.post("/api/reverse-prompt", async (req, res) => {
       },
     });
 
-    if (usedModel !== geminiModels[0]) {
-      console.log(`[Reverse] Fallback model in use: ${usedModel}`);
-    }
-
     const resultPrompt = response.data?.candidates?.[0]?.content?.parts?.[0]?.text;
     if (!resultPrompt) {
-      return res.status(500).json({ error: "Reverse failed: empty response" });
+      throw new Error("Reverse failed: empty response");
     }
 
-    return res.json({ success: true, prompt: String(resultPrompt).trim() });
+    let plainPrompt = String(resultPrompt).trim();
+    let jsonPrompt = {
+      subject: "",
+      scene: "",
+      style: "",
+      lighting: "",
+      composition: "",
+      camera: "",
+      details: [],
+      colors: "",
+      negativePrompt: "",
+    };
+    try {
+      const parsed = parseGeminiJsonText(resultPrompt);
+      plainPrompt = String(parsed?.plainPrompt || parsed?.prompt || plainPrompt).trim();
+      if (parsed?.jsonPrompt && typeof parsed.jsonPrompt === "object") {
+        jsonPrompt = parsed.jsonPrompt;
+      }
+    } catch (_) {
+      jsonPrompt = {
+        ...jsonPrompt,
+        subject: plainPrompt,
+      };
+    }
+
+    return res.json({
+      success: true,
+      model: usedModel,
+      cost: pointCost,
+      billing: {
+        deductedPoints: pointCost,
+        remainingPoints: billingCharge?.account?.points,
+      },
+      prompt: plainPrompt,
+      plainPrompt,
+      jsonPrompt,
+    });
   } catch (error) {
     console.error("[Reverse] Error:", error.message);
+    if (billingCharge?.chargeId && billingAccount?.accountId) {
+      await refundPoints(billingAccount.accountId, billingCharge.chargeId, {
+        reason: "reverse_prompt_failed",
+        model: modelName,
+      }).catch((refundError) => {
+        console.error("[Reverse] Refund failed:", refundError.message);
+      });
+    }
+    if (sendBillingError(res, error)) return;
     if (error.response) {
       return res
         .status(error.response.status)

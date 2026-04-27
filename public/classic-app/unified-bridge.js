@@ -1,8 +1,5 @@
 ﻿(() => {
-  const API_BASE_URL =
-    typeof window !== "undefined" && window.location.hostname === "localhost"
-      ? "http://localhost:3355/api"
-      : "/api";
+  const API_BASE_URL = "/api";
   const AUTH_SESSION_STORAGE_KEY = "auth-session-v1";
   const CLASSIC_AUTH_MODE_KEY = "classic-auth-mode";
   const MODEL_STORAGE_KEY = "nb_image_model";
@@ -30,6 +27,8 @@
     signup: "注册赠送",
     recharge: "管理员充值",
     charge: "生成扣点",
+    prompt_optimize: "提示词优化",
+    reverse_prompt: "图片逆推",
     refund: "失败退款",
     admin_credit: "管理员加点",
     admin_debit: "管理员减点",
@@ -173,6 +172,268 @@
       throw new Error(data?.error || data?.message || "Request failed");
     }
     return data;
+  };
+  const classicPromptToolState = {
+    config: {
+      model: "gemini-3.1-pro-preview",
+      optimizeCost: 0.5,
+      reverseCost: 1,
+    },
+    reverseFile: null,
+    reverseResult: null,
+    reverseTab: "plain",
+  };
+  const fileToDataUrl = (file) =>
+    new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result || ""));
+      reader.onerror = () => reject(new Error("图片读取失败"));
+      reader.readAsDataURL(file);
+    });
+  const getClassicPromptText = () => String(document.getElementById("prompt")?.value || "").trim();
+  const setClassicPromptText = (value) => {
+    const promptEl = document.getElementById("prompt");
+    if (!promptEl) return;
+    promptEl.value = String(value || "");
+    promptEl.dispatchEvent(new Event("input", { bubbles: true }));
+    promptEl.focus();
+  };
+  const loadClassicPromptToolConfig = async () => {
+    try {
+      const config = await fetchJson("/prompt-tools/config");
+      classicPromptToolState.config = {
+        model: String(config.model || "gemini-3.1-pro-preview"),
+        optimizeCost: toPointNumber(config.optimizeCost ?? 0.5, 0.5),
+        reverseCost: toPointNumber(config.reverseCost ?? 1, 1),
+      };
+      updateClassicPromptToolLabels();
+    } catch (_) {}
+  };
+  const updateClassicPromptToolLabels = () => {
+    const optimizeBtn = document.getElementById("classicOptimizePromptBtn");
+    if (optimizeBtn) {
+      optimizeBtn.textContent = `✨ 优化 ${formatPointValue(classicPromptToolState.config.optimizeCost)}金币`;
+      optimizeBtn.title = `使用 ${classicPromptToolState.config.model} 优化提示词`;
+    }
+    const reverseBtn = document.getElementById("classicReverseAnalyzeBtn");
+    if (reverseBtn) {
+      reverseBtn.textContent = `开始分析 · ${formatPointValue(classicPromptToolState.config.reverseCost)}金币`;
+    }
+    const topReverseBtn = document.getElementById("classicReversePromptBtn");
+    if (topReverseBtn) {
+      topReverseBtn.title = `图片逆推提示词，${formatPointValue(classicPromptToolState.config.reverseCost)}金币 / 次`;
+    }
+  };
+  const ensureClassicPromptToolSession = () => {
+    if (getStoredSessionToken()) return true;
+    if (typeof showSoftToast === "function") showSoftToast("请先登录后再使用提示词工具");
+    return false;
+  };
+  const setClassicPromptToolHeader = (title, cost) => {
+    const titleEl = document.getElementById("classicPromptToolTitle");
+    const subEl = document.getElementById("classicPromptToolSub");
+    if (titleEl) titleEl.textContent = title;
+    if (subEl) {
+      subEl.textContent = `${classicPromptToolState.config.model} · ${formatPointValue(cost)}金币 / 次`;
+    }
+  };
+  const showClassicPromptToolModal = (mode) => {
+    const modal = document.getElementById("classicPromptToolModal");
+    const optimizePanel = document.getElementById("classicOptimizePanel");
+    const reversePanel = document.getElementById("classicReversePanel");
+    if (!modal || !optimizePanel || !reversePanel) return;
+    optimizePanel.style.display = mode === "optimize" ? "block" : "none";
+    reversePanel.style.display = mode === "reverse" ? "block" : "none";
+    modal.style.display = "flex";
+  };
+  window.closeClassicPromptTool = function () {
+    const modal = document.getElementById("classicPromptToolModal");
+    if (modal) modal.style.display = "none";
+  };
+  window.handleClassicPromptToolBackdrop = function (event) {
+    if (event?.target?.id === "classicPromptToolModal") {
+      window.closeClassicPromptTool();
+    }
+  };
+  window.optimizeClassicPrompt = async function () {
+    const prompt = getClassicPromptText();
+    if (!prompt) {
+      if (typeof showSoftToast === "function") showSoftToast("请先输入提示词");
+      return;
+    }
+    if (!ensureClassicPromptToolSession()) return;
+
+    await loadClassicPromptToolConfig();
+    setClassicPromptToolHeader("提示词优化", classicPromptToolState.config.optimizeCost);
+    showClassicPromptToolModal("optimize");
+
+    const statusEl = document.getElementById("classicOptimizeStatus");
+    const optionsEl = document.getElementById("classicOptimizeOptions");
+    const btn = document.getElementById("classicOptimizePromptBtn");
+    if (statusEl) statusEl.textContent = "正在优化提示词...";
+    if (optionsEl) optionsEl.innerHTML = "";
+    if (btn) btn.disabled = true;
+
+    try {
+      const data = await fetchJson("/optimize-prompt", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...buildSessionHeaders(),
+        },
+        body: JSON.stringify({ prompt, type: "IMAGE" }),
+      });
+      if (!Array.isArray(data.options) || data.options.length === 0) {
+        throw new Error("优化失败：未返回结果");
+      }
+      if (statusEl) {
+        statusEl.textContent = `已扣 ${formatPointValue(data.cost ?? classicPromptToolState.config.optimizeCost)} 金币，余额 ${formatPointValue(data.billing?.remainingPoints ?? bridgeAuthState.account?.points ?? 0)} 点`;
+      }
+      if (optionsEl) {
+        optionsEl.innerHTML = "";
+        data.options.forEach((option, index) => {
+          const card = document.createElement("div");
+          card.className = "classic-optimize-card";
+          const title = document.createElement("div");
+          title.className = "classic-optimize-title";
+          title.textContent = option.style || `优化方案 ${index + 1}`;
+          const text = document.createElement("pre");
+          text.className = "classic-optimize-text";
+          text.textContent = option.prompt || "";
+          const actions = document.createElement("div");
+          actions.className = "classic-optimize-actions";
+          const copyBtn = document.createElement("button");
+          copyBtn.className = "classic-inline-tool-btn";
+          copyBtn.textContent = "复制";
+          copyBtn.onclick = () => {
+            navigator.clipboard.writeText(option.prompt || "");
+            if (typeof showSoftToast === "function") showSoftToast("已复制优化提示词");
+          };
+          const useBtn = document.createElement("button");
+          useBtn.className = "classic-prompt-primary-btn compact";
+          useBtn.textContent = "使用此方案";
+          useBtn.onclick = () => {
+            setClassicPromptText(option.prompt || "");
+            window.closeClassicPromptTool();
+          };
+          actions.append(copyBtn, useBtn);
+          card.append(title, text, actions);
+          optionsEl.appendChild(card);
+        });
+      }
+      await refreshClassicSession(false);
+    } catch (error) {
+      if (statusEl) statusEl.textContent = error?.message || "优化失败，请稍后重试";
+    } finally {
+      if (btn) btn.disabled = false;
+      updateClassicPromptToolLabels();
+    }
+  };
+  window.openClassicReversePrompt = async function (event) {
+    if (event?.stopPropagation) event.stopPropagation();
+    if (!ensureClassicPromptToolSession()) return;
+    await loadClassicPromptToolConfig();
+    setClassicPromptToolHeader("图片逆推提示词", classicPromptToolState.config.reverseCost);
+    showClassicPromptToolModal("reverse");
+    updateClassicPromptToolLabels();
+  };
+  window.handleClassicReverseFileChange = function (event) {
+    const file = event?.target?.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      if (typeof showSoftToast === "function") showSoftToast("请上传有效的图片文件");
+      return;
+    }
+    if (file.size > 4 * 1024 * 1024) {
+      if (typeof showSoftToast === "function") showSoftToast("图片大小不能超过 4MB");
+      return;
+    }
+    classicPromptToolState.reverseFile = file;
+    classicPromptToolState.reverseResult = null;
+    const upload = document.getElementById("classicReverseUpload");
+    const previewWrap = document.getElementById("classicReversePreviewWrap");
+    const preview = document.getElementById("classicReversePreview");
+    const analyzeBtn = document.getElementById("classicReverseAnalyzeBtn");
+    const result = document.getElementById("classicReverseResult");
+    if (upload) upload.style.display = "none";
+    if (previewWrap) previewWrap.style.display = "grid";
+    if (result) result.style.display = "none";
+    if (analyzeBtn) analyzeBtn.disabled = false;
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (preview) preview.src = String(reader.result || "");
+    };
+    reader.readAsDataURL(file);
+  };
+  const getClassicReverseResultText = () => {
+    const result = classicPromptToolState.reverseResult;
+    if (!result) return "";
+    return classicPromptToolState.reverseTab === "json"
+      ? JSON.stringify(result.jsonPrompt || {}, null, 2)
+      : String(result.plainPrompt || result.prompt || "");
+  };
+  const renderClassicReverseResult = () => {
+    const textEl = document.getElementById("classicReverseResultText");
+    const resultWrap = document.getElementById("classicReverseResult");
+    const plainTab = document.getElementById("classicPlainPromptTab");
+    const jsonTab = document.getElementById("classicJsonPromptTab");
+    if (textEl) textEl.textContent = getClassicReverseResultText();
+    if (resultWrap) resultWrap.style.display = classicPromptToolState.reverseResult ? "block" : "none";
+    if (plainTab) plainTab.classList.toggle("active", classicPromptToolState.reverseTab === "plain");
+    if (jsonTab) jsonTab.classList.toggle("active", classicPromptToolState.reverseTab === "json");
+  };
+  window.setClassicReverseResultTab = function (tab) {
+    classicPromptToolState.reverseTab = tab === "json" ? "json" : "plain";
+    renderClassicReverseResult();
+  };
+  window.analyzeClassicReversePrompt = async function () {
+    if (!classicPromptToolState.reverseFile) return;
+    if (!ensureClassicPromptToolSession()) return;
+    const statusEl = document.getElementById("classicReverseStatus");
+    const btn = document.getElementById("classicReverseAnalyzeBtn");
+    if (statusEl) statusEl.textContent = "正在分析图片...";
+    if (btn) btn.disabled = true;
+    try {
+      const image = await fileToDataUrl(classicPromptToolState.reverseFile);
+      const data = await fetchJson("/reverse-prompt", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...buildSessionHeaders(),
+        },
+        body: JSON.stringify({ image }),
+      });
+      const plainPrompt = String(data.plainPrompt || data.prompt || "").trim();
+      if (!plainPrompt) throw new Error("逆推失败：未返回结果");
+      classicPromptToolState.reverseResult = {
+        plainPrompt,
+        prompt: plainPrompt,
+        jsonPrompt: data.jsonPrompt && typeof data.jsonPrompt === "object" ? data.jsonPrompt : { subject: plainPrompt },
+      };
+      classicPromptToolState.reverseTab = "plain";
+      if (statusEl) {
+        statusEl.textContent = `已扣 ${formatPointValue(data.cost ?? classicPromptToolState.config.reverseCost)} 金币，余额 ${formatPointValue(data.billing?.remainingPoints ?? bridgeAuthState.account?.points ?? 0)} 点`;
+      }
+      renderClassicReverseResult();
+      await refreshClassicSession(false);
+    } catch (error) {
+      if (statusEl) statusEl.textContent = error?.message || "分析失败，请稍后重试";
+    } finally {
+      if (btn) btn.disabled = false;
+      updateClassicPromptToolLabels();
+    }
+  };
+  window.copyClassicReverseResult = function () {
+    const text = getClassicReverseResultText();
+    if (!text) return;
+    navigator.clipboard.writeText(text);
+    if (typeof showSoftToast === "function") showSoftToast("已复制提示词");
+  };
+  window.useClassicReverseResult = function () {
+    const text = getClassicReverseResultText();
+    if (!text) return;
+    setClassicPromptText(text);
+    window.closeClassicPromptTool();
   };
   const formatClassicPoints = (value) => `${formatPointValue(value)} 点`;
   const formatClassicDateTime = (value) => {
@@ -2391,7 +2652,12 @@
       void refreshClassicSession(false);
     });
 
-    await Promise.allSettled([loadRegistrationStatus(), loadClassicCatalogs(), refreshClassicSession(false)]);
+    await Promise.allSettled([
+      loadRegistrationStatus(),
+      loadClassicCatalogs(),
+      loadClassicPromptToolConfig(),
+      refreshClassicSession(false),
+    ]);
     renderAuthState();
     renderCatalogUi();
     updateApiGuidePrompt();

@@ -6,7 +6,7 @@ import { editImageApi, generateImageApi, generateGeminiImage } from '../services
 import { generateVideo } from '../services/videoService';
 import { checkBalance } from '../services/geminiService';
 import { assetStorage } from '../src/services/assetStorage';
-import { optimizePrompt, PromptOption } from '../services/promptService';
+import { fetchPromptToolConfig, optimizePrompt, PromptOption } from '../services/promptService';
 import { useHistoryStore } from '../src/store/historyStore';
 import { Wand2, Loader2, ImagePlus, X, Upload, Plus, Move, Sparkles, Minus, Maximize2, ChevronLeft, ChevronRight, Check, Clapperboard, Film, HelpCircle, LayoutGrid, MonitorPlay, Zap, Pin, PinOff, Eraser, Trash2, ShieldCheck } from 'lucide-react';
 import VideoPricingModal from './VideoPricingModal';
@@ -174,6 +174,11 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
   
   const [draggingIndex, setDraggingIndex] = useState<number | null>(null);
   const [isOptimizing, setIsOptimizing] = useState(false);
+  const [promptToolConfig, setPromptToolConfig] = useState({
+    model: 'gemini-3.1-pro-preview',
+    optimizeCost: 0.5,
+    reverseCost: 1,
+  });
   const [panelMinimized, setPanelMinimized] = useState(false);
   const [panelVisible, setPanelVisible] = useState(true);
   const [showPricingModal, setShowPricingModal] = useState(false);
@@ -193,6 +198,23 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
     return () => {
       window.removeEventListener(AUTH_SESSION_CHANGE_EVENT, syncSessionToken);
       window.removeEventListener('storage', syncSessionToken);
+    };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    fetchPromptToolConfig()
+      .then((config) => {
+        if (!active) return;
+        setPromptToolConfig({
+          model: config.model,
+          optimizeCost: config.optimizeCost,
+          reverseCost: config.reverseCost,
+        });
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
     };
   }, []);
 
@@ -1566,10 +1588,6 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
       setError("请先输入提示词");
       return;
     }
-    if (!apiKey) {
-      setError("请先在设置中输入 API Key");
-      return;
-    }
 
     setIsOptimizing(true);
     setError(null);
@@ -1577,7 +1595,7 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
 
     try {
       const type = isVideoMode ? 'VIDEO' : 'IMAGE';
-      const options = await optimizePrompt(apiKey, prompt, type);
+      const options = await optimizePrompt(prompt, type);
       setPromptOptions(options);
       setSelectedOptionIndex(0);
       setShowOptionsPanel(true);
@@ -2006,9 +2024,10 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
                   onClick={handleOptimizePrompt}
                   disabled={isOptimizing || !prompt.trim()}
                   className={`${isMobile ? 'text-sm min-h-9 px-2.5' : 'text-xs px-2 py-0.5'} flex items-center gap-1 rounded transition-colors touch-manipulation active:scale-[0.98] ${isOptimizing || !prompt.trim() ? 'text-gray-500 cursor-not-allowed' : 'text-yellow-400 hover:text-yellow-300 hover:bg-yellow-900/20'}`}
+                  title={`使用 ${promptToolConfig.model} 优化提示词，扣 ${promptToolConfig.optimizeCost} 金币`}
                 >
                   {isOptimizing ? <Loader2 size={10} className="animate-spin" /> : <Sparkles size={10} />}
-                  优化 (0.5币)
+                  优化 ({promptToolConfig.optimizeCost} 金币)
                 </button>
               </div>
               <div className="relative">
