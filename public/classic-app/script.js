@@ -428,6 +428,17 @@ function renderClassicLiveTasks() {
       .join(" / ");
     const primaryRefText =
       primaryTask.referenceCount > 0 ? ` · 参考图 ${primaryTask.referenceCount}` : "";
+    const primaryParamText = [
+      primaryTask.ratio ? `比例 ${primaryTask.ratio}` : "",
+      primaryTask.size ? `尺寸 ${primaryTask.size}` : "",
+      primaryTask.quantity ? `数量 ${primaryTask.quantity}张` : "",
+      primaryTask.referenceCount > 0 ? `参考图 ${primaryTask.referenceCount}` : "",
+    ]
+      .filter(Boolean)
+      .join(" / ");
+    const primaryClockText = formatClassicLiveClock(primaryTimeValue) || "-";
+    const primaryModelText = primaryTask.modelLabel || "未记录";
+    const primaryRouteText = primaryTask.routeLabel || "未记录";
 
     const primaryCard = document.createElement("div");
     primaryCard.className = [
@@ -449,10 +460,30 @@ function renderClassicLiveTasks() {
         </div>
         ${buildActionsHtml(primaryTask, true)}
       </div>
-      <div class="classic-live-info">
-        <div>
-          <div class="classic-live-prompt">${escapeHtml(primaryPrompt)}</div>
-          <div class="classic-live-config">${escapeHtml(primaryConfigText || "当前配置")}${escapeHtml(primaryRefText)}</div>
+      <div class="classic-live-info classic-live-info-drawer">
+        <div class="classic-live-info-head">
+          <span>图像信息</span>
+          <b>${escapeHtml(primaryClockText)}</b>
+        </div>
+        <div class="classic-live-info-body">
+          <div class="classic-live-prompt-row">
+            <span>提示词</span>
+            <p>${escapeHtml(primaryPrompt)}</p>
+          </div>
+          <div class="classic-live-detail-grid">
+            <div>
+              <span>模型</span>
+              <b>${escapeHtml(primaryModelText)}</b>
+            </div>
+            <div>
+              <span>线路</span>
+              <b>${escapeHtml(primaryRouteText)}</b>
+            </div>
+            <div>
+              <span>参数</span>
+              <b>${escapeHtml(primaryParamText || primaryConfigText || "当前配置")}${escapeHtml(primaryRefText)}</b>
+            </div>
+          </div>
         </div>
       </div>
     `;
