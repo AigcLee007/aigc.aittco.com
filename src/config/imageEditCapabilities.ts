@@ -1,3 +1,4 @@
+import type { ImageEditType } from '../utils/imageEditPrompt';
 import { formatPoint } from '../utils/pointFormat';
 import {
   getDefaultImageSizeForModel,
@@ -11,7 +12,6 @@ import {
   getImageRoutesByModelFamily,
   type ImageRouteConfig,
 } from './imageRoutes';
-import type { ImageEditType } from '../utils/imageEditPrompt';
 
 export type ImageEditModelGroup =
   | 'nano-banana-pro'
@@ -79,42 +79,33 @@ export const getImageEditModelGroup = (
   return null;
 };
 
-const getRecommendedEditTypes = (
-  group: ImageEditModelGroup,
-): ImageEditType[] => {
+const getRecommendedEditTypes = (group: ImageEditModelGroup): ImageEditType[] => {
   switch (group) {
     case 'gpt-image-2':
       return ['erase', 'retouch', 'replace'];
     case 'nano-banana-2':
-      return ['replace', 'background', 'restyle'];
+      return ['replace', 'background', 'restyle', 'outpaint'];
     case 'nano-banana-pro':
     default:
-      return ['retouch', 'replace', 'background'];
+      return ['retouch', 'replace', 'background', 'outpaint'];
   }
 };
 
-const getRouteDescription = (
-  route: ImageRouteConfig,
-  group: ImageEditModelGroup,
-) => {
+const getRouteDescription = (route: ImageRouteConfig, group: ImageEditModelGroup) => {
   const modeText = route.mode === 'sync' ? '同步返图' : '异步任务';
-  const accessText = route.allowUserApiKeyWithoutLogin
-    ? '支持用户 Key'
-    : '登录积分线路';
+  const accessText = route.allowUserApiKeyWithoutLogin ? '支持用户 Key' : '登录积分线路';
 
   if (group === 'gpt-image-2') {
     return `${modeText} · ${accessText} · 适合擦除与快速修图`;
   }
   if (group === 'nano-banana-2') {
-    return `${modeText} · ${accessText} · 适合创意替换和多轮尝试`;
+    return `${modeText} · ${accessText} · 适合创意替换、多轮尝试和扩图`;
   }
-  return `${modeText} · ${accessText} · 适合高质量精修`;
+  return `${modeText} · ${accessText} · 适合高质量精修和扩图`;
 };
 
 const normalizeSizeOptions = (modelId: string) => {
-  const sizeOptions = getImageModelSizeOptions(modelId).filter(
-    (value) => value !== 'auto',
-  );
+  const sizeOptions = getImageModelSizeOptions(modelId).filter((value) => value !== 'auto');
   return sizeOptions.length > 0 ? sizeOptions : ['1k'];
 };
 

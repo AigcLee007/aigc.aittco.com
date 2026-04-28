@@ -65,16 +65,7 @@ interface ImageEditPanelProps {
   ) => void;
 }
 
-const COMMON_RATIO_OPTIONS = [
-  '1:1',
-  '16:9',
-  '9:16',
-  '4:3',
-  '3:4',
-  '3:2',
-  '2:3',
-  '21:9',
-];
+const COMMON_RATIO_OPTIONS = ['1:1', '16:9', '9:16', '4:3', '3:4', '3:2', '2:3', '21:9'];
 
 const gcd = (a: number, b: number): number => {
   let left = Math.abs(Math.round(a));
@@ -95,15 +86,103 @@ const getAspectRatioFromDimensions = (width: number, height: number) => {
   return `${Math.round(width / divisor)}:${Math.round(height / divisor)}`;
 };
 
+const parseAspectRatioValue = (ratio: string) => {
+  const [width, height] = String(ratio || '')
+    .split(':')
+    .map((value) => Number(value));
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+    return null;
+  }
+  return width / height;
+};
+
+const computeExpandedDimensions = (
+  sourceWidth: number,
+  sourceHeight: number,
+  targetRatio: string,
+) => {
+  const ratioValue = parseAspectRatioValue(targetRatio);
+  if (!ratioValue) {
+    return { width: sourceWidth, height: sourceHeight };
+  }
+
+  const sourceRatio = sourceWidth / sourceHeight;
+  if (Math.abs(sourceRatio - ratioValue) < 0.0001) {
+    return { width: sourceWidth, height: sourceHeight };
+  }
+
+  if (ratioValue > sourceRatio) {
+    return {
+      width: Math.max(sourceWidth, Math.round(sourceHeight * ratioValue)),
+      height: sourceHeight,
+    };
+  }
+
+  return {
+    width: sourceWidth,
+    height: Math.max(sourceHeight, Math.round(sourceWidth / ratioValue)),
+  };
+};
+
 const loadImage = (src: string): Promise<HTMLImageElement> =>
   new Promise((resolve, reject) => {
     const img = new Image();
     img.crossOrigin = 'anonymous';
     img.onload = () => resolve(img);
-    img.onerror = () =>
-      reject(new Error('无法读取原图，请检查图片链接是否可以正常访问'));
+    img.onerror = () => reject(new Error('无法读取原图，请检查图片链接是否可正常访问'));
     img.src = src;
   });
+
+const buildOutpaintAssets = ({
+  image,
+  targetWidth,
+  targetHeight,
+  maskMode,
+}: {
+  image: HTMLImageElement;
+  targetWidth: number;
+  targetHeight: number;
+  maskMode: MaskMode;
+}) => {
+  const sourceWidth = image.naturalWidth;
+  const sourceHeight = image.naturalHeight;
+  const offsetX = Math.floor((targetWidth - sourceWidth) / 2);
+  const offsetY = Math.floor((targetHeight - sourceHeight) / 2);
+
+  const imageCanvas = document.createElement('canvas');
+  imageCanvas.width = targetWidth;
+  imageCanvas.height = targetHeight;
+  const imageCtx = imageCanvas.getContext('2d');
+  if (!imageCtx) {
+    throw new Error('无法创建扩图画布');
+  }
+  imageCtx.clearRect(0, 0, targetWidth, targetHeight);
+  imageCtx.drawImage(image, offsetX, offsetY, sourceWidth, sourceHeight);
+
+  const maskCanvas = document.createElement('canvas');
+  maskCanvas.width = targetWidth;
+  maskCanvas.height = targetHeight;
+  const maskCtx = maskCanvas.getContext('2d');
+  if (!maskCtx) {
+    throw new Error('无法创建扩图遮罩');
+  }
+
+  if (maskMode === 'binary') {
+    maskCtx.fillStyle = '#ffffff';
+    maskCtx.fillRect(0, 0, targetWidth, targetHeight);
+    maskCtx.fillStyle = '#000000';
+    maskCtx.fillRect(offsetX, offsetY, sourceWidth, sourceHeight);
+  } else {
+    maskCtx.clearRect(0, 0, targetWidth, targetHeight);
+    maskCtx.fillStyle = '#000000';
+    maskCtx.fillRect(offsetX, offsetY, sourceWidth, sourceHeight);
+  }
+
+  return {
+    imageBase64: imageCanvas.toDataURL('image/png').split(',')[1],
+    maskBase64: maskCanvas.toDataURL('image/png').split(',')[1],
+  };
+};
 
 const resolveImmediateEditUrl = (result: {
   taskId?: string;
@@ -132,6 +211,7 @@ const getRecommendedGroupForEditType = (type: ImageEditType) => {
     case 'background':
     case 'restyle':
       return 'nano-banana-2';
+    case 'outpaint':
     case 'retouch':
       return 'nano-banana-pro';
     case 'replace':
@@ -189,11 +269,27 @@ const ImageEditPanel: React.FC<ImageEditPanelProps> = ({
     !selectedNode.loading &&
     Array.isArray(selectedNode.maskStrokes) &&
     selectedNode.maskStrokes.length > 0;
+  const requiresManualMask = editType !== 'outpaint';
+  const hasEditableRegion = requiresManualMask ? hasMask : true;
 
   const sourceRatio = useMemo(() => {
     if (!selectedNode?.width || !selectedNode?.height) return '1:1';
     return getAspectRatioFromDimensions(selectedNode.width, selectedNode.height);
-  }, [selectedNode?.height, selectedNode?.width]);
+  }, [selectedNode?.width, selectedNode?.height]);
+
+  const ratioOptions = useMemo(() => {
+    const extraRatios = currentModel ? getImageModelExtraAspectRatios(currentModel.id) : [];
+    const merged = [
+      { value: sourceRatio, label: sourceRatio, badge: '原图' },
+      ...COMMON_RATIO_OPTIONS.map((value) => ({ value, label: value })),
+      ...extraRatios.map((value) => ({ value, label: value })),
+    ];
+
+    return merged.filter(
+      (item, index) =>
+        merged.findIndex((candidate) => candidate.value === item.value) === index,
+    );
+  }, [currentModel, sourceRatio]);
 
   useEffect(() => {
     if (!selectedNode?.id) return;
@@ -233,19 +329,24 @@ const ImageEditPanel: React.FC<ImageEditPanelProps> = ({
     setSelectedSize(currentCapability.defaultSize);
   }, [currentCapability, selectedSize]);
 
-  const ratioOptions = useMemo(() => {
-    const modelExtraRatios = currentModel ? getImageModelExtraAspectRatios(currentModel.id) : [];
-    const merged = [
-      { value: sourceRatio, label: sourceRatio, badge: '原图' },
-      ...COMMON_RATIO_OPTIONS.map((value) => ({ value, label: value })),
-      ...modelExtraRatios.map((value) => ({ value, label: value })),
-    ];
+  useEffect(() => {
+    if (editType !== 'outpaint') return;
+    if (selectedAspectRatio !== sourceRatio) return;
 
-    return merged.filter(
-      (item, index) =>
-        merged.findIndex((candidate) => candidate.value === item.value) === index,
-    );
-  }, [currentModel, sourceRatio]);
+    const sourceRatioValue = parseAspectRatioValue(sourceRatio);
+    const nextRatio = ratioOptions.find((item) => {
+      if (item.value === sourceRatio) return false;
+      const optionRatioValue = parseAspectRatioValue(item.value);
+      if (!sourceRatioValue || !optionRatioValue) return true;
+      if (sourceRatioValue > 1) return optionRatioValue >= 1;
+      if (sourceRatioValue < 1) return optionRatioValue <= 1;
+      return true;
+    });
+
+    if (nextRatio) {
+      setSelectedAspectRatio(nextRatio.value);
+    }
+  }, [editType, ratioOptions, selectedAspectRatio, sourceRatio]);
 
   const modelOptions = useMemo<ModelOption[]>(
     () =>
@@ -278,7 +379,8 @@ const ImageEditPanel: React.FC<ImageEditPanelProps> = ({
   }, [editPrompt, editType]);
 
   const pointCost = currentCapability
-    ? currentCapability.pointCost * Math.max(1, Number.isFinite(selectedQuantity) ? selectedQuantity : 1)
+    ? currentCapability.pointCost *
+      Math.max(1, Number.isFinite(selectedQuantity) ? selectedQuantity : 1)
     : 0;
 
   const handleUndoLastStroke = () => {
@@ -293,18 +395,26 @@ const ImageEditPanel: React.FC<ImageEditPanelProps> = ({
     updateNode(selectedNode.id, { maskStrokes: [] });
   };
 
-  const positionPlaceholders = (ids: string[], baseNode: NodeData, promptText: string) => {
+  const positionPlaceholders = (
+    ids: string[],
+    baseNode: NodeData,
+    promptText: string,
+    sizeOverride?: { width: number; height: number },
+  ) => {
     const gap = 28;
+    const nodeWidth = sizeOverride?.width ?? baseNode.width;
+    const nodeHeight = sizeOverride?.height ?? baseNode.height;
+
     ids.forEach((id, index) => {
       const column = index % 2;
       const row = Math.floor(index / 2);
       updateNode(
         id,
         {
-          x: baseNode.x + baseNode.width + gap + column * (baseNode.width + gap),
-          y: baseNode.y + row * (baseNode.height + gap),
-          width: baseNode.width,
-          height: baseNode.height,
+          x: baseNode.x + baseNode.width + gap + column * (nodeWidth + gap),
+          y: baseNode.y + row * (nodeHeight + gap),
+          width: nodeWidth,
+          height: nodeHeight,
           prompt: promptText,
           sourceNodeId: baseNode.id,
         },
@@ -327,11 +437,11 @@ const ImageEditPanel: React.FC<ImageEditPanelProps> = ({
       setError('请先在画布上选中一张图片');
       return;
     }
-    if (!hasMask) {
+    if (requiresManualMask && !hasMask) {
       setError('请先在图片上涂抹需要编辑的区域');
       return;
     }
-    if (editType !== 'erase' && !normalizedPrompt) {
+    if (editType !== 'erase' && editType !== 'outpaint' && !normalizedPrompt) {
       setError('请先输入编辑提示词');
       return;
     }
@@ -354,31 +464,57 @@ const ImageEditPanel: React.FC<ImageEditPanelProps> = ({
       const effectiveRatio =
         selectedAspectRatio || getAspectRatioFromDimensions(intrinsicWidth, intrinsicHeight);
       const promptText = buildImageEditPrompt(editType, normalizedPrompt);
-      const strokeSnapshot = [...(selectedNode.maskStrokes || [])];
 
-      const maskDataUrl = renderMaskToDataURL(
-        null,
-        intrinsicWidth,
-        intrinsicHeight,
-        selectedNode.width,
-        selectedNode.height,
-        strokeSnapshot,
-        maskMode === 'binary',
-      );
-      const punchedImageDataUrl = renderMaskToDataURL(
-        image,
-        intrinsicWidth,
-        intrinsicHeight,
-        selectedNode.width,
-        selectedNode.height,
-        strokeSnapshot,
-        false,
-      );
-      const maskBase64 = maskDataUrl.split(',')[1];
-      const punchedBase64 = punchedImageDataUrl.split(',')[1];
+      let maskBase64 = '';
+      let punchedBase64 = '';
+      let resultDisplaySize: { width: number; height: number } | undefined;
+
+      if (editType === 'outpaint') {
+        const expanded = computeExpandedDimensions(intrinsicWidth, intrinsicHeight, effectiveRatio);
+        if (expanded.width === intrinsicWidth && expanded.height === intrinsicHeight) {
+          throw new Error('扩图/改比例需要选择与原图不同的输出比例');
+        }
+
+        const outpaintAssets = buildOutpaintAssets({
+          image,
+          targetWidth: expanded.width,
+          targetHeight: expanded.height,
+          maskMode,
+        });
+
+        maskBase64 = outpaintAssets.maskBase64;
+        punchedBase64 = outpaintAssets.imageBase64;
+        resultDisplaySize = computeExpandedDimensions(
+          selectedNode.width,
+          selectedNode.height,
+          effectiveRatio,
+        );
+      } else {
+        const strokeSnapshot = [...(selectedNode.maskStrokes || [])];
+        const maskDataUrl = renderMaskToDataURL(
+          null,
+          intrinsicWidth,
+          intrinsicHeight,
+          selectedNode.width,
+          selectedNode.height,
+          strokeSnapshot,
+          maskMode === 'binary',
+        );
+        const punchedImageDataUrl = renderMaskToDataURL(
+          image,
+          intrinsicWidth,
+          intrinsicHeight,
+          selectedNode.width,
+          selectedNode.height,
+          strokeSnapshot,
+          false,
+        );
+        maskBase64 = maskDataUrl.split(',')[1];
+        punchedBase64 = punchedImageDataUrl.split(',')[1];
+      }
 
       if (!maskBase64 || !punchedBase64) {
-        throw new Error('遮罩生成失败，请重新涂抹后再试');
+        throw new Error('编辑区域生成失败，请调整后再试');
       }
 
       const placeholderIds = onInitGenerations(
@@ -389,13 +525,12 @@ const ImageEditPanel: React.FC<ImageEditPanelProps> = ({
         'IMAGE',
         { preserveToolMode: true },
       );
-      positionPlaceholders(placeholderIds, selectedNode, displayPromptLabel);
+      positionPlaceholders(placeholderIds, selectedNode, displayPromptLabel, resultDisplaySize);
 
-      const modelRequestName = getImageModelRequestName(currentModel.id);
       const payload = {
         modelId: currentModel.id,
         routeId: currentCapability.routeId,
-        model: modelRequestName,
+        model: getImageModelRequestName(currentModel.id),
         prompt: promptText,
         image: punchedBase64,
         mask: maskBase64,
@@ -455,7 +590,9 @@ const ImageEditPanel: React.FC<ImageEditPanelProps> = ({
               画布图片编辑
             </div>
             <div className="mt-1 text-xs leading-5 text-gray-400">
-              先选中一张图片，再在画布上涂抹需要修改的区域。
+              {requiresManualMask
+                ? '先选中一张图片，再在画布上涂抹需要修改的区域。'
+                : '扩图模式会自动把新增画布区域当作待生成区域，不需要手动画遮罩。'}
             </div>
           </div>
           {selectedNode?.type === 'IMAGE' ? (
@@ -506,7 +643,9 @@ const ImageEditPanel: React.FC<ImageEditPanelProps> = ({
           </div>
 
           <div className="space-y-1">
-            <label className="block text-[10px] text-gray-500">编辑提示词</label>
+            <label className="block text-[10px] text-gray-500">
+              {editType === 'outpaint' ? '扩图提示词' : '编辑提示词'}
+            </label>
             <textarea
               value={editPrompt}
               onChange={(event) => setEditPrompt(event.target.value)}
@@ -576,7 +715,9 @@ const ImageEditPanel: React.FC<ImageEditPanelProps> = ({
 
           <div className="grid grid-cols-[1fr_1fr_0.95fr] gap-2">
             <div>
-              <label className="mb-1 block text-[10px] text-gray-500">输出比例</label>
+              <label className="mb-1 block text-[10px] text-gray-500">
+                {editType === 'outpaint' ? '目标比例' : '输出比例'}
+              </label>
               <DropUpSelect
                 value={selectedAspectRatio}
                 onChange={(value) => setSelectedAspectRatio(value)}
@@ -608,67 +749,75 @@ const ImageEditPanel: React.FC<ImageEditPanelProps> = ({
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-2">
-            <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-3">
-              <label className="mb-2 block text-[10px] text-gray-500">笔触颜色</label>
-              <div className="flex items-center gap-2 rounded-xl border border-white/10 bg-black/20 px-2 py-1.5">
-                <input
-                  type="color"
-                  value={brushColor}
-                  onChange={(event) => setBrushColor(event.target.value)}
-                  className="h-8 w-8 cursor-pointer rounded bg-transparent p-0"
-                />
-                <span className="text-xs font-mono text-gray-300">{brushColor.toUpperCase()}</span>
+          {requiresManualMask ? (
+            <>
+              <div className="grid grid-cols-2 gap-2">
+                <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-3">
+                  <label className="mb-2 block text-[10px] text-gray-500">笔触颜色</label>
+                  <div className="flex items-center gap-2 rounded-xl border border-white/10 bg-black/20 px-2 py-1.5">
+                    <input
+                      type="color"
+                      value={brushColor}
+                      onChange={(event) => setBrushColor(event.target.value)}
+                      className="h-8 w-8 cursor-pointer rounded bg-transparent p-0"
+                    />
+                    <span className="text-xs font-mono text-gray-300">{brushColor.toUpperCase()}</span>
+                  </div>
+                </div>
+                <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-3">
+                  <label className="mb-2 block text-[10px] text-gray-500">笔触粗细</label>
+                  <div className="flex items-center gap-2 rounded-xl border border-white/10 bg-black/20 px-2 py-2">
+                    <Brush size={12} className="text-gray-400" />
+                    <input
+                      type="range"
+                      min={8}
+                      max={120}
+                      step={1}
+                      value={brushSize}
+                      onChange={(event) => setBrushSize(parseInt(event.target.value, 10))}
+                      className="w-full accent-orange-400"
+                    />
+                    <span className="w-8 text-right text-xs text-gray-300">{brushSize}</span>
+                  </div>
+                </div>
               </div>
-            </div>
-            <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-3">
-              <label className="mb-2 block text-[10px] text-gray-500">笔触粗细</label>
-              <div className="flex items-center gap-2 rounded-xl border border-white/10 bg-black/20 px-2 py-2">
-                <Brush size={12} className="text-gray-400" />
-                <input
-                  type="range"
-                  min={8}
-                  max={120}
-                  step={1}
-                  value={brushSize}
-                  onChange={(event) => setBrushSize(parseInt(event.target.value, 10))}
-                  className="w-full accent-orange-400"
-                />
-                <span className="w-8 text-right text-xs text-gray-300">{brushSize}</span>
-              </div>
-            </div>
-          </div>
 
-          <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              onClick={handleUndoLastStroke}
-              disabled={!hasMask}
-              className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-xs text-gray-200 transition-colors hover:bg-white/[0.08] disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              <Undo2 size={12} />
-              撤销一笔
-            </button>
-            <button
-              type="button"
-              onClick={handleClearMask}
-              disabled={!hasMask}
-              className="inline-flex items-center gap-2 rounded-xl border border-red-400/20 bg-red-500/10 px-3 py-2 text-xs text-red-200 transition-colors hover:bg-red-500/15 disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              <Trash2 size={12} />
-              清空遮罩
-            </button>
-            <div
-              className={`inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-xs ${
-                hasMask
-                  ? 'border-emerald-400/25 bg-emerald-500/10 text-emerald-200'
-                  : 'border-amber-400/25 bg-amber-500/10 text-amber-200'
-              }`}
-            >
-              {hasMask ? <CheckCircle2 size={12} /> : <AlertCircle size={12} />}
-              {hasMask ? '已检测到遮罩区域' : '还没有涂抹遮罩'}
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleUndoLastStroke}
+                  disabled={!hasMask}
+                  className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-xs text-gray-200 transition-colors hover:bg-white/[0.08] disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  <Undo2 size={12} />
+                  撤销一笔
+                </button>
+                <button
+                  type="button"
+                  onClick={handleClearMask}
+                  disabled={!hasMask}
+                  className="inline-flex items-center gap-2 rounded-xl border border-red-400/20 bg-red-500/10 px-3 py-2 text-xs text-red-200 transition-colors hover:bg-red-500/15 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  <Trash2 size={12} />
+                  清空遮罩
+                </button>
+                <div
+                  className={`inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-xs ${
+                    hasMask
+                      ? 'border-emerald-400/25 bg-emerald-500/10 text-emerald-200'
+                      : 'border-amber-400/25 bg-amber-500/10 text-amber-200'
+                  }`}
+                >
+                  {hasMask ? <CheckCircle2 size={12} /> : <AlertCircle size={12} />}
+                  {hasMask ? '已检测到遮罩区域' : '还没有涂抹遮罩'}
+                </div>
+              </div>
+            </>
+          ) : (
+            <div className="rounded-2xl border border-sky-400/20 bg-sky-500/10 px-4 py-3 text-xs leading-5 text-sky-100">
+              当前是扩图模式。系统会自动把新比例下新增的边缘区域作为待生成区域，不需要手动画遮罩。
             </div>
-          </div>
+          )}
 
           {selectedModelConfig ? (
             <div className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-xs leading-5 text-gray-400">
@@ -700,14 +849,14 @@ const ImageEditPanel: React.FC<ImageEditPanelProps> = ({
               isCheckingGenerationAccess ||
               !hasUnlockedGenerationAccess ||
               !selectedNode ||
-              !hasMask
+              !hasEditableRegion
             }
             className={`flex w-full items-center justify-center gap-2 rounded-2xl px-4 py-3.5 text-sm font-semibold transition-all ${
               isSubmitting ||
               isCheckingGenerationAccess ||
               !hasUnlockedGenerationAccess ||
               !selectedNode ||
-              !hasMask
+              !hasEditableRegion
                 ? 'cursor-not-allowed border border-white/10 bg-gray-700 text-gray-400'
                 : 'border border-orange-300/25 bg-linear-to-r from-orange-500 to-amber-500 text-white shadow-lg hover:from-orange-400 hover:to-amber-400'
             }`}
@@ -720,7 +869,7 @@ const ImageEditPanel: React.FC<ImageEditPanelProps> = ({
             ) : (
               <>
                 <RefreshCcw size={16} />
-                生成编辑版本
+                {editType === 'outpaint' ? '开始扩图' : '生成编辑版本'}
               </>
             )}
           </button>

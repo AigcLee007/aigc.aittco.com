@@ -3,7 +3,8 @@ export type ImageEditType =
   | 'erase'
   | 'background'
   | 'restyle'
-  | 'retouch';
+  | 'retouch'
+  | 'outpaint';
 
 export interface ImageEditTypeOption {
   value: ImageEditType;
@@ -29,13 +30,18 @@ export const IMAGE_EDIT_TYPE_OPTIONS: ImageEditTypeOption[] = [
   },
   {
     value: 'restyle',
-    label: '风格调整',
-    description: '保持结构，用提示词改变遮罩区域风格与质感。',
+    label: '改风格',
+    description: '保持结构，用提示词改变遮罩区域的风格与质感。',
   },
   {
     value: 'retouch',
-    label: '修复细节',
+    label: '修脸/修手',
     description: '修脸、修手、修边缘、修瑕疵。',
+  },
+  {
+    value: 'outpaint',
+    label: '扩图/改比例',
+    description: '自动扩展原图边缘，适合补画面和改横竖构图。',
   },
 ];
 
@@ -51,6 +57,8 @@ export const getDefaultEditPromptPlaceholder = (type: ImageEditType) => {
       return '例如：改成黄昏花园，暖金色逆光';
     case 'restyle':
       return '例如：改成电影级写实风格，柔和景深';
+    case 'outpaint':
+      return '例如：向两侧延展森林花园，保持原人物、光线和油画质感一致';
     case 'retouch':
     default:
       return '例如：修复脸部细节，让手部更自然';
@@ -77,6 +85,10 @@ export const buildImageEditPrompt = (type: ImageEditType, rawPrompt: string) => 
       return prompt
         ? `Only modify the masked area. Restyle it as: ${prompt}. Preserve the structure of the scene and keep the unmasked area unchanged.`
         : 'Only modify the masked area. Restyle it while preserving the structure of the scene and leaving the unmasked area unchanged.';
+    case 'outpaint':
+      return prompt
+        ? `Extend the original image beyond its current boundaries to fit the new composition. Generate only the newly added outer area as: ${prompt}. Preserve the original subject, perspective, lighting, style, and internal composition.`
+        : 'Extend the original image beyond its current boundaries to fit the new composition. Generate only the newly added outer area while preserving the original subject, perspective, lighting, style, and internal composition.';
     case 'retouch':
     default:
       return prompt

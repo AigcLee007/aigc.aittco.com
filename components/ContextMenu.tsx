@@ -115,6 +115,7 @@ const ContextMenu: React.FC<ContextMenuProps> = ({
       src: node.src,
       assetId: node.assetId,
       prompt: node.prompt || sourceNode.prompt,
+      width: node.width,
       height: node.height,
       error: false,
       errorMessage: undefined,
