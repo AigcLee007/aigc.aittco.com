@@ -37,6 +37,13 @@ export interface ImageEditCapability {
   routeDescription: string;
 }
 
+const routeSupportsImageEdit = (route: ImageRouteConfig) => {
+  // Some production catalogs omit editPath even when image edit is supported.
+  // For openai-image transport, treat active routes as editable by default.
+  if (route.editPath) return true;
+  return route.transport === 'openai-image';
+};
+
 const normalizeModelText = (model: Partial<ImageModelConfig> = {}) =>
   [
     model.id,
@@ -121,7 +128,7 @@ export const getEditableImageModels = ({
 
     return getImageRoutesByModelFamily(model.routeFamily).some((route) => {
       if (route.isActive === false) return false;
-      if (!route.editPath) return false;
+      if (!routeSupportsImageEdit(route)) return false;
       return directKeyOnly ? route.allowUserApiKeyWithoutLogin === true : true;
     });
   });
@@ -147,7 +154,7 @@ export const getEditableRoutesForModel = (
   return getImageRoutesByModelFamily(model.routeFamily)
     .filter((route) => {
       if (route.isActive === false) return false;
-      if (!route.editPath) return false;
+      if (!routeSupportsImageEdit(route)) return false;
       return directKeyOnly ? route.allowUserApiKeyWithoutLogin === true : true;
     })
     .map((route) => {

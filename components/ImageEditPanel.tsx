@@ -382,6 +382,8 @@ const ImageEditPanel: React.FC<ImageEditPanelProps> = ({
     ? currentCapability.pointCost *
       Math.max(1, Number.isFinite(selectedQuantity) ? selectedQuantity : 1)
     : 0;
+  const hasEditableModelOptions = editableModels.length > 0;
+  const hasEditableRouteOptions = routeCapabilities.length > 0;
 
   const handleUndoLastStroke = () => {
     if (!selectedNode?.maskStrokes?.length) return;
@@ -672,6 +674,12 @@ const ImageEditPanel: React.FC<ImageEditPanelProps> = ({
               />
             </div>
           </div>
+
+          {!hasEditableModelOptions || !hasEditableRouteOptions ? (
+            <div className="rounded-xl border border-amber-400/25 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
+              当前没有可用的编辑模型或线路。请先检查线路是否启用，或刷新后重试。
+            </div>
+          ) : null}
 
           {currentCapability ? (
             <div className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3">
