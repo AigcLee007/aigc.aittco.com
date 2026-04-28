@@ -210,6 +210,8 @@ const CLASSIC_LIVE_TASKS_KEY = "nb_classic_live_tasks_v1";
 const CLASSIC_LIVE_MAX_TASKS = 30;
 const CLASSIC_LIVE_TTL_MS = 72 * 60 * 60 * 1000;
 let classicLiveTasks = [];
+let classicLiveSelectedId = "";
+let classicLiveResizeTimer = null;
 
 function makeClassicLiveId() {
   return `live_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
@@ -329,6 +331,185 @@ function renderClassicLiveTasks() {
       <div class="classic-live-empty-sub">任务生成期间，你可以继续修改参数并提交下一组。</div>
     `;
     grid.appendChild(empty);
+    return;
+  }
+
+  const isDesktopLive =
+    typeof window.matchMedia === "function" &&
+    window.matchMedia("(min-width: 769px)").matches;
+
+  if (isDesktopLive) {
+    const existingSelected = classicLiveSelectedId
+      ? classicLiveTasks.find(
+          (task) => task.id === classicLiveSelectedId || task.taskId === classicLiveSelectedId,
+        )
+      : null;
+    const primaryTask = existingSelected || classicLiveTasks[0];
+    classicLiveSelectedId = primaryTask.id || primaryTask.taskId || "";
+
+    const buildMediaHtml = (task) => {
+      const status = String(task.status || "running");
+      const fullUrl = getClassicLiveFullUrl(task);
+      const isSuccess = status === "success" && fullUrl;
+      const isFailed = status === "failed";
+      if (isSuccess) {
+        return `<img src="${escapeHtml(fullUrl)}" alt="生成结果" loading="lazy" referrerpolicy="no-referrer">`;
+      }
+      if (isFailed) {
+        return `<div class="classic-live-error">${escapeHtml(task.errorMessage || "生成失败，请重试")}</div>`;
+      }
+      return `
+        <div class="classic-live-pending-visual">
+          <div class="classic-live-spinner"></div>
+          <div>${status === "submitting" ? "正在提交任务..." : "上游正在生成..."}</div>
+          <div class="classic-live-loading-bar"></div>
+        </div>
+      `;
+    };
+
+    const buildActionsHtml = (task, isPrimary = false) => {
+      const fullUrl = getClassicLiveFullUrl(task);
+      if (String(task.status || "") !== "success" || !fullUrl) return "";
+      const actionClass = isPrimary
+        ? "classic-live-actions classic-live-primary-actions"
+        : "classic-live-actions";
+      return `
+        <div class="${actionClass}">
+          <button type="button" class="classic-live-action-btn" data-action="zoom" title="放大">🔍</button>
+          <button type="button" class="classic-live-action-btn" data-action="download" title="保存原图">💾</button>
+          <button type="button" class="classic-live-action-btn" data-action="regen" title="重生">♻️</button>
+          <button type="button" class="classic-live-action-btn" data-action="ref" title="设为参考图">🧩</button>
+          <button type="button" class="classic-live-action-btn" data-action="copy" title="复制原图链接">🔗</button>
+        </div>
+      `;
+    };
+
+    const bindLiveActions = (root, task) => {
+      const readFullUrl = () => root.dataset.fullUrl || root.dataset.previewUrl || "";
+      const zoomBtn = root.querySelector('[data-action="zoom"]');
+      if (zoomBtn) zoomBtn.addEventListener("click", (event) => {
+        event.stopPropagation();
+        openLightbox(readFullUrl());
+      });
+      const downBtn = root.querySelector('[data-action="download"]');
+      if (downBtn) downBtn.addEventListener("click", (event) => {
+        event.stopPropagation();
+        downloadSingleImg(readFullUrl());
+      });
+      const regenBtn = root.querySelector('[data-action="regen"]');
+      if (regenBtn) regenBtn.addEventListener("click", (event) => {
+        event.stopPropagation();
+        regenerateFromHistory(encodeURIComponent(task.prompt || ""));
+      });
+      const refBtn = root.querySelector('[data-action="ref"]');
+      if (refBtn) refBtn.addEventListener("click", (event) => {
+        event.stopPropagation();
+        useAsRef(readFullUrl(), refBtn);
+      });
+      const copyBtn = root.querySelector('[data-action="copy"]');
+      if (copyBtn) copyBtn.addEventListener("click", (event) => {
+        event.stopPropagation();
+        copyImgUrl(readFullUrl());
+      });
+    };
+
+    const primaryStatus = String(primaryTask.status || "running");
+    const primaryFullUrl = getClassicLiveFullUrl(primaryTask);
+    const primaryPreviewUrl = getClassicLivePreviewUrl(primaryTask);
+    const primaryTimeValue = primaryTask.completedAt || primaryTask.createdAt;
+    const primaryPrompt = primaryTask.prompt || "未记录提示词";
+    const primaryConfigText = [
+      primaryTask.modelLabel,
+      primaryTask.routeLabel,
+      primaryTask.size,
+      primaryTask.ratio,
+    ]
+      .filter(Boolean)
+      .join(" / ");
+    const primaryRefText =
+      primaryTask.referenceCount > 0 ? ` · 参考图 ${primaryTask.referenceCount}` : "";
+
+    const primaryCard = document.createElement("div");
+    primaryCard.className = [
+      "classic-live-card",
+      "is-primary",
+      primaryStatus === "success" && primaryFullUrl ? "is-success" : "",
+      primaryStatus === "failed" ? "is-failed" : "",
+    ]
+      .filter(Boolean)
+      .join(" ");
+    primaryCard.dataset.fullUrl = primaryFullUrl;
+    primaryCard.dataset.previewUrl = primaryPreviewUrl;
+    primaryCard.innerHTML = `
+      <div class="classic-live-media">
+        ${buildMediaHtml(primaryTask)}
+        <div class="classic-live-meta">
+          <span class="classic-live-chip">${escapeHtml(getClassicLiveStatusLabel(primaryStatus))} #${Number(primaryTask.index || 1)}</span>
+          <span class="classic-live-time">${escapeHtml(formatClassicLiveClock(primaryTimeValue))}</span>
+        </div>
+        ${buildActionsHtml(primaryTask, true)}
+      </div>
+      <div class="classic-live-info">
+        <div>
+          <div class="classic-live-prompt">${escapeHtml(primaryPrompt)}</div>
+          <div class="classic-live-config">${escapeHtml(primaryConfigText || "当前配置")}${escapeHtml(primaryRefText)}</div>
+        </div>
+      </div>
+    `;
+    const primaryImg = primaryCard.querySelector("img");
+    if (primaryImg && primaryPreviewUrl && primaryPreviewUrl !== primaryFullUrl) {
+      primaryImg.addEventListener("error", () => {
+        if (primaryImg.dataset.fallbackApplied === "1") return;
+        primaryImg.dataset.fallbackApplied = "1";
+        primaryImg.src = primaryPreviewUrl;
+      });
+    }
+    bindLiveActions(primaryCard, primaryTask);
+    grid.appendChild(primaryCard);
+
+    if (classicLiveTasks.length > 1) {
+      const strip = document.createElement("div");
+      strip.className = "classic-live-strip";
+      classicLiveTasks.forEach((task) => {
+        const status = String(task.status || "running");
+        const fullUrl = getClassicLiveFullUrl(task);
+        const previewUrl = getClassicLivePreviewUrl(task);
+        const thumbSrc = previewUrl || fullUrl;
+        const isSelected =
+          task.id === primaryTask.id ||
+          (Boolean(task.taskId) && task.taskId === primaryTask.taskId);
+        const thumb = document.createElement("button");
+        thumb.type = "button";
+        thumb.className = [
+          "classic-live-thumb-card",
+          isSelected ? "active" : "",
+          status === "failed" ? "is-failed" : "",
+        ]
+          .filter(Boolean)
+          .join(" ");
+        thumb.dataset.liveId = task.id || task.taskId || "";
+        thumb.dataset.fullUrl = fullUrl;
+        thumb.innerHTML = `
+          <div class="classic-live-thumb-media">
+            ${
+              thumbSrc
+                ? `<img src="${escapeHtml(thumbSrc)}" alt="生成结果缩略图" loading="lazy" referrerpolicy="no-referrer">`
+                : `<div class="classic-live-thumb-pending">${escapeHtml(getClassicLiveStatusLabel(status))}</div>`
+            }
+          </div>
+          <div class="classic-live-thumb-meta">
+            <span>${escapeHtml(getClassicLiveStatusLabel(status))} #${Number(task.index || 1)}</span>
+            <b>${escapeHtml(formatClassicLiveClock(task.completedAt || task.createdAt))}</b>
+          </div>
+        `;
+        thumb.addEventListener("click", () => {
+          classicLiveSelectedId = thumb.dataset.liveId || "";
+          renderClassicLiveTasks();
+        });
+        strip.appendChild(thumb);
+      });
+      grid.appendChild(strip);
+    }
     return;
   }
 
@@ -570,6 +751,13 @@ if (document.readyState === "loading") {
   readClassicLiveTasks();
   renderClassicLiveTasks();
 }
+
+window.addEventListener("resize", () => {
+  if (classicLiveResizeTimer) clearTimeout(classicLiveResizeTimer);
+  classicLiveResizeTimer = window.setTimeout(() => {
+    renderClassicLiveTasks();
+  }, 160);
+});
 
 function clearHistoryObjectUrlRefs() {
   historyObjectUrls.forEach((url) => URL.revokeObjectURL(url));

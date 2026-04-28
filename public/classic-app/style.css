@@ -919,18 +919,18 @@ body {
 }
 
 #tab-create.tab-content {
-  max-width: min(1540px, calc(100vw - 56px));
+  max-width: min(1720px, calc(100vw - 56px));
 }
 
 .classic-create-dashboard {
-  max-width: min(1540px, calc(100vw - 56px));
+  max-width: min(1720px, calc(100vw - 56px));
   margin-bottom: 56px;
 }
 
 .classic-create-layout {
   display: grid;
-  grid-template-columns: minmax(620px, 1.05fr) minmax(420px, 0.95fr);
-  gap: 18px;
+  grid-template-columns: minmax(540px, 620px) minmax(640px, 1fr);
+  gap: 22px;
   align-items: start;
   width: 100%;
 }
@@ -947,6 +947,18 @@ body {
   grid-template-columns: 1fr 1fr;
   gap: 16px;
 }
+
+.classic-create-layout .settings-grid {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.classic-create-layout .settings-grid > *,
+.classic-create-layout .right-column,
+.classic-create-layout .tech-module,
+.classic-create-layout .pill-dropdown {
+  min-width: 0;
+}
+
 .right-column {
   display: flex;
   flex-direction: column;
@@ -1317,7 +1329,7 @@ select option {
 .upload-box {
   border: 2px dashed var(--text-sub);
   border-radius: 12px;
-  padding: 20px;
+  padding: 16px 18px;
   text-align: center;
   cursor: pointer;
   transition: 0.3s;
@@ -1327,8 +1339,10 @@ select option {
   display: flex;
   flex-direction: column;
   justify-content: center;
-  min-height: 120px;
+  min-height: 156px;
+  max-height: 188px;
   position: relative;
+  overflow: hidden;
 }
 .upload-box:hover,
 .upload-box.drag-over {
@@ -1345,9 +1359,11 @@ select option {
   justify-content: flex-start;
   align-items: center;
   width: 100%;
+  max-width: 100%;
+  min-width: 0;
   overflow-x: auto;
   overflow-y: hidden;
-  padding: 2px 2px 8px;
+  padding: 4px 2px 10px;
   scroll-behavior: smooth;
   scrollbar-width: thin;
   scrollbar-color: rgba(180, 190, 205, 0.45) transparent;
@@ -1367,8 +1383,8 @@ select option {
 }
 .thumb-wrapper {
   position: relative;
-  width: 78px;
-  height: 78px;
+  width: 74px;
+  height: 74px;
   flex-shrink: 0;
   transition: transform 0.2s, border-color 0.2s, box-shadow 0.2s;
   cursor: grab;
@@ -1532,12 +1548,12 @@ select option {
 
 .classic-live-panel.result-module {
   position: sticky;
-  top: 96px;
-  min-height: min(720px, calc(100vh - 128px));
-  max-height: calc(100vh - 112px);
+  top: 92px;
+  min-height: min(760px, calc(100vh - 112px));
+  max-height: calc(100vh - 104px);
   justify-content: flex-start;
   align-items: stretch;
-  padding: 18px;
+  padding: 20px 22px;
   overflow: hidden;
   gap: 14px;
 }
@@ -1613,14 +1629,14 @@ select option {
 }
 
 .classic-live-grid {
-  display: grid;
-  grid-template-columns: 1fr;
+  display: flex;
+  flex-direction: column;
   gap: 12px;
   flex: 1;
   width: 100%;
   min-height: 0;
-  overflow-y: auto;
-  padding-right: 4px;
+  overflow: hidden;
+  padding-right: 0;
   scrollbar-width: thin;
   scrollbar-color: rgba(180, 190, 205, 0.38) transparent;
 }
@@ -1688,6 +1704,13 @@ select option {
   box-shadow: 0 18px 48px rgba(0, 0, 0, 0.24);
 }
 
+.classic-live-card.is-primary {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
 .classic-live-card.is-success {
   border-color: rgba(77, 190, 255, 0.22);
 }
@@ -1707,7 +1730,8 @@ select option {
 }
 
 .classic-live-card.is-primary .classic-live-media {
-  min-height: 430px;
+  flex: 1 1 auto;
+  min-height: clamp(390px, calc(100vh - 372px), 620px);
 }
 
 .classic-live-media img {
@@ -1833,6 +1857,26 @@ select option {
   flex: 0 0 auto;
 }
 
+.classic-live-primary-actions {
+  position: absolute;
+  right: 16px;
+  bottom: 16px;
+  z-index: 4;
+  padding: 8px;
+  border-radius: 16px;
+  background: rgba(0, 0, 0, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.13);
+  backdrop-filter: blur(12px);
+  opacity: 0.96;
+  transform: translateY(0);
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.classic-live-card.is-primary:hover .classic-live-primary-actions,
+.classic-live-card.is-primary:focus-within .classic-live-primary-actions {
+  opacity: 1;
+}
+
 .classic-live-action-btn {
   width: 32px;
   height: 32px;
@@ -1859,6 +1903,99 @@ select option {
   line-height: 1.5;
   text-align: center;
   padding: 0 22px;
+}
+
+.classic-live-strip {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 10px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 2px 2px 8px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(180, 190, 205, 0.38) transparent;
+}
+
+.classic-live-strip::-webkit-scrollbar {
+  height: 6px;
+}
+
+.classic-live-strip::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.classic-live-strip::-webkit-scrollbar-thumb {
+  background: rgba(180, 190, 205, 0.34);
+  border-radius: 999px;
+}
+
+.classic-live-thumb-card {
+  width: 150px;
+  min-width: 150px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.045);
+  border-radius: 14px;
+  padding: 7px;
+  cursor: pointer;
+  text-align: left;
+  color: var(--text-main);
+  transition: transform 0.18s ease, border-color 0.18s ease, background 0.18s ease;
+}
+
+.classic-live-thumb-card:hover,
+.classic-live-thumb-card.active {
+  transform: translateY(-1px);
+  border-color: rgba(255, 214, 10, 0.5);
+  background: rgba(255, 214, 10, 0.08);
+}
+
+.classic-live-thumb-card.is-failed {
+  border-color: rgba(255, 84, 84, 0.34);
+}
+
+.classic-live-thumb-media {
+  height: 76px;
+  border-radius: 10px;
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+  background: rgba(0, 0, 0, 0.28);
+}
+
+.classic-live-thumb-media img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.classic-live-thumb-pending {
+  color: var(--banana);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.classic-live-thumb-meta {
+  margin-top: 7px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: rgba(245, 247, 255, 0.82);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.classic-live-thumb-meta span,
+.classic-live-thumb-meta b {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.classic-live-thumb-meta b {
+  color: rgba(180, 190, 205, 0.82);
+  font-weight: 900;
 }
 
 .classic-legacy-result-grid {
@@ -4855,6 +4992,10 @@ select option {
   .classic-live-panel.result-module {
     min-height: 420px !important;
     padding: 12px !important;
+  }
+
+  .classic-live-grid {
+    overflow: visible !important;
   }
 
   .classic-live-heading {
