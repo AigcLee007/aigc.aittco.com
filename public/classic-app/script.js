@@ -185,6 +185,27 @@ function genHistoryId() {
   return `h_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
 }
 
+function isClassicLine4LocalOriginal(url) {
+  return typeof url === "string" && url.includes("/generated-assets/line4/original/");
+}
+
+function getClassicLine4ThumbUrl(url) {
+  if (!isClassicLine4LocalOriginal(url)) return "";
+  return String(url)
+    .replace("/generated-assets/line4/original/", "/generated-assets/line4/thumb/")
+    .replace(/\.[a-zA-Z0-9]+(?=$|[?#])/, ".webp");
+}
+
+function getHistoryFullUrl(item) {
+  if (typeof item === "string") return item;
+  return String(item?.fullUrl || item?.url || "").trim();
+}
+
+function getHistoryDisplayUrl(item) {
+  if (typeof item === "string") return item;
+  return String(item?.previewUrl || item?.displayUrl || item?.url || "").trim();
+}
+
 function clearHistoryObjectUrlRefs() {
   historyObjectUrls.forEach((url) => URL.revokeObjectURL(url));
   historyObjectUrls = [];
@@ -3173,7 +3194,7 @@ function escapeHtml(str = "") {
     .replace(/'/g, "&#39;");
 }
 
-function saveToHistory(url, promptText = "") {
+function saveToHistory(url, promptText = "", previewUrl = "") {
   if (url.length > 5000) return;
   try {
     let history = JSON.parse(localStorage.getItem("nb_history") || "[]");
@@ -3181,15 +3202,25 @@ function saveToHistory(url, promptText = "") {
     const now = new Date();
     const timeStr = `${now.getHours().toString().padStart(2, "0")}:${now.getMinutes().toString().padStart(2, "0")}`;
     const cleanPrompt = String(promptText || "").trim();
-    const newRecord = { id: genHistoryId(), url: url, time: timeStr, prompt: cleanPrompt };
-    if (history.length > 0 && history[0].url === url) return;
+    const fullUrl = String(url || "").trim();
+    const displayUrl =
+      String(previewUrl || "").trim() || getClassicLine4ThumbUrl(fullUrl) || fullUrl;
+    const newRecord = {
+      id: genHistoryId(),
+      url: fullUrl,
+      fullUrl,
+      previewUrl: displayUrl,
+      time: timeStr,
+      prompt: cleanPrompt,
+    };
+    if (history.length > 0 && getHistoryFullUrl(history[0]) === fullUrl) return;
     history.unshift(newRecord);
     // [Mod] Increased History Limit to 20
     const removed = history.length > 20 ? history.slice(20) : [];
     if (history.length > 20) history = history.slice(0, 20);
     localStorage.setItem("nb_history", JSON.stringify(history));
     loadHistory();
-    cacheHistoryImage(newRecord.id, url).then((ok) => {
+    cacheHistoryImage(newRecord.id, fullUrl).then((ok) => {
       if (ok) loadHistory();
     });
     removed.forEach((item) => removeCachedHistoryImage(item?.id));
@@ -3225,11 +3256,25 @@ function loadHistory() {
   history = history.map((item) => {
     if (typeof item === "string") {
       migrated = true;
-      return { id: genHistoryId(), url: item, time: "", prompt: "" };
+      return {
+        id: genHistoryId(),
+        url: item,
+        fullUrl: item,
+        previewUrl: getClassicLine4ThumbUrl(item) || item,
+        time: "",
+        prompt: "",
+      };
     }
     if (!item?.id) {
       migrated = true;
       return { ...item, id: genHistoryId() };
+    }
+    const fullUrl = getHistoryFullUrl(item);
+    const previewUrl =
+      String(item?.previewUrl || "").trim() || getClassicLine4ThumbUrl(fullUrl) || fullUrl;
+    if (item.fullUrl !== fullUrl || item.previewUrl !== previewUrl) {
+      migrated = true;
+      return { ...item, url: fullUrl, fullUrl, previewUrl };
     }
     return item;
   });
@@ -3261,7 +3306,8 @@ function loadHistory() {
   }
 
   history.forEach((item) => {
-    const url = typeof item === "string" ? item : item.url;
+    const url = getHistoryDisplayUrl(item);
+    const fullUrl = getHistoryFullUrl(item) || url;
     const recordId = typeof item === "object" ? item.id : "";
     // Check for time property, fallback to specific logic or empty
     const time = typeof item === "object" && item.time ? item.time : "";
@@ -3273,20 +3319,22 @@ function loadHistory() {
     const div = document.createElement("div");
     div.className = "result-item history-item"; // Inherit overlay styles
     div.title = promptLabel;
+    div.dataset.fullUrl = fullUrl;
+    div.dataset.displayUrl = url;
 
     div.innerHTML = `
-            <img src="${url}" loading="lazy" onclick="openLightbox(this.src)">
+            <img src="${url}" loading="lazy" onclick="openLightbox(this.closest('.history-item').dataset.fullUrl || this.src)">
             <!-- Timestamp Display -->
             ${time ? `<div class="history-time-tag">${time}</div>` : ""}
             <div class="history-cache-badge syncing">缓存中</div>
             ${promptTooltip}
             
             <div class="item-overlay">
-                <button class="overlay-btn history-icon-btn" data-label="放大" onclick="openLightbox(this.closest('.history-item').querySelector('img').src)">🔍</button>
-                <button class="overlay-btn history-icon-btn" data-label="保存" onclick="downloadSingleImg(this.closest('.history-item').querySelector('img').src)">💾</button>
+                <button class="overlay-btn history-icon-btn" data-label="放大" onclick="openLightbox(this.closest('.history-item').dataset.fullUrl || this.closest('.history-item').querySelector('img').src)">🔍</button>
+                <button class="overlay-btn history-icon-btn" data-label="保存" onclick="downloadSingleImg(this.closest('.history-item').dataset.fullUrl || this.closest('.history-item').querySelector('img').src)">💾</button>
                 <button class="overlay-btn history-icon-btn" data-label="重生" onclick="regenerateFromHistory('${encodedPrompt}')">♻️</button>
-                <button class="overlay-btn history-icon-btn" data-label="垫图" onclick="useAsRef(this.closest('.history-item').querySelector('img').src)">🧩</button>
-                <button class="overlay-btn history-icon-btn" data-label="链接" onclick="copyImgUrl('${url}')">🔗</button>
+                <button class="overlay-btn history-icon-btn" data-label="垫图" onclick="useAsRef(this.closest('.history-item').dataset.fullUrl || this.closest('.history-item').querySelector('img').src)">🧩</button>
+                <button class="overlay-btn history-icon-btn" data-label="链接" onclick="copyImgUrl(this.closest('.history-item').dataset.fullUrl || '${fullUrl}')">🔗</button>
             </div>
         `;
     grid.appendChild(div);

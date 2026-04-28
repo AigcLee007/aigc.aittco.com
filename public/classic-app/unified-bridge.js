@@ -1955,8 +1955,9 @@
     }
 
     records.forEach((record) => {
-      const url = String(record.previewUrl || record.resultUrls?.[0] || "").trim();
-      if (!url) return;
+      const originalUrl = String(record.resultUrls?.[0] || record.previewUrl || "").trim();
+      const url = String(record.previewUrl || originalUrl || "").trim();
+      if (!originalUrl) return;
       const recordId = String(record.id || "").trim();
       const prompt = String(record.prompt || "");
       const encodedPrompt = encodeURIComponent(prompt || "");
@@ -1967,17 +1968,19 @@
       const div = document.createElement("div");
       div.className = "result-item history-item";
       div.title = promptLabel;
+      div.dataset.fullUrl = originalUrl;
+      div.dataset.displayUrl = url;
       div.innerHTML = `
-        <img src="${url}" loading="lazy" onclick="openLightbox(this.src)">
+        <img src="${url}" loading="lazy" onclick="openLightbox(this.closest('.history-item').dataset.fullUrl || this.src)">
         ${time ? `<div class="history-time-tag">${time}</div>` : ""}
         <div class="history-cache-badge syncing">缓存中</div>
         ${promptTooltip}
         <div class="item-overlay">
-          <button class="overlay-btn history-icon-btn" data-label="放大" onclick="openLightbox(this.closest('.history-item').querySelector('img').src)">🔍</button>
-          <button class="overlay-btn history-icon-btn" data-label="保存" onclick="downloadSingleImg(this.closest('.history-item').querySelector('img').src)">💾</button>
+          <button class="overlay-btn history-icon-btn" data-label="放大" onclick="openLightbox(this.closest('.history-item').dataset.fullUrl || this.closest('.history-item').querySelector('img').src)">🔍</button>
+          <button class="overlay-btn history-icon-btn" data-label="保存" onclick="downloadSingleImg(this.closest('.history-item').dataset.fullUrl || this.closest('.history-item').querySelector('img').src)">💾</button>
           <button class="overlay-btn history-icon-btn" data-label="重生" onclick="regenerateFromHistory('${encodedPrompt}')">♻️</button>
-          <button class="overlay-btn history-icon-btn" data-label="垫图" onclick="useAsRef(this.closest('.history-item').querySelector('img').src)">🧩</button>
-          <button class="overlay-btn history-icon-btn" data-label="链接" onclick="copyImgUrl('${url}')">🔗</button>
+          <button class="overlay-btn history-icon-btn" data-label="垫图" onclick="useAsRef(this.closest('.history-item').dataset.fullUrl || this.closest('.history-item').querySelector('img').src)">🧩</button>
+          <button class="overlay-btn history-icon-btn" data-label="链接" onclick="copyImgUrl(this.closest('.history-item').dataset.fullUrl || '${originalUrl}')">🔗</button>
         </div>
       `;
       grid.appendChild(div);
@@ -1990,7 +1993,7 @@
         getCachedHistoryImage(recordId).then((blob) => {
           if (!blob) {
             if (typeof cacheHistoryImage === "function") {
-              cacheHistoryImage(recordId, url).then((ok) => {
+              cacheHistoryImage(recordId, originalUrl).then((ok) => {
                 if (ok && typeof setHistoryCacheBadge === "function") {
                   setHistoryCacheBadge(div, "local");
                 }
