@@ -14,7 +14,7 @@
       href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><defs><filter id='glow'><feGaussianBlur stdDeviation='2.5' result='coloredBlur'/><feMerge><feMergeNode in='coloredBlur'/><feMergeNode in='SourceGraphic'/></feMerge></filter></defs><circle cx='50' cy='50' r='50' fill='%230a0a0c'/><text x='50' y='70' font-size='70' text-anchor='middle' filter='url(%23glow)'>🍌</text></svg>"
     />
 
-    <link rel="stylesheet" href="/classic-app/style.css?v=classic_settings_layout_v1" />
+    <link rel="stylesheet" href="/classic-app/style.css?v=classic_header_toolbar_v1" />
   </head>
   <body>
     <div class="top-controls">
@@ -26,7 +26,75 @@
       >
         🌙
       </button>
+    </div>
 
+    <div id="announcementBar" class="announcement-modal-overlay" style="display:none;" onclick="handleAnnouncementModalClick(event)">
+      <div class="announcement-modal-card" onclick="event.stopPropagation()">
+        <div id="announcementText" class="announcement-modal-content"></div>
+        <div class="announcement-modal-footer">
+          <button class="announcement-close-btn" onclick="closeAnnouncement()">我知道了</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="noticeOverlay" class="notice-overlay" style="display:none;" onclick="handleNoticeOverlayClick(event)">
+      <div class="notice-panel">
+        <div class="notice-panel-header">
+          <div class="notice-panel-title">📢 通知</div>
+          <button id="noticeMarkAllBtn" class="notice-mark-read-btn" onclick="markAllNoticesRead()">✓ 全部已读</button>
+        </div>
+        <div id="noticeList" class="notice-list"></div>
+      </div>
+    </div>
+
+    <div id="priceOverlay" class="price-overlay" style="display:none;" onclick="handlePriceOverlayClick(event)">
+      <div class="price-panel">
+        <div class="price-panel-header">
+          <div>
+            <div class="price-panel-title">价格表</div>
+            <div class="price-panel-subtitle">按模型、线路、画质尺寸查询单张消耗</div>
+          </div>
+          <button class="price-close-btn" onclick="closePriceCenter()" aria-label="关闭价格表">×</button>
+        </div>
+        <div class="price-current-card" id="priceCurrentCard">
+          <div>
+            <div class="price-current-label">当前配置消耗</div>
+            <div class="price-current-meta" id="priceCurrentMeta">正在计算...</div>
+          </div>
+          <div class="price-current-total" id="priceCurrentTotal">-- 🪙</div>
+        </div>
+        <div class="price-lowest-section">
+          <div class="price-lowest-head">
+            <span>最低价速览</span>
+            <em>仅展示已启用模型和线路</em>
+          </div>
+          <div id="priceLowestList" class="price-lowest-list"></div>
+        </div>
+        <div class="price-filter-row">
+          <label class="price-filter-label" for="priceLineFilter">线路</label>
+          <select id="priceLineFilter" class="price-filter-select" onchange="renderPriceTable()">
+            <option value="__all__">全部线路</option>
+          </select>
+        </div>
+        <div id="priceTableList" class="price-table-list"></div>
+        <div class="price-note">最终消耗按模型、线路、画质尺寸和数量实时计算。比例、格式等未显示加价时表示当前不单独计费。</div>
+      </div>
+    </div>
+
+    <div class="hero-header">
+      <div class="brand-container">
+        <a
+          href="https://item.taobao.com/item.htm?id=975150888957"
+          target="_blank"
+          rel="noopener noreferrer"
+          class="brand-title"
+          id="brandTitleText"
+        >
+          Nano Banana <span class="brand-pro">PRO</span>
+        </a>
+        <span class="brand-badge-4k" id="brandBadge4k">4K</span>
+      </div>
+      <div class="brand-sub" id="brandSubText">Powered By Gemini-3-Pro-Preview</div>
       <div class="top-right-tools">
         <!-- Desktop Navigation -->
         <div class="desktop-nav">
@@ -101,75 +169,6 @@
           画布版
         </a>
       </div>
-    </div>
-
-    <div id="announcementBar" class="announcement-modal-overlay" style="display:none;" onclick="handleAnnouncementModalClick(event)">
-      <div class="announcement-modal-card" onclick="event.stopPropagation()">
-        <div id="announcementText" class="announcement-modal-content"></div>
-        <div class="announcement-modal-footer">
-          <button class="announcement-close-btn" onclick="closeAnnouncement()">我知道了</button>
-        </div>
-      </div>
-    </div>
-
-    <div id="noticeOverlay" class="notice-overlay" style="display:none;" onclick="handleNoticeOverlayClick(event)">
-      <div class="notice-panel">
-        <div class="notice-panel-header">
-          <div class="notice-panel-title">📢 通知</div>
-          <button id="noticeMarkAllBtn" class="notice-mark-read-btn" onclick="markAllNoticesRead()">✓ 全部已读</button>
-        </div>
-        <div id="noticeList" class="notice-list"></div>
-      </div>
-    </div>
-
-    <div id="priceOverlay" class="price-overlay" style="display:none;" onclick="handlePriceOverlayClick(event)">
-      <div class="price-panel">
-        <div class="price-panel-header">
-          <div>
-            <div class="price-panel-title">价格表</div>
-            <div class="price-panel-subtitle">按模型、线路、画质尺寸查询单张消耗</div>
-          </div>
-          <button class="price-close-btn" onclick="closePriceCenter()" aria-label="关闭价格表">×</button>
-        </div>
-        <div class="price-current-card" id="priceCurrentCard">
-          <div>
-            <div class="price-current-label">当前配置消耗</div>
-            <div class="price-current-meta" id="priceCurrentMeta">正在计算...</div>
-          </div>
-          <div class="price-current-total" id="priceCurrentTotal">-- 🪙</div>
-        </div>
-        <div class="price-lowest-section">
-          <div class="price-lowest-head">
-            <span>最低价速览</span>
-            <em>仅展示已启用模型和线路</em>
-          </div>
-          <div id="priceLowestList" class="price-lowest-list"></div>
-        </div>
-        <div class="price-filter-row">
-          <label class="price-filter-label" for="priceLineFilter">线路</label>
-          <select id="priceLineFilter" class="price-filter-select" onchange="renderPriceTable()">
-            <option value="__all__">全部线路</option>
-          </select>
-        </div>
-        <div id="priceTableList" class="price-table-list"></div>
-        <div class="price-note">最终消耗按模型、线路、画质尺寸和数量实时计算。比例、格式等未显示加价时表示当前不单独计费。</div>
-      </div>
-    </div>
-
-    <div class="hero-header">
-      <div class="brand-container">
-        <a
-          href="https://item.taobao.com/item.htm?id=975150888957"
-          target="_blank"
-          rel="noopener noreferrer"
-          class="brand-title"
-          id="brandTitleText"
-        >
-          Nano Banana <span class="brand-pro">PRO</span>
-        </a>
-        <span class="brand-badge-4k" id="brandBadge4k">4K</span>
-      </div>
-      <div class="brand-sub" id="brandSubText">Powered By Gemini-3-Pro-Preview</div>
     </div>
 
     <!-- TAB 1: CREATE -->
@@ -1104,8 +1103,8 @@
   </div>
 </div>
 
-    <script src="/classic-app/promptTags.js?v=classic_settings_layout_v1"></script>
-    <script src="/classic-app/script.js?v=classic_settings_layout_v1"></script>
-    <script src="/classic-app/unified-bridge.js?v=classic_settings_layout_v1"></script>
+    <script src="/classic-app/promptTags.js?v=classic_header_toolbar_v1"></script>
+    <script src="/classic-app/script.js?v=classic_header_toolbar_v1"></script>
+    <script src="/classic-app/unified-bridge.js?v=classic_header_toolbar_v1"></script>
   </body>
 </html>
