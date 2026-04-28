@@ -37,6 +37,7 @@ interface BatchProcessModalProps {
     aspectRatio?: string,
     baseNode?: any,
     type?: 'IMAGE' | 'VIDEO',
+    options?: { preserveToolMode?: boolean },
   ) => string[];
   onUpdateGeneration: (id: string, src: string | null, error?: string) => void;
 }

@@ -58,6 +58,9 @@ export interface NodeData {
   // Image History
   history?: HistoryItem[];
   historyIndex?: number;
+
+  // Derived image-edit results
+  sourceNodeId?: string;
 }
 
 export enum ToolMode {

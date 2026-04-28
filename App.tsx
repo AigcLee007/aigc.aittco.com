@@ -4,7 +4,6 @@ import MobileView from "./components/MobileView";
 import Toolbar from "./components/Toolbar";
 import MultiSelectToolbar from "./components/MultiSelectToolbar";
 import ControlPanel from "./components/ControlPanel";
-import InpaintWindow from "./components/InpaintWindow";
 import AdminDashboardPage from "./components/AdminDashboardPage";
 import BillingCenterPage from "./components/BillingCenterPage";
 import { Settings, CheckCircle, LayoutGrid, Wallet } from "lucide-react";
@@ -465,7 +464,6 @@ const App: React.FC = () => {
           onUpdateProgress={handleUpdateProgress}
           onOpenBatchModal={handleOpenBatch}
         />
-        <InpaintWindow />
         <ModalsContainer
           settingsOpen={modalOpen}
           settingsTab={modalTab}
@@ -559,8 +557,6 @@ const App: React.FC = () => {
           onUpdateProgress={handleUpdateProgress}
           onOpenBatchModal={handleOpenBatch}
         />
-
-        <InpaintWindow />
 
         <ModalsContainer
           settingsOpen={modalOpen}

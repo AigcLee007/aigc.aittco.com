@@ -14,6 +14,7 @@ import {
   ImagePlus,
   Link,
   Eraser,
+  CheckCircle2,
 } from 'lucide-react';
 import { ToolMode } from '../types';
 
@@ -36,8 +37,8 @@ const ContextMenu: React.FC<ContextMenuProps> = ({
     openLightbox,
     addReferenceImage,
     clearSelection,
+    select,
     setToolMode,
-    setInpaintWindowOpen,
     setPrompt,
     setPendingPrompt,
     setPanelMode,
@@ -77,10 +78,56 @@ const ContextMenu: React.FC<ContextMenuProps> = ({
     }
   };
 
-  const handleInpaint = () => {
+  const handleOpenImageEdit = () => {
+    if (nodeId) {
+      select(nodeId, false);
+    }
+    setPanelMode('IMAGE');
+    setControlPanelOpen(true);
     closeContextMenu();
     setToolMode(ToolMode.INPAINT);
-    setInpaintWindowOpen(true);
+  };
+
+  const handleApplyToSource = () => {
+    if (!node || node.type !== 'IMAGE' || !node.sourceNodeId || !node.src) return;
+    const sourceNode = nodes.find((item) => item.id === node.sourceNodeId);
+    if (!sourceNode || sourceNode.type !== 'IMAGE') return;
+
+    const previousHistory =
+      sourceNode.history && sourceNode.history.length > 0
+        ? sourceNode.history
+        : sourceNode.src
+          ? [{ src: sourceNode.src, prompt: sourceNode.prompt }]
+          : [];
+    const previousIndex =
+      typeof sourceNode.historyIndex === 'number'
+        ? sourceNode.historyIndex
+        : Math.max(0, previousHistory.length - 1);
+    const nextHistory = [
+      ...previousHistory.slice(0, previousIndex + 1),
+      {
+        src: node.src,
+        prompt: node.prompt || sourceNode.prompt,
+      },
+    ];
+
+    useCanvasStore.getState().updateNode(sourceNode.id, {
+      src: node.src,
+      assetId: node.assetId,
+      prompt: node.prompt || sourceNode.prompt,
+      height: node.height,
+      error: false,
+      errorMessage: undefined,
+      loading: false,
+      history: nextHistory,
+      historyIndex: nextHistory.length - 1,
+      maskStrokes: [],
+    });
+
+    clearSelection();
+    select(sourceNode.id, false);
+    setToolMode(ToolMode.SELECT);
+    closeContextMenu();
   };
 
   const handleRegenerate = () => {
@@ -139,9 +186,16 @@ const ContextMenu: React.FC<ContextMenuProps> = ({
         )}
 
         {isImageNode && (
-          <button onClick={handleInpaint} className="flex items-center gap-2 px-4 py-2 hover:bg-gray-800 text-left text-gray-200">
+          <button onClick={handleOpenImageEdit} className="flex items-center gap-2 px-4 py-2 hover:bg-gray-800 text-left text-gray-200">
             <Eraser size={14} className="text-purple-400" />
-            <span>{'\u5C40\u90E8\u91CD\u7ED8 (Inpaint)'}</span>
+            <span>{'\u56FE\u7247\u7F16\u8F91'}</span>
+          </button>
+        )}
+
+        {isImageNode && node?.sourceNodeId && (
+          <button onClick={handleApplyToSource} className="flex items-center gap-2 px-4 py-2 hover:bg-gray-800 text-left text-gray-200">
+            <CheckCircle2 size={14} className="text-emerald-400" />
+            <span>{'\u5E94\u7528\u5230\u539F\u56FE'}</span>
           </button>
         )}
 

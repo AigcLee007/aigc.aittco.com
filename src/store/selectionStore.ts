@@ -104,10 +104,6 @@ interface SelectionStore {
   toggleTooltips: () => void;
   setControlPanelOpen: (open: boolean) => void;
   toggleControlPanel: () => void;
-  
-  // Inpaint Window State
-  isInpaintWindowOpen: boolean;
-  setInpaintWindowOpen: (open: boolean) => void;
 
   // Actions - Context Menu
   setContextMenu: (menu: { x: number; y: number; nodeId: string } | null) => void;
@@ -200,7 +196,6 @@ export const useSelectionStore = create<SelectionStore>()(
       showLayers: true,
       showTooltips: true,
       isControlPanelOpen: true,
-      isInpaintWindowOpen: false,
       panelMode: 'IMAGE',
       contextMenu: null,
       lightboxImage: null,
@@ -323,14 +318,12 @@ export const useSelectionStore = create<SelectionStore>()(
           if (mode === ToolMode.VIDEO) {
               state.panelMode = 'VIDEO';
               state.isControlPanelOpen = true; // Auto-open panel
-              state.isInpaintWindowOpen = false;
           } else if (mode === ToolMode.GENERATE) {
               state.panelMode = 'IMAGE';
               state.isControlPanelOpen = true; // Auto-open panel
-              state.isInpaintWindowOpen = false;
           } else if (mode === ToolMode.INPAINT) {
-              state.isControlPanelOpen = false;
-              state.isInpaintWindowOpen = true;
+              state.panelMode = 'IMAGE';
+              state.isControlPanelOpen = true;
           }
         }),
 
@@ -359,17 +352,6 @@ export const useSelectionStore = create<SelectionStore>()(
       setControlPanelOpen: (open) =>
         set((state) => {
           state.isControlPanelOpen = open;
-          if (open) {
-            state.isInpaintWindowOpen = false;
-          }
-        }),
-
-      setInpaintWindowOpen: (open) =>
-        set((state) => {
-          state.isInpaintWindowOpen = open;
-          if (open) {
-            state.isControlPanelOpen = false;
-          }
         }),
 
       // Actions - Context Menu

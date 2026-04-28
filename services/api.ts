@@ -242,7 +242,7 @@ export const generateImageApi = async (
 export const editImageApi = async (
   apiKey: string | undefined,
   payload: any,
-): Promise<{ taskId: string }> => {
+): Promise<{ taskId: string; url?: string; images?: string[]; data?: any[] }> => {
   const response = await fetch(`${cleanUrl(API_BASE_URL)}/edit`, {
     method: 'POST',
     headers: await buildImageRequestHeaders(apiKey, payload),
@@ -257,12 +257,34 @@ export const editImageApi = async (
   }
 
   const resJson = await response.json();
+  if (resJson.url || resJson.image_url) {
+    return { taskId: '', url: resJson.url || resJson.image_url, ...resJson };
+  }
+
+  if (Array.isArray(resJson.images) && resJson.images.length > 0) {
+    return { taskId: '', images: resJson.images, ...resJson };
+  }
+
+  const normalizedStatus = String(resJson?.status || resJson?.state || '').trim().toLowerCase();
+  const directResultUrls = extractGenerateResultUrls(resJson);
+  const isImmediateSuccess =
+    ['succeeded', 'success', 'completed'].includes(normalizedStatus) &&
+    directResultUrls.length > 0;
+  if (isImmediateSuccess) {
+    return {
+      taskId: '',
+      url: directResultUrls[0],
+      images: directResultUrls,
+      ...resJson,
+    };
+  }
+
   const taskId = resJson.id || resJson.task_id || resJson.data?.task_id;
-  if (!taskId) {
+  if (!taskId && directResultUrls.length === 0) {
     throw new Error(USER_FACING_GENERATION_ERROR_MESSAGE);
   }
 
-  return { taskId };
+  return { taskId: taskId || '', ...resJson };
 };
 
 export const getTaskStatusApi = async (

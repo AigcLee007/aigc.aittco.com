@@ -97,7 +97,14 @@ export const useGenerationLogic = () => {
     }, []);
 
     // Init generations (placeholder nodes)
-    const handleInitGenerations = useCallback((count: number, prompt: string, aspectRatio: string = '1:1', baseNode?: NodeData, type: 'IMAGE' | 'VIDEO' = 'IMAGE') => {
+    const handleInitGenerations = useCallback((
+        count: number,
+        prompt: string,
+        aspectRatio: string = '1:1',
+        baseNode?: NodeData,
+        type: 'IMAGE' | 'VIDEO' = 'IMAGE',
+        options: { preserveToolMode?: boolean } = {},
+    ) => {
         let width = 512;
         let height = 512;
 
@@ -163,8 +170,10 @@ export const useGenerationLogic = () => {
         });
 
         setNodes(finalNodes);
-        // Switch to SELECT mode so user can see what's happening
-        setToolMode(ToolMode.SELECT);
+        if (!options.preserveToolMode) {
+            // Switch to SELECT mode so user can see what's happening
+            setToolMode(ToolMode.SELECT);
+        }
 
         // Auto-pan to new nodes
         const newIds = new Set(newNodes.map(n => n.id));

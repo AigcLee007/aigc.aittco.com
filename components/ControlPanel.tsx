@@ -14,8 +14,9 @@ import CoinIcon from './CoinIcon';
 import ModelSelector from './ModelSelector';
 import ImageFormConfig from './ImageFormConfig';
 import VideoFormConfig from './VideoFormConfig';
+import ImageEditPanel from './ImageEditPanel';
 import { GoogleLogo, OpenAILogo } from './Logos';
-import { findClosestRatio, extractRatioFromPrompt, renderMaskToDataURL, getBase64FromUrl, calculateGptImageSize } from '../src/utils/imageUtils';
+import { findClosestRatio, extractRatioFromPrompt, getBase64FromUrl, calculateGptImageSize } from '../src/utils/imageUtils';
 import { parsePromptReferenceTags } from '../src/utils/promptTags';
 import {
   getImageModelNameForRoute,
@@ -55,7 +56,14 @@ import logo from '../src/assets/logo.svg';
 const USER_FACING_GENERATION_ERROR_MESSAGE = DEFAULT_GENERATION_ERROR_MESSAGE;
 
 interface ControlPanelProps {
-  onInitGenerations: (count: number, prompt: string, aspectRatio?: string, baseNode?: NodeData, type?: 'IMAGE' | 'VIDEO') => string[];
+  onInitGenerations: (
+    count: number,
+    prompt: string,
+    aspectRatio?: string,
+    baseNode?: NodeData,
+    type?: 'IMAGE' | 'VIDEO',
+    options?: { preserveToolMode?: boolean },
+  ) => string[];
   onUpdateGeneration: (id: string, src: string | null, error?: string, taskId?: string) => void;
   onUpdateProgress?: (id: string, progress: number) => void;
   onOpenBatchModal: () => void;
@@ -133,9 +141,7 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
     gptImageOutputCompression,
     gptImageModeration,
     grokReferenceMode,
-    thinkingLevel, setThinkingLevel,
-    brushSize, setBrushSize,
-    brushColor, setBrushColor
+    thinkingLevel, setThinkingLevel
   } = useSelectionStore();
 
   // Auto-clear error when switching modes or models
@@ -147,6 +153,10 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
   const { nodes, updateNode } = useCanvasStore();
   const { addLog } = useHistoryStore();
   const selectedNodes = nodes.filter(n => selectedIds.includes(n.id) && (n.type === 'IMAGE' || n.type === 'VIDEO'));
+  const selectedEditNode =
+    selectedIds.length === 1
+      ? nodes.find((node) => node.id === selectedIds[0] && node.type === 'IMAGE') || null
+      : null;
   const selectedImageRoute = getSelectedImageRoute(imageModel, imageLine);
   const selectedImageModelConfig = getImageModelById(imageModel);
   const selectedVideoRoute = getSelectedVideoRoute(videoModel, videoLine);
@@ -1257,6 +1267,12 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
               .then((res: any) => {
                 if (res.taskId) {
                   placeholderIds.forEach((pid) => onUpdateGeneration(pid, null, undefined, res.taskId));
+                } else if (res.url) {
+                  placeholderIds.forEach((pid) => onUpdateGeneration(pid, res.url));
+                } else if (Array.isArray(res.images) && res.images.length > 0) {
+                  placeholderIds.forEach((pid, idx) => {
+                    onUpdateGeneration(pid, res.images[idx] || res.images[0] || null, res.images[idx] || res.images[0] ? undefined : USER_FACING_GENERATION_ERROR_MESSAGE);
+                  });
                 } else {
                   placeholderIds.forEach((pid) =>
                     onUpdateGeneration(pid, null, USER_FACING_GENERATION_ERROR_MESSAGE),
@@ -1894,9 +1910,53 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
               {/* Content area */}
       {!panelMinimized && (
         <div className={`p-4 ${isMobile ? 'pt-3' : ''} flex flex-col gap-4 overflow-y-auto overflow-x-hidden sleek-scroll-y ${isMobile ? 'max-h-[calc(86dvh-92px)] pb-[max(1rem,env(safe-area-inset-bottom))]' : 'max-h-[85vh]'}`}>
+          {toolMode === ToolMode.INPAINT ? (
+            <>
+              {hasUnlockedGenerationAccess ? (
+                <ImageEditPanel
+                  selectedNode={selectedEditNode}
+                  hasUnlockedGenerationAccess={hasUnlockedGenerationAccess}
+                  isCheckingGenerationAccess={isCheckingGenerationAccess}
+                  directKeyOnly={generationAccessState === 'valid_api_key'}
+                  onInitGenerations={onInitGenerations}
+                  onUpdateGeneration={onUpdateGeneration}
+                />
+              ) : (
+                <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
+                  <div className="flex items-start gap-3">
+                    <div
+                      className={`mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border ${
+                        isCheckingGenerationAccess
+                          ? 'border-cyan-400/30 bg-cyan-500/10 text-cyan-200'
+                          : 'border-amber-400/25 bg-amber-500/10 text-amber-200'
+                      }`}
+                    >
+                      {isCheckingGenerationAccess ? (
+                        <Loader2 size={18} className="animate-spin" />
+                      ) : (
+                        <ShieldCheck size={18} />
+                      )}
+                    </div>
+                    <div className="min-w-0">
+                      <div className="text-sm font-semibold text-white">
+                        {isCheckingGenerationAccess
+                          ? '正在验证访问权限'
+                          : '请先登录或验证 API Key'}
+                      </div>
+                      <div className="mt-1 text-xs leading-5 text-gray-400">
+                        {generationAccessMessage}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="mt-3 rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-[11px] leading-5 text-gray-400">
+                    图片编辑会按你选择的模型和线路走 `/api/edit`，登录后可使用平台积分线路；如果你是旧用户，也可以输入兼容的 API Key。
+                  </div>
+                </div>
+              )}
+            </>
+          ) : (
+            <>
           {/* Reference image area (shared by image/video mode) */}
-          {/* Hide reference area when inpaint mode is active */}
-          {toolMode !== ToolMode.INPAINT && (
               <div id="reference-drop-zone" 
                    className="border border-dashed border-gray-600 rounded-lg p-3 bg-gray-800/30 relative"
                    onDrop={handlePanelDrop} 
@@ -2010,7 +2070,7 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
               )}
               <input ref={panelFileInputRef} type="file" accept="image/*" multiple className="hidden" onChange={handlePanelFileSelect} />
             </div>
-          )}
+          
 
 
 
@@ -2269,12 +2329,14 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
               ) : (
                 <>
                   {toolMode === ToolMode.INPAINT ? <Zap size={16} /> : (isVideoMode ? <Film size={16} /> : <Wand2 size={16} />)}
-                  {toolMode === ToolMode.INPAINT ? '执行局部重绘' : (isVideoMode ? '立即生成视频' : '立即开始创作')}
+                  {toolMode === ToolMode.INPAINT ? '开始图片编辑' : (isVideoMode ? '立即生成视频' : '立即开始创作')}
                 </>
               )}
             </button>
             {/* Removed Exit Edit Mode button as Edit Mode is disabled */}
           </form>
+          </>
+          )}
         </div>
       )}
       </>

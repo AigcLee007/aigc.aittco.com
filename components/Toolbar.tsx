@@ -158,7 +158,7 @@ const Toolbar: React.FC<ToolbarProps> = ({
               setToolMode(ToolMode.INPAINT);
             }}
             className={`${dockItemClass} ${toolMode === ToolMode.INPAINT ? 'bg-linear-to-tr from-violet-500 to-indigo-500 text-white shadow-lg shadow-violet-500/30' : ''}`}
-            title="局部重绘 (I)"
+            title="图片编辑 (I)"
         >
             <Eraser size={21} strokeWidth={1.6} />
         </button>
