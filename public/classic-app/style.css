@@ -169,13 +169,18 @@ body {
   pointer-events: none; /* 穿透点击，防止遮挡下方公告 */
 }
 .top-right-tools {
+  position: fixed;
+  top: 18px;
+  right: 22px;
+  z-index: 1180;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 8px;
-  margin-top: 16px;
+  gap: 6px;
+  margin-top: 0;
   padding: 8px;
-  max-width: min(100%, 860px);
+  max-width: min(100%, 560px);
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 18px;
   background: linear-gradient(180deg, rgba(28, 29, 35, 0.82), rgba(12, 13, 17, 0.72));
@@ -184,9 +189,25 @@ body {
   pointer-events: auto;
 }
 
+.classic-toolbar-row {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  width: 100%;
+}
+
+.classic-toolbar-main-row {
+  min-width: 0;
+}
+
+.classic-toolbar-tool-row {
+  justify-content: flex-end;
+}
+
 .mode-switch-link {
-  min-height: 40px;
-  padding: 0 14px;
+  min-height: 38px;
+  padding: 0 13px;
   border-radius: 11px;
   border: var(--notice-bell-border);
   background: var(--notice-bell-bg);
@@ -1635,7 +1656,8 @@ select option {
   flex: 1;
   width: 100%;
   min-height: 0;
-  overflow: hidden;
+  overflow-y: auto;
+  overflow-x: hidden;
   padding-right: 0;
   scrollbar-width: thin;
   scrollbar-color: rgba(180, 190, 205, 0.38) transparent;
@@ -1731,7 +1753,7 @@ select option {
 
 .classic-live-card.is-primary .classic-live-media {
   flex: 1 1 auto;
-  min-height: clamp(390px, calc(100vh - 372px), 620px);
+  min-height: clamp(300px, calc(100vh - 500px), 520px);
 }
 
 .classic-live-media img {
@@ -1851,6 +1873,7 @@ select option {
 
 .classic-live-info-drawer {
   display: block;
+  flex: 0 0 auto;
   padding: 12px 14px 14px;
   border-top: 1px solid rgba(255, 255, 255, 0.08);
   background: linear-gradient(135deg, rgba(0, 0, 0, 0.26), rgba(255, 255, 255, 0.025));
@@ -3148,15 +3171,17 @@ select option {
   display: flex;
   align-items: center;
   gap: 4px;
-  margin-right: 4px;
+  margin-right: 0;
   background: rgba(255, 255, 255, 0.045);
   padding: 4px;
   border-radius: 12px;
   border: 1px solid rgba(255, 255, 255, 0.09);
+  flex: 1 1 auto;
+  min-width: 0;
 }
 .d-nav-item {
   min-height: 36px;
-  padding: 0 12px;
+  padding: 0 13px;
   border-radius: 9px;
   display: inline-flex;
   align-items: center;
@@ -3185,13 +3210,20 @@ select option {
   }
 
   .top-right-tools {
+    position: static;
     width: 100%;
     max-width: 430px;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
     gap: 6px;
     margin: 12px auto 0;
     padding: 7px;
     border-radius: 16px;
+  }
+
+  .classic-toolbar-row {
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: 6px;
   }
 
   .classic-top-account-btn {
@@ -4437,7 +4469,7 @@ select option {
 
 .classic-top-account-btn {
   min-height: 40px;
-  max-width: 220px;
+  max-width: 170px;
   border-radius: 11px;
   border: var(--notice-bell-border);
   background: var(--notice-bell-bg);
@@ -5049,7 +5081,7 @@ select option {
   }
 
   .classic-live-card.is-primary .classic-live-media {
-    min-height: clamp(360px, calc(100vh - 408px), 590px);
+    min-height: clamp(300px, calc(100vh - 500px), 520px);
   }
 }
 

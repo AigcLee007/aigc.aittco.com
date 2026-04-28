@@ -14,7 +14,7 @@
       href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><defs><filter id='glow'><feGaussianBlur stdDeviation='2.5' result='coloredBlur'/><feMerge><feMergeNode in='coloredBlur'/><feMergeNode in='SourceGraphic'/></feMerge></filter></defs><circle cx='50' cy='50' r='50' fill='%230a0a0c'/><text x='50' y='70' font-size='70' text-anchor='middle' filter='url(%23glow)'>🍌</text></svg>"
     />
 
-    <link rel="stylesheet" href="/classic-app/style.css?v=classic_compact_info_v1" />
+    <link rel="stylesheet" href="/classic-app/style.css?v=classic_toolbar_info_v1" />
   </head>
   <body>
     <div class="top-controls">
@@ -96,78 +96,85 @@
       </div>
       <div class="brand-sub" id="brandSubText">Powered By Gemini-3-Pro-Preview</div>
       <div class="top-right-tools">
-        <!-- Desktop Navigation -->
-        <div class="desktop-nav">
-          <span
-            onclick="switchTab('create')"
-            class="d-nav-item active"
-            id="d-nav-create"
-            >✨ 创作</span
+        <div class="classic-toolbar-row classic-toolbar-main-row">
+          <!-- Desktop Navigation -->
+          <div class="desktop-nav">
+            <span
+              onclick="switchTab('create')"
+              class="d-nav-item active"
+              id="d-nav-create"
+              >✨ 创作</span
+            >
+            <span
+              onclick="switchTab('gallery')"
+              class="d-nav-item"
+              id="d-nav-gallery"
+              >🖼️ 画廊</span
+            >
+            <span
+              onclick="switchTab('profile')"
+              class="d-nav-item"
+              id="d-nav-profile"
+              >👤 我的</span
+            >
+          </div>
+          <button
+            id="classicTopAccountBtn"
+            class="classic-top-account-btn"
+            onclick="openClassicAccountPanel()"
+            title="余额 / 用户信息"
           >
-          <span
-            onclick="switchTab('gallery')"
-            class="d-nav-item"
-            id="d-nav-gallery"
-            >🖼️ 画廊</span
-          >
-          <span
-            onclick="switchTab('profile')"
-            class="d-nav-item"
-            id="d-nav-profile"
-            >👤 我的</span
-          >
+            <span class="classic-top-account-icon">👤</span>
+            <span id="classicTopAccountText" class="classic-top-account-text">登录 / 账户</span>
+          </button>
         </div>
-        <button
-          id="noticeBellBtn"
-          class="notice-bell-btn"
-          onclick="toggleNoticeCenter(event)"
-          title="公告通知"
-        >
-          <svg class="notice-bell-icon" viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M12 4.5a4 4 0 0 0-4 4v2.2c0 1.2-.4 2.4-1.2 3.3L5.7 15.4c-.5.6-.1 1.6.7 1.6h11.2c.8 0 1.2-1 .7-1.6l-1.1-1.4c-.8-.9-1.2-2.1-1.2-3.3V8.5a4 4 0 0 0-4-4Z"/>
-            <path d="M9.8 18.4a2.4 2.4 0 0 0 4.4 0"/>
-          </svg>
-          <span id="noticeUnreadDot" class="notice-unread-dot" style="display:none;"></span>
-        </button>
-        <button
-          id="priceTableBtn"
-          class="price-table-btn"
-          onclick="togglePriceCenter(event)"
-          title="价格表"
-        >
-          <svg class="price-table-icon" viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M14 2H7a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7Z"/>
-            <path d="M14 2v5h5"/>
-            <path d="M9 13h6"/>
-            <path d="M9 17h3"/>
-            <path d="M9 9h1"/>
-          </svg>
-        </button>
-        <button
-          id="classicReversePromptBtn"
-          class="classic-prompt-tool-btn"
-          onclick="openClassicReversePrompt(event)"
-          title="图片逆推提示词"
-        >
-          🔎
-        </button>
-        <button
-          id="classicTopAccountBtn"
-          class="classic-top-account-btn"
-          onclick="openClassicAccountPanel()"
-          title="余额 / 用户信息"
-        >
-          <span class="classic-top-account-icon">👤</span>
-          <span id="classicTopAccountText" class="classic-top-account-text">登录 / 账户</span>
-        </button>
-        <a
-          href="/create/canvas"
-          class="mode-switch-link"
-          onclick="try { localStorage.setItem('preferred-create-ui', 'canvas'); } catch (_) {}"
-          title="切换到画布版"
-        >
-          画布版
-        </a>
+        <div class="classic-toolbar-row classic-toolbar-tool-row">
+          <button
+            id="noticeBellBtn"
+            class="notice-bell-btn"
+            onclick="toggleNoticeCenter(event)"
+            title="公告通知"
+            aria-label="公告通知"
+          >
+            <svg class="notice-bell-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M12 4.5a4 4 0 0 0-4 4v2.2c0 1.2-.4 2.4-1.2 3.3L5.7 15.4c-.5.6-.1 1.6.7 1.6h11.2c.8 0 1.2-1 .7-1.6l-1.1-1.4c-.8-.9-1.2-2.1-1.2-3.3V8.5a4 4 0 0 0-4-4Z"/>
+              <path d="M9.8 18.4a2.4 2.4 0 0 0 4.4 0"/>
+            </svg>
+            <span id="noticeUnreadDot" class="notice-unread-dot" style="display:none;"></span>
+          </button>
+          <button
+            id="priceTableBtn"
+            class="price-table-btn"
+            onclick="togglePriceCenter(event)"
+            title="价格表"
+            aria-label="价格表"
+          >
+            <svg class="price-table-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M14 2H7a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7Z"/>
+              <path d="M14 2v5h5"/>
+              <path d="M9 13h6"/>
+              <path d="M9 17h3"/>
+              <path d="M9 9h1"/>
+            </svg>
+          </button>
+          <button
+            id="classicReversePromptBtn"
+            class="classic-prompt-tool-btn"
+            onclick="openClassicReversePrompt(event)"
+            title="图片逆推提示词"
+            aria-label="图片逆推提示词"
+          >
+            🔎
+          </button>
+          <a
+            href="/create/canvas"
+            class="mode-switch-link"
+            onclick="try { localStorage.setItem('preferred-create-ui', 'canvas'); } catch (_) {}"
+            title="切换到画布版"
+          >
+            画布版
+          </a>
+        </div>
       </div>
     </div>
 
@@ -1125,8 +1132,8 @@
   </div>
 </div>
 
-    <script src="/classic-app/promptTags.js?v=classic_compact_info_v1"></script>
-    <script src="/classic-app/script.js?v=classic_compact_info_v1"></script>
-    <script src="/classic-app/unified-bridge.js?v=classic_compact_info_v1"></script>
+    <script src="/classic-app/promptTags.js?v=classic_toolbar_info_v1"></script>
+    <script src="/classic-app/script.js?v=classic_toolbar_info_v1"></script>
+    <script src="/classic-app/unified-bridge.js?v=classic_toolbar_info_v1"></script>
   </body>
 </html>
