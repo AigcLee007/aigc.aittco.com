@@ -767,7 +767,7 @@ window.selectPill = function(pillId, element, costLabel = null) {
     selectClassicLineSilently(getLowestClassicRouteForModel(val));
     updateModelUI();
   } else if (pillId === 'linePill') {
-    localStorage.setItem('nb_line', val);
+    localStorage.setItem('nb_line', normalizeClassicLine(val));
   } else if (pillId === 'grokRefModePill') {
     const mode = val === "classic_multi" ? "classic_multi" : "stable_fusion";
     localStorage.setItem(GROK_REF_MODE_KEY, mode);
@@ -952,7 +952,11 @@ function getClassicSelectedRoute(model = getClassicModelConfig()) {
   const routes = getClassicRoutesForModel(model);
   if (!routes.length) return null;
   const selectedLine = imageModel === "nano-banana"
-    ? normalizeClassicLine(document.getElementById("linePill")?.getAttribute("data-selected-value") || "1")
+    ? normalizeClassicLine(
+      localStorage.getItem("nb_line") ||
+      document.getElementById("linePill")?.getAttribute("data-selected-value") ||
+      "1",
+    )
     : "default";
   return (
     routes.find((route) => normalizeClassicLine(route.line) === selectedLine) ||
@@ -987,12 +991,19 @@ function getLowestClassicRouteForModel(modelId = imageModel, size = null) {
 function selectClassicLineSilently(route) {
   const linePill = document.getElementById("linePill");
   if (!linePill || !route) return;
-  const lineValue = getClassicLineDomValue(route.line);
-  let lineItem = linePill.querySelector(`.dropdown-item[data-value="${lineValue}"]`);
+  const storedLineValue = normalizeClassicLine(route.line);
+  const candidateValues = Array.from(new Set([
+    String(route.line || "").trim(),
+    storedLineValue,
+    getClassicLineDomValue(route.line),
+  ].filter(Boolean)));
+  let lineItem = candidateValues
+    .map((value) => linePill.querySelector(`.dropdown-item[data-value="${value}"]`))
+    .find(Boolean);
   if (!lineItem) {
     lineItem = document.createElement("div");
     lineItem.className = "dropdown-item";
-    lineItem.dataset.value = lineValue;
+    lineItem.dataset.value = storedLineValue;
     lineItem.textContent = getClassicLineLabel(route.line, route.label);
     lineItem.onclick = function () { selectPill("linePill", this); };
     linePill.querySelector(".dropdown-menu")?.appendChild(lineItem);
@@ -1000,10 +1011,10 @@ function selectClassicLineSilently(route) {
 
   linePill.querySelectorAll(".dropdown-item").forEach((item) => item.classList.remove("active"));
   lineItem.classList.add("active");
-  linePill.setAttribute("data-selected-value", lineValue);
+  linePill.setAttribute("data-selected-value", lineItem.getAttribute("data-value") || storedLineValue);
   const triggerLabel = linePill.querySelector(".trigger-label");
   if (triggerLabel) triggerLabel.innerText = getClassicLineLabel(route.line, route.label);
-  localStorage.setItem("nb_line", lineValue);
+  localStorage.setItem("nb_line", storedLineValue);
 }
 
 function getClassicSizeOptions(model) {
@@ -1086,7 +1097,12 @@ async function loadClassicPricingCatalog() {
     if (!models.length || !routes.length) return;
     classicPricingCatalog = { models, routes };
     renderPriceLineFilter();
-    selectClassicLineSilently(getLowestClassicRouteForModel(imageModel));
+    const model = getClassicModelConfig(imageModel);
+    const storedLine = normalizeClassicLine(localStorage.getItem("nb_line") || "");
+    const storedRoute = storedLine
+      ? getClassicRoutesForModel(model).find((route) => normalizeClassicLine(route.line) === storedLine)
+      : null;
+    selectClassicLineSilently(storedRoute || getLowestClassicRouteForModel(imageModel));
     updateCurrentPriceCard();
   } catch (error) {
     console.warn("加载价格表失败，使用本地价格兜底", error);
@@ -1200,6 +1216,8 @@ window.refreshClassicCatalogUi = function () {
   updateCurrentPriceCard();
   renderPriceTable();
 };
+window.updateCurrentPriceCard = updateCurrentPriceCard;
+window.renderPriceTable = renderPriceTable;
 
 window.openPriceCenter = function () {
   const overlay = document.getElementById("priceOverlay");

@@ -618,9 +618,17 @@
       getRoutesForModel(model.id).some((route) => route.allowUserApiKeyWithoutLogin === true),
     );
   };
+  const normalizeRouteLineKey = (value) => {
+    const raw = String(value || "").trim();
+    const lineMatch = raw.match(/^line\s*([0-9]+)$/i);
+    if (lineMatch?.[1]) return `line${lineMatch[1]}`;
+    const digitMatch = raw.match(/^([0-9]+)$/);
+    if (digitMatch?.[1]) return `line${digitMatch[1]}`;
+    return raw.toLowerCase() || "default";
+  };
   const getFriendlyRouteLabel = (route) => {
-    const line = String(route?.line || "").trim();
-    const match = line.match(/^line\s*([0-9]+)$/i);
+    const line = normalizeRouteLineKey(route?.line);
+    const match = line.match(/^line([0-9]+)$/i);
     if (match?.[1]) return `线路 ${match[1]}`;
     if (line.toLowerCase() === "default") return "默认线路";
     return String(route?.label || route?.id || "线路").trim() || "线路";
@@ -650,9 +658,9 @@
   const getCurrentRoute = () => {
     const visibleRoutes = getVisibleRoutesForCurrentModel();
     if (visibleRoutes.length === 0) return null;
-    const storedLine = String(localStorage.getItem(LINE_STORAGE_KEY) || "").trim();
+    const storedLine = normalizeRouteLineKey(localStorage.getItem(LINE_STORAGE_KEY) || "");
     const selected =
-      visibleRoutes.find((route) => route.line === storedLine) ||
+      visibleRoutes.find((route) => normalizeRouteLineKey(route.line) === storedLine) ||
       visibleRoutes.find((route) => route.isDefaultRoute) ||
       visibleRoutes.find((route) => route.isDefaultNanoBananaLine) ||
       visibleRoutes[0];
@@ -690,8 +698,9 @@
       isApiKeyCompatibilityMode() ? route.allowUserApiKeyWithoutLogin === true : true,
     );
     if (routes.length === 0) return null;
+    const preferredLineKey = normalizeRouteLineKey(preferredLine);
     return (
-      routes.find((route) => route.line === String(preferredLine || "").trim()) ||
+      routes.find((route) => normalizeRouteLineKey(route.line) === preferredLineKey) ||
       routes.find((route) => route.isDefaultRoute) ||
       routes.find((route) => route.isDefaultNanoBananaLine) ||
       routes[0]
@@ -1086,6 +1095,21 @@
     const adminSection = document.getElementById("adminNoticeSection");
     if (adminSection) adminSection.style.display = "none";
   };
+  const syncClassicPriceUi = () => {
+    const updatePriceCard =
+      typeof window.updateCurrentPriceCard === "function"
+        ? window.updateCurrentPriceCard
+        : typeof updateCurrentPriceCard === "function"
+          ? updateCurrentPriceCard
+          : null;
+    if (typeof updatePriceCard === "function") updatePriceCard();
+
+    const priceOverlay = document.getElementById("priceOverlay");
+    const isPriceOpen = priceOverlay && priceOverlay.style.display === "flex";
+    if (isPriceOpen && typeof window.renderPriceTable === "function") {
+      window.renderPriceTable();
+    }
+  };
   const applyAccountSummaryToProfile = (account) => {
     const balanceArea = document.getElementById("balanceDisplayArea");
     const remainEl = document.getElementById("p_remain");
@@ -1291,6 +1315,7 @@
     if (typeof window.updateClassicGptSettingsUi === "function") {
       window.updateClassicGptSettingsUi();
     }
+    syncClassicPriceUi();
   };
   window.refreshClassicCatalogUi = renderCatalogUi;
   const loadClassicCatalogs = async () => {
