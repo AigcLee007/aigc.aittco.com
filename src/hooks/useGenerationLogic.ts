@@ -4,6 +4,7 @@ import { useSelectionStore } from '../store/selectionStore';
 import { useHistoryStore } from '../store/historyStore';
 import { assetStorage } from '../services/assetStorage';
 import { arrangeNodes } from '../utils/layout';
+import { getLocalLine4ThumbnailUrl } from '../utils/generatedImageStorage';
 import { NodeData, ToolMode } from '../../types';
 
 type AutoDownloadItem = {
@@ -240,9 +241,11 @@ export const useGenerationLogic = () => {
         // 1) Show result immediately with original URL first.
         // Avoid blocking first paint on local proxy latency.
         const displaySrc = rawSrc;
+        const thumbnailSrc = isVideo ? undefined : getLocalLine4ThumbnailUrl(displaySrc) || undefined;
 
         updateNode(id, {
             src: displaySrc,
+            thumbnailSrc,
             loading: false,
             error: false,
             opacity: 1
@@ -252,7 +255,8 @@ export const useGenerationLogic = () => {
           currentNode.prompt || (isVideo ? "Generated Video" : "Generated Image"),
           displaySrc,
           undefined,
-          isVideo ? 'VIDEO' : (currentNode.type as 'IMAGE' | 'VIDEO')
+          isVideo ? 'VIDEO' : (currentNode.type as 'IMAGE' | 'VIDEO'),
+          thumbnailSrc,
         );
 
         if (!isVideo && useSelectionStore.getState().autoDownloadOnSuccess) {
@@ -299,8 +303,9 @@ export const useGenerationLogic = () => {
                   updateNode(id, { assetId }, true);
                   updateLogAsset(logId, assetId);
                 } else {
-                  updateNode(id, { src: cachedUrl, assetId }, true);
-                  updateLogAsset(logId, assetId, cachedUrl);
+                  const cachedThumb = getLocalLine4ThumbnailUrl(cachedUrl) || thumbnailSrc;
+                  updateNode(id, { src: cachedUrl, thumbnailSrc: cachedThumb, assetId }, true);
+                  updateLogAsset(logId, assetId, cachedUrl, cachedThumb);
                 }
               } else {
                 updateNode(id, { assetId }, true);

@@ -11,14 +11,15 @@ export interface GenerationLog {
   time: string;        // ISO timestamp
   prompt: string;
   imageUrl: string;    // Base64 or URL
+  thumbnailUrl?: string;
   assetId?: string;    // ID for IndexedDB blob resolution
   type: 'IMAGE' | 'VIDEO';
 }
 
 interface HistoryStore {
   logs: GenerationLog[];
-  addLog: (prompt: string, imageUrl: string, assetId?: string, type?: 'IMAGE' | 'VIDEO') => string;
-  updateLogAsset: (id: string, assetId: string, imageUrl?: string) => void;
+  addLog: (prompt: string, imageUrl: string, assetId?: string, type?: 'IMAGE' | 'VIDEO', thumbnailUrl?: string) => string;
+  updateLogAsset: (id: string, assetId: string, imageUrl?: string, thumbnailUrl?: string) => void;
   clearLogs: () => void;
   getRecentLogs: (count: number) => GenerationLog[];
 }
@@ -28,12 +29,13 @@ export const useHistoryStore = create<HistoryStore>()(
     (set, get) => ({
       logs: [],
 
-      addLog: (prompt: string, imageUrl: string, assetId?: string, type: 'IMAGE' | 'VIDEO' = 'IMAGE') => {
+      addLog: (prompt: string, imageUrl: string, assetId?: string, type: 'IMAGE' | 'VIDEO' = 'IMAGE', thumbnailUrl?: string) => {
         const newLog: GenerationLog = {
           id: `log-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
           time: new Date().toISOString(),
           prompt,
           imageUrl,
+          thumbnailUrl,
           assetId,
           type,
         };
@@ -43,11 +45,11 @@ export const useHistoryStore = create<HistoryStore>()(
         return newLog.id;
       },
 
-      updateLogAsset: (id: string, assetId: string, imageUrl?: string) =>
+      updateLogAsset: (id: string, assetId: string, imageUrl?: string, thumbnailUrl?: string) =>
         set(state => ({
           logs: state.logs.map(log =>
             log.id === id
-              ? { ...log, assetId, ...(imageUrl ? { imageUrl } : {}) }
+              ? { ...log, assetId, ...(imageUrl ? { imageUrl } : {}), ...(thumbnailUrl ? { thumbnailUrl } : {}) }
               : log
           )
         })),

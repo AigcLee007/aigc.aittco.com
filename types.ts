@@ -30,6 +30,7 @@ export interface NodeData {
 
   // Image/Video specific
   src?: string; // Video URL for video nodes
+  thumbnailSrc?: string;
   assetId?: string; // ID for Blob storage (IndexedDB)
   prompt?: string;
 

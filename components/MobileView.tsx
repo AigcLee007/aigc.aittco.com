@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { ToolMode } from '../types';
 import logo from '../src/assets/logo.svg';
+import { getPreferredImageDisplayUrl } from '../src/utils/generatedImageStorage';
 
 interface MobileViewProps {
   onOpenSettings: () => void;
@@ -122,7 +123,7 @@ const MobileView: React.FC<MobileViewProps> = ({
                     />
                   ) : (
                     <img
-                      src={node.src}
+                      src={getPreferredImageDisplayUrl(node.src, node.thumbnailSrc)}
                       alt={node.prompt || '作品'}
                       className="w-full h-full object-cover"
                       loading="lazy"

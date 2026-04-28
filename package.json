@@ -37,6 +37,7 @@
     "react-dom": "^19.2.3",
     "react-draggable": "^4.5.0",
     "react-konva": "^19.2.1",
+    "sharp": "^0.34.5",
     "use-image": "^1.1.4",
     "uuid": "^13.0.0",
     "winston": "^3.19.0",

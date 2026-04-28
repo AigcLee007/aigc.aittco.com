@@ -17,6 +17,11 @@ import {
 } from '../src/services/accountIdentity';
 import { clearGenerationRecords, fetchGenerationRecords } from '../src/services/generationRecordService';
 import type { GenerationLog } from '../src/store/historyStore';
+import {
+  getPreferredImageDisplayUrl,
+  isLocalLine4StoredImage,
+  isOlderThanHours,
+} from '../src/utils/generatedImageStorage';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -47,10 +52,13 @@ const ResolvedHistoryItem = ({
   isMobile?: boolean;
   blockActions?: boolean;
 }) => {
-  const [resolvedUrl, setResolvedUrl] = useState<string>(log.imageUrl);
+  const [resolvedUrl, setResolvedUrl] = useState<string>(
+    getPreferredImageDisplayUrl(log.imageUrl, log.thumbnailUrl),
+  );
   const [hasError, setHasError] = useState(false);
   const touchStartRef = useRef<{ x: number; y: number } | null>(null);
   const touchMovedRef = useRef(false);
+  const originalUrl = log.imageUrl;
   const extractRawFromProxy = (url: string): string | null => {
     if (!url?.startsWith('/api/proxy/image?url=')) return null;
     try {
@@ -68,6 +76,11 @@ const ResolvedHistoryItem = ({
     }
     setHasError(true);
   };
+
+  useEffect(() => {
+    setResolvedUrl(getPreferredImageDisplayUrl(log.imageUrl, log.thumbnailUrl));
+    setHasError(false);
+  }, [log.imageUrl, log.thumbnailUrl]);
 
   useEffect(() => {
     let active = true;
@@ -126,7 +139,7 @@ const ResolvedHistoryItem = ({
         <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-all duration-200 flex flex-col justify-end p-2 pointer-events-none">
           <div className="flex justify-center gap-2 mb-2">
             <button 
-              onClick={() => onViewImage && onViewImage(resolvedUrl)}
+              onClick={() => onViewImage && onViewImage(originalUrl)}
               className="pointer-events-auto p-1.5 bg-white/20 hover:bg-blue-500 text-white rounded-lg backdrop-blur-sm transition-colors"
               title={historyMediaType === 'video' ? "播放" : "放大查看"}
             >
@@ -141,7 +154,7 @@ const ResolvedHistoryItem = ({
             </button>
             {historyMediaType === 'image' && (
               <button 
-                onClick={() => onUseAsReference && onUseAsReference(resolvedUrl)}
+                onClick={() => onUseAsReference && onUseAsReference(originalUrl)}
                 className="pointer-events-auto p-1.5 bg-white/20 hover:bg-purple-500 text-white rounded-lg backdrop-blur-sm transition-colors"
                 title="用作参考图"
               >
@@ -149,7 +162,7 @@ const ResolvedHistoryItem = ({
               </button>
             )}
             <button 
-              onClick={() => onDownloadImage && onDownloadImage(resolvedUrl, log.prompt, log.id)}
+              onClick={() => onDownloadImage && onDownloadImage(originalUrl, log.prompt, log.id)}
               className="pointer-events-auto p-1.5 bg-white/20 hover:bg-green-500 text-white rounded-lg backdrop-blur-sm transition-colors"
               title="下载"
             >
@@ -201,7 +214,7 @@ const ResolvedHistoryItem = ({
       <button
         type="button"
         className={`relative shrink-0 ${isMobile ? 'w-20' : 'w-24'} h-full rounded-lg overflow-hidden border border-white/10 bg-black/30 ${blockActions ? 'pointer-events-none opacity-70' : ''}`}
-        onClick={() => runActionSafely(() => onViewImage && onViewImage(resolvedUrl))}
+        onClick={() => runActionSafely(() => onViewImage && onViewImage(originalUrl))}
         title={historyMediaType === 'video' ? "播放" : "放大查看"}
       >
         {log.type === 'VIDEO' ? (
@@ -238,7 +251,7 @@ const ResolvedHistoryItem = ({
         <div className="flex items-center gap-1.5 flex-wrap">
           <button
             type="button"
-            onClick={() => runActionSafely(() => onViewImage && onViewImage(resolvedUrl))}
+            onClick={() => runActionSafely(() => onViewImage && onViewImage(originalUrl))}
             className={`${actionBtnClass} ${blockActions ? 'pointer-events-none opacity-60' : ''}`}
             title={historyMediaType === 'video' ? "播放" : "查看"}
           >
@@ -255,7 +268,7 @@ const ResolvedHistoryItem = ({
           {historyMediaType === 'image' && (
             <button
               type="button"
-              onClick={() => runActionSafely(() => onUseAsReference && onUseAsReference(resolvedUrl))}
+              onClick={() => runActionSafely(() => onUseAsReference && onUseAsReference(originalUrl))}
               className={`${actionBtnClass} ${blockActions ? 'pointer-events-none opacity-60' : ''}`}
               title="用作参考图"
             >
@@ -264,7 +277,7 @@ const ResolvedHistoryItem = ({
           )}
           <button
             type="button"
-            onClick={() => runActionSafely(() => onDownloadImage && onDownloadImage(resolvedUrl, log.prompt, log.id))}
+            onClick={() => runActionSafely(() => onDownloadImage && onDownloadImage(originalUrl, log.prompt, log.id))}
             className={`${actionBtnClass} ${blockActions ? 'pointer-events-none opacity-60' : ''}`}
             title="下载"
           >
@@ -309,13 +322,15 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
     completedAt: string | null;
     createdAt: string | null;
   }): GenerationLog | null => {
-    const primaryUrl = record.previewUrl || record.resultUrls?.[0] || '';
+    const originalUrl = record.resultUrls?.[0] || record.previewUrl || '';
+    const primaryUrl = record.previewUrl || originalUrl || '';
     if (!primaryUrl) return null;
     return {
       id: record.id,
       time: record.completedAt || record.createdAt || new Date().toISOString(),
       prompt: String(record.prompt || ''),
-      imageUrl: primaryUrl,
+      imageUrl: originalUrl,
+      thumbnailUrl: primaryUrl !== originalUrl ? primaryUrl : undefined,
       type: record.mediaType === 'VIDEO' ? 'VIDEO' : 'IMAGE',
     };
   }, []);
@@ -400,7 +415,13 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
 
   const filteredLogs = useMemo(() => effectiveLogs.filter(log => {
       const isVideo = log.type === 'VIDEO';
-      return historyMediaType === 'video' ? isVideo : !isVideo;
+      if (historyMediaType === 'video' ? !isVideo : isVideo) {
+        return false;
+      }
+      if (isLocalLine4StoredImage(log.imageUrl) && isOlderThanHours(log.time, 72)) {
+        return false;
+      }
+      return true;
   }), [effectiveLogs, historyMediaType]);
 
   const refreshHistoryViewport = useCallback(() => {

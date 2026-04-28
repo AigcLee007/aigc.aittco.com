@@ -29,6 +29,7 @@ services:
       - "127.0.0.1:${PORT:-3365}:${PORT:-3365}"
     volumes:
       - ./uploads:/app/uploads
+      - ./storage/line4:/app/storage/generated/line4
     environment:
       PORT: ${PORT:-3365}
       NODE_ENV: ${NODE_ENV:-production}

@@ -1,9 +1,9 @@
 const crypto = require("crypto");
+const fs = require("fs");
+const path = require("path");
 const axios = require("axios");
-const OSS = require("ali-oss");
-const { PutObjectCommand, S3Client } = require("@aws-sdk/client-s3");
+const sharp = require("sharp");
 
-const truthy = new Set(["1", "true", "yes", "on", "enabled"]);
 const imageExtByMime = {
   "image/png": "png",
   "image/jpeg": "jpg",
@@ -13,54 +13,34 @@ const imageExtByMime = {
   "image/avif": "avif",
 };
 
-let cachedClient = null;
-let cachedClientKey = "";
+const LOCAL_LINE4_ROUTE_ID = "nano-banana-pro-line4";
+const STORAGE_TTL_HOURS = Number.parseInt(
+  String(process.env.LINE4_LOCAL_STORAGE_TTL_HOURS || "72"),
+  10,
+);
+const THUMB_WIDTH = Number.parseInt(
+  String(process.env.LINE4_LOCAL_THUMB_WIDTH || "480"),
+  10,
+);
+const THUMB_QUALITY = Number.parseInt(
+  String(process.env.LINE4_LOCAL_THUMB_QUALITY || "82"),
+  10,
+);
+const STORAGE_ROOT = path.join(__dirname, "storage", "generated", "line4");
+const ORIGINAL_ROOT = path.join(STORAGE_ROOT, "original");
+const THUMB_ROOT = path.join(STORAGE_ROOT, "thumb");
+const PUBLIC_ROOT = "/generated-assets/line4";
+const CLEANUP_INTERVAL_MS = 60 * 60 * 1000;
+
+let lastCleanupAt = 0;
+let cleanupPromise = null;
 
 const trim = (value = "") => String(value || "").trim();
-const trimSlash = (value = "") => trim(value).replace(/\/+$/, "");
-const normalizeProvider = () =>
-  trim(process.env.GENERATED_ASSET_PROVIDER || "aliyun-oss").toLowerCase();
-
-const isStorageEnabled = () =>
-  truthy.has(trim(process.env.GENERATED_ASSET_STORAGE).toLowerCase());
-
-const getMaxBytes = () => {
-  const parsed = Number.parseInt(
-    trim(process.env.GENERATED_ASSET_MAX_BYTES || "52428800"),
-    10,
-  );
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : 52428800;
-};
-
-const getPublicBaseUrl = () =>
-  trimSlash(
-    process.env.GENERATED_ASSET_PUBLIC_BASE_URL ||
-      process.env.OSS_PUBLIC_BASE_URL ||
-      process.env.S3_PUBLIC_BASE_URL ||
-      "",
-  );
-
-const getBucket = () =>
-  trim(
-    process.env.GENERATED_ASSET_BUCKET ||
-      process.env.ALIYUN_OSS_BUCKET ||
-      process.env.OSS_BUCKET ||
-      process.env.S3_BUCKET ||
-      process.env.R2_BUCKET ||
-      "",
-  );
-
-const getPrefix = () =>
-  trim(process.env.GENERATED_ASSET_PREFIX || "generated/images")
-    .replace(/^\/+|\/+$/g, "")
-    .replace(/\\/g, "/");
-
 const sanitizeSegment = (value = "unknown") =>
   trim(value)
     .replace(/[^a-zA-Z0-9._-]+/g, "-")
     .replace(/^-+|-+$/g, "")
     .slice(0, 120) || "unknown";
-
 const dedupe = (items = []) =>
   Array.from(
     new Set(
@@ -70,10 +50,16 @@ const dedupe = (items = []) =>
     ),
   );
 
-const isManagedUrl = (value = "") => {
-  const publicBaseUrl = getPublicBaseUrl();
-  const raw = trim(value);
-  return Boolean(publicBaseUrl && raw.startsWith(`${publicBaseUrl}/`));
+const getMaxBytes = () => {
+  const parsed = Number.parseInt(
+    trim(process.env.GENERATED_ASSET_MAX_BYTES || "52428800"),
+    10,
+  );
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 52428800;
+};
+
+const ensureDir = async (dirPath) => {
+  await fs.promises.mkdir(dirPath, { recursive: true });
 };
 
 const isLikelyVideoUrl = (value = "") => {
@@ -99,7 +85,11 @@ const parseDataImage = (value = "") => {
 
 const inferMimeFromMagic = (buffer) => {
   if (!Buffer.isBuffer(buffer) || buffer.length < 12) return "image/png";
-  if (buffer.slice(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) {
+  if (
+    buffer
+      .slice(0, 8)
+      .equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))
+  ) {
     return "image/png";
   }
   if (buffer[0] === 0xff && buffer[1] === 0xd8) return "image/jpeg";
@@ -122,7 +112,7 @@ const normalizeMime = (mimeType = "", buffer = null) => {
 const extForMime = (mimeType = "") =>
   imageExtByMime[trim(mimeType).toLowerCase()] || "png";
 
-const buildObjectKey = ({ buffer, mimeType, context = {} }) => {
+const buildRelativeParts = (context = {}, mimeType = "", buffer) => {
   const now = new Date();
   const yyyy = String(now.getUTCFullYear());
   const mm = String(now.getUTCMonth() + 1).padStart(2, "0");
@@ -133,124 +123,59 @@ const buildObjectKey = ({ buffer, mimeType, context = {} }) => {
   const recordOrTask = sanitizeSegment(
     context.recordId || context.taskId || context.requestId || "no-record",
   );
-  return [
-    getPrefix(),
-    yyyy,
-    mm,
-    dd,
-    userId,
-    routeId,
-    recordOrTask,
-    `${hash.slice(0, 32)}.${extForMime(mimeType)}`,
-  ]
-    .filter(Boolean)
-    .join("/");
+  return {
+    dir: path.join(yyyy, mm, dd, userId, routeId, recordOrTask),
+    filename: `${hash.slice(0, 32)}.${extForMime(mimeType)}`,
+    thumbFilename: `${hash.slice(0, 32)}.webp`,
+  };
 };
 
-const getClient = () => {
-  const provider = normalizeProvider();
-  const bucket = getBucket();
-  const publicBaseUrl = getPublicBaseUrl();
-  const clientKey = JSON.stringify({
-    provider,
-    bucket,
-    publicBaseUrl,
-    endpoint:
-      process.env.ALIYUN_OSS_ENDPOINT ||
-      process.env.OSS_ENDPOINT ||
-      process.env.S3_ENDPOINT ||
-      process.env.R2_ENDPOINT ||
-      "",
-    region:
-      process.env.ALIYUN_OSS_REGION ||
-      process.env.OSS_REGION ||
-      process.env.S3_REGION ||
-      process.env.AWS_REGION ||
-      "auto",
-  });
+const toPublicUrl = (kind, relativePath) =>
+  `${PUBLIC_ROOT}/${kind}/${relativePath.replace(/\\/g, "/")}`;
 
-  if (cachedClient && cachedClientKey === clientKey) return cachedClient;
-
-  if (!bucket) throw new Error("Generated asset bucket is not configured");
-  if (!publicBaseUrl) {
-    throw new Error("GENERATED_ASSET_PUBLIC_BASE_URL is not configured");
+const listFilesRecursively = async (rootDir) => {
+  const entries = await fs.promises.readdir(rootDir, { withFileTypes: true });
+  const output = [];
+  for (const entry of entries) {
+    const fullPath = path.join(rootDir, entry.name);
+    if (entry.isDirectory()) {
+      output.push(...(await listFilesRecursively(fullPath)));
+      continue;
+    }
+    if (entry.isFile()) {
+      output.push(fullPath);
+    }
   }
+  return output;
+};
 
-  if (provider === "aliyun-oss" || provider === "oss") {
-    const accessKeyId = trim(
-      process.env.ALIYUN_OSS_ACCESS_KEY_ID ||
-        process.env.OSS_ACCESS_KEY_ID ||
-        process.env.GENERATED_ASSET_ACCESS_KEY_ID ||
-        "",
-    );
-    const accessKeySecret = trim(
-      process.env.ALIYUN_OSS_ACCESS_KEY_SECRET ||
-        process.env.OSS_ACCESS_KEY_SECRET ||
-        process.env.GENERATED_ASSET_ACCESS_KEY_SECRET ||
-        "",
-    );
-    const region = trim(process.env.ALIYUN_OSS_REGION || process.env.OSS_REGION || "");
-    const endpoint = trim(process.env.ALIYUN_OSS_ENDPOINT || process.env.OSS_ENDPOINT || "");
-    if (!accessKeyId || !accessKeySecret) {
-      throw new Error("Aliyun OSS access key is not configured");
+const cleanupExpiredLocalAssets = async () => {
+  const cutoffMs = Date.now() - Math.max(STORAGE_TTL_HOURS, 1) * 60 * 60 * 1000;
+  for (const rootDir of [ORIGINAL_ROOT, THUMB_ROOT]) {
+    if (!fs.existsSync(rootDir)) continue;
+    const files = await listFilesRecursively(rootDir);
+    for (const filePath of files) {
+      try {
+        const stats = await fs.promises.stat(filePath);
+        if (stats.mtimeMs < cutoffMs) {
+          await fs.promises.unlink(filePath).catch(() => {});
+        }
+      } catch (_error) {
+        // ignore cleanup failures
+      }
     }
-    if (!region && !endpoint) {
-      throw new Error("Aliyun OSS region or endpoint is not configured");
-    }
-    cachedClient = {
-      provider,
-      bucket,
-      publicBaseUrl,
-      client: new OSS({
-        accessKeyId,
-        accessKeySecret,
-        bucket,
-        region: region || undefined,
-        endpoint: endpoint || undefined,
-        secure: true,
-      }),
-    };
-  } else if (["s3", "s3-compatible", "r2", "cloudflare-r2"].includes(provider)) {
-    const accessKeyId = trim(
-      process.env.S3_ACCESS_KEY_ID ||
-        process.env.AWS_ACCESS_KEY_ID ||
-        process.env.R2_ACCESS_KEY_ID ||
-        process.env.GENERATED_ASSET_ACCESS_KEY_ID ||
-        "",
-    );
-    const secretAccessKey = trim(
-      process.env.S3_SECRET_ACCESS_KEY ||
-        process.env.AWS_SECRET_ACCESS_KEY ||
-        process.env.R2_SECRET_ACCESS_KEY ||
-        process.env.GENERATED_ASSET_ACCESS_KEY_SECRET ||
-        "",
-    );
-    const endpoint = trim(process.env.S3_ENDPOINT || process.env.R2_ENDPOINT || "");
-    const region = trim(process.env.S3_REGION || process.env.AWS_REGION || "auto");
-    if (!accessKeyId || !secretAccessKey) {
-      throw new Error("S3-compatible access key is not configured");
-    }
-    cachedClient = {
-      provider,
-      bucket,
-      publicBaseUrl,
-      client: new S3Client({
-        region,
-        endpoint: endpoint || undefined,
-        forcePathStyle:
-          trim(process.env.S3_FORCE_PATH_STYLE).toLowerCase() === "true",
-        credentials: {
-          accessKeyId,
-          secretAccessKey,
-        },
-      }),
-    };
-  } else {
-    throw new Error(`Unsupported generated asset provider: ${provider}`);
   }
+};
 
-  cachedClientKey = clientKey;
-  return cachedClient;
+const scheduleCleanup = () => {
+  const now = Date.now();
+  if (cleanupPromise || now - lastCleanupAt < CLEANUP_INTERVAL_MS) return;
+  lastCleanupAt = now;
+  cleanupPromise = cleanupExpiredLocalAssets()
+    .catch(() => {})
+    .finally(() => {
+      cleanupPromise = null;
+    });
 };
 
 const downloadImage = async (url) => {
@@ -280,9 +205,6 @@ const downloadImage = async (url) => {
 };
 
 const loadImageSource = async (source) => {
-  if (isManagedUrl(source)) {
-    return { skipped: true, storedUrl: source, reason: "already-managed" };
-  }
   const dataImage = parseDataImage(source);
   if (dataImage) {
     if (dataImage.buffer.length > getMaxBytes()) {
@@ -296,62 +218,55 @@ const loadImageSource = async (source) => {
   throw new Error("Unsupported generated image source");
 };
 
-const uploadImage = async ({ buffer, mimeType, context }) => {
-  const storage = getClient();
-  const objectKey = buildObjectKey({ buffer, mimeType, context });
-  const cacheControl = trim(
-    process.env.GENERATED_ASSET_CACHE_CONTROL ||
-      "public, max-age=31536000, immutable",
-  );
+const saveLocalAsset = async ({ buffer, mimeType, context }) => {
+  await ensureDir(ORIGINAL_ROOT);
+  await ensureDir(THUMB_ROOT);
 
-  if (storage.provider === "aliyun-oss" || storage.provider === "oss") {
-    await storage.client.put(objectKey, buffer, {
-      mime: mimeType,
-      headers: {
-        "Cache-Control": cacheControl,
-      },
-    });
-  } else {
-    await storage.client.send(
-      new PutObjectCommand({
-        Bucket: storage.bucket,
-        Key: objectKey,
-        Body: buffer,
-        ContentType: mimeType,
-        CacheControl: cacheControl,
-      }),
-    );
-  }
+  const parts = buildRelativeParts(context, mimeType, buffer);
+  const originalRelativePath = path.join(parts.dir, parts.filename);
+  const thumbRelativePath = path.join(parts.dir, parts.thumbFilename);
+  const originalAbsolutePath = path.join(ORIGINAL_ROOT, originalRelativePath);
+  const thumbAbsolutePath = path.join(THUMB_ROOT, thumbRelativePath);
+
+  await ensureDir(path.dirname(originalAbsolutePath));
+  await ensureDir(path.dirname(thumbAbsolutePath));
+
+  await fs.promises.writeFile(originalAbsolutePath, buffer);
+  await sharp(buffer)
+    .rotate()
+    .resize({
+      width: Number.isFinite(THUMB_WIDTH) && THUMB_WIDTH > 0 ? THUMB_WIDTH : 480,
+      withoutEnlargement: true,
+    })
+    .webp({
+      quality: Number.isFinite(THUMB_QUALITY) && THUMB_QUALITY > 0 ? THUMB_QUALITY : 82,
+    })
+    .toFile(thumbAbsolutePath);
 
   return {
-    objectKey,
-    storedUrl: `${storage.publicBaseUrl}/${objectKey}`,
+    objectKey: originalRelativePath.replace(/\\/g, "/"),
+    storedUrl: toPublicUrl("original", originalRelativePath),
+    thumbnailUrl: toPublicUrl("thumb", thumbRelativePath),
+    mimeType,
+    size: buffer.length,
   };
 };
 
 const persistOne = async ({ source, context }) => {
   const loaded = await loadImageSource(source);
-  if (loaded.skipped) {
-    return {
-      originalUrl: source,
-      storedUrl: loaded.storedUrl,
-      skipped: true,
-      reason: loaded.reason,
-    };
-  }
-
   const mimeType = normalizeMime(loaded.mimeType, loaded.buffer);
-  const uploaded = await uploadImage({
+  const stored = await saveLocalAsset({
     buffer: loaded.buffer,
     mimeType,
     context,
   });
   return {
     originalUrl: source,
-    storedUrl: uploaded.storedUrl,
-    objectKey: uploaded.objectKey,
-    mimeType,
-    size: loaded.buffer.length,
+    storedUrl: stored.storedUrl,
+    thumbnailUrl: stored.thumbnailUrl,
+    objectKey: stored.objectKey,
+    mimeType: stored.mimeType,
+    size: stored.size,
   };
 };
 
@@ -385,6 +300,9 @@ const rewritePayload = (value, replacements) => {
   return next;
 };
 
+const shouldPersistRoute = (context = {}) =>
+  trim(context.routeId) === LOCAL_LINE4_ROUTE_ID;
+
 const persistGeneratedImageResults = async ({
   payload = null,
   resultUrls = [],
@@ -392,7 +310,7 @@ const persistGeneratedImageResults = async ({
   logger = null,
 } = {}) => {
   const normalizedUrls = dedupe(resultUrls);
-  if (!isStorageEnabled() || normalizedUrls.length === 0) {
+  if (normalizedUrls.length === 0 || !shouldPersistRoute(context)) {
     return {
       payload,
       resultUrls: normalizedUrls,
@@ -402,6 +320,8 @@ const persistGeneratedImageResults = async ({
       enabled: false,
     };
   }
+
+  scheduleCleanup();
 
   const assets = [];
   const errors = [];
@@ -438,16 +358,18 @@ const persistGeneratedImageResults = async ({
   }
 
   const finalUrls = normalizedUrls.map((url) => replacements.get(url) || url);
+  const previewUrl = assets[0]?.thumbnailUrl || finalUrls[0] || null;
   let nextPayload = rewritePayload(payload, replacements);
   if (nextPayload && typeof nextPayload === "object" && !Array.isArray(nextPayload)) {
-    if (finalUrls.length > 0) {
-      nextPayload = {
-        ...nextPayload,
-        url: nextPayload.url || nextPayload.image_url || finalUrls[0],
-        image_url: nextPayload.image_url || nextPayload.url || finalUrls[0],
-        images: Array.isArray(nextPayload.images) ? nextPayload.images : finalUrls,
-      };
-    }
+    nextPayload = {
+      ...nextPayload,
+      url: nextPayload.url || nextPayload.image_url || finalUrls[0] || null,
+      image_url: nextPayload.image_url || nextPayload.url || finalUrls[0] || null,
+      images: Array.isArray(nextPayload.images) ? nextPayload.images : finalUrls,
+      preview_url: previewUrl,
+      thumbnail_url: previewUrl,
+      thumbnails: assets.map((asset) => asset.thumbnailUrl).filter(Boolean),
+    };
     if (assets.length || errors.length) {
       nextPayload.asset_persistence = {
         enabled: true,
@@ -460,7 +382,7 @@ const persistGeneratedImageResults = async ({
   return {
     payload: nextPayload,
     resultUrls: finalUrls,
-    previewUrl: finalUrls[0] || null,
+    previewUrl,
     assets,
     errors,
     enabled: true,
@@ -468,6 +390,8 @@ const persistGeneratedImageResults = async ({
 };
 
 module.exports = {
-  isGeneratedAssetStorageEnabled: isStorageEnabled,
+  isGeneratedAssetStorageEnabled: shouldPersistRoute,
+  LOCAL_LINE4_ROUTE_ID,
+  LINE4_LOCAL_STORAGE_ROOT: STORAGE_ROOT,
   persistGeneratedImageResults,
 };

@@ -105,6 +105,7 @@ const {
 } = require("./adminChangeLogStore.cjs");
 const {
   persistGeneratedImageResults,
+  LINE4_LOCAL_STORAGE_ROOT,
 } = require("./generatedAssetService.cjs");
 const { toPointNumber } = require("./pointMath.cjs");
 
@@ -1035,6 +1036,7 @@ const buildGeneratedAssetContext = ({
   recordId: generationRecord?.id || null,
   taskId: taskId || generationRecord?.taskId || null,
   routeId: route?.id || null,
+  routeLine: route?.line || null,
   modelId: modelId || generationRecord?.modelId || null,
   requestId,
 });
@@ -1049,6 +1051,7 @@ const mergeGeneratedAssetMeta = (meta = null, persisted = null) => {
       assets: (persisted.assets || []).map((asset) => ({
         objectKey: asset.objectKey || null,
         storedUrl: asset.storedUrl || null,
+        thumbnailUrl: asset.thumbnailUrl || null,
         mimeType: asset.mimeType || null,
         size: asset.size || null,
         skipped: asset.skipped === true,
@@ -5113,6 +5116,16 @@ app.delete("/api/announcement/:id", async (req, res) => {
 });
 
 // ==================== Static Files ====================
+app.use(
+  "/generated-assets/line4",
+  express.static(LINE4_LOCAL_STORAGE_ROOT, {
+    maxAge: "72h",
+    immutable: false,
+    setHeaders: (res) => {
+      res.setHeader("Cache-Control", "public, max-age=259200");
+    },
+  }),
+);
 app.use('/uploads', express.static(ANNOUNCEMENT_UPLOAD_ROOT));
 app.use(express.static(path.join(__dirname, 'dist')));
 
