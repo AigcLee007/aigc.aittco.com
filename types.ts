@@ -33,6 +33,7 @@ export interface NodeData {
   thumbnailSrc?: string;
   assetId?: string; // ID for Blob storage (IndexedDB)
   prompt?: string;
+  createdAt?: string; // ISO timestamp for generated/imported asset display
 
   // Video specific
   videoModel?: string;

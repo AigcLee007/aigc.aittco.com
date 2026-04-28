@@ -4,6 +4,7 @@ import Konva from 'konva';
 import useImage from 'use-image';
 import { NodeData, Point, Stroke, ToolMode } from '../types';
 import { useCanvasStore } from '../src/store/canvasStore';
+import { formatShortTime } from '../src/utils/timeFormat';
 
 interface CanvasNodeProps {
   node: NodeData;
@@ -335,11 +336,50 @@ const getProgressText = (progress: number): string => {
   return 'Final polish...';
 };
 
+const GenerationTimeTooltip: React.FC<{ node: NodeData }> = ({ node }) => {
+  const shortTime = formatShortTime(node.createdAt);
+  if (!shortTime || node.loading || node.error) return null;
+
+  const label = `生成于 ${shortTime}`;
+  const tooltipWidth = Math.min(138, Math.max(92, label.length * 12 + 24));
+  const x = Math.max(10, node.width - tooltipWidth - 12);
+  const y = Math.max(10, node.height - 38);
+
+  return (
+    <Group x={x} y={y} listening={false}>
+      <Rect
+        width={tooltipWidth}
+        height={26}
+        fill="rgba(8, 13, 24, 0.78)"
+        stroke="rgba(255, 255, 255, 0.16)"
+        strokeWidth={1}
+        cornerRadius={13}
+        shadowColor="#000"
+        shadowBlur={10}
+        shadowOpacity={0.28}
+        perfectDrawEnabled={false}
+      />
+      <KonvaText
+        x={12}
+        y={6}
+        width={tooltipWidth - 24}
+        text={label}
+        fontSize={12}
+        fontFamily="'Inter', 'Microsoft YaHei', sans-serif"
+        fill="rgba(226, 232, 240, 0.9)"
+        align="center"
+        perfectDrawEnabled={false}
+      />
+    </Group>
+  );
+};
+
 const CanvasNode: React.FC<CanvasNodeProps> = React.memo(
   ({ node, isSelected, isInViewport, toolMode, onClick, onPointerDown, onDragStart, onDragEnd, onContextMenu, onDoubleClick, onMouseEnter, onMouseLeave }) => {
     const [progress, setProgress] = useState(0);
     const [statusText, setStatusText] = useState('Initializing...');
     const [isResourceLoaded, setIsResourceLoaded] = useState(false);
+    const [isHovering, setIsHovering] = useState(false);
     const groupRef = useRef<Konva.Group>(null);
 
     useEffect(() => {
@@ -383,7 +423,7 @@ const CanvasNode: React.FC<CanvasNodeProps> = React.memo(
       // Always invalidate stale cache first, especially after src swaps.
       group.clearCache();
 
-      const isQuiet = !isSelected && !node.loading && !node.dragging && isResourceLoaded;
+      const isQuiet = !isSelected && !isHovering && !node.loading && !node.dragging && isResourceLoaded;
       if (!(isQuiet && node.type === 'IMAGE')) {
         group.getLayer()?.batchDraw();
         return undefined;
@@ -399,6 +439,7 @@ const CanvasNode: React.FC<CanvasNodeProps> = React.memo(
       return () => window.clearTimeout(timer);
     }, [
       isSelected,
+      isHovering,
       node.loading,
       node.dragging,
       node.type,
@@ -413,6 +454,14 @@ const CanvasNode: React.FC<CanvasNodeProps> = React.memo(
 
     const isDraggable = !node.locked && toolMode === ToolMode.SELECT;
     const statusWithTask = node.loading && node.taskId ? `${statusText} #${node.taskId.slice(-6)}` : statusText;
+    const handleMouseEnter = (e: Konva.KonvaEventObject<MouseEvent>) => {
+      setIsHovering(true);
+      onMouseEnter(e);
+    };
+    const handleMouseLeave = (e: Konva.KonvaEventObject<MouseEvent>) => {
+      setIsHovering(false);
+      onMouseLeave(e);
+    };
 
     return (
       <Group
@@ -432,8 +481,8 @@ const CanvasNode: React.FC<CanvasNodeProps> = React.memo(
         onContextMenu={onContextMenu}
         onDblClick={onDoubleClick}
         onDblTap={onDoubleClick}
-        onMouseEnter={onMouseEnter}
-        onMouseLeave={onMouseLeave}
+        onMouseEnter={handleMouseEnter}
+        onMouseLeave={handleMouseLeave}
         perfectDrawEnabled={false}
         shadowForStrokeEnabled={false}
         hitStrokeWidth={0}
@@ -453,6 +502,8 @@ const CanvasNode: React.FC<CanvasNodeProps> = React.memo(
         ) : (
           <ImageNode node={node} progress={progress} statusText={statusWithTask} onLoad={() => setIsResourceLoaded(true)} />
         )}
+
+        {isHovering && <GenerationTimeTooltip node={node} />}
 
         {isSelected && (
           <Rect

@@ -22,6 +22,7 @@ import {
   isLocalLine4StoredImage,
   isOlderThanHours,
 } from '../src/utils/generatedImageStorage';
+import { formatFullTime, formatRelativeTime } from '../src/utils/timeFormat';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -104,11 +105,14 @@ const ResolvedHistoryItem = ({
   const actionBtnClass = isMobile
     ? "min-w-9 min-h-9 px-2 bg-white/10 active:bg-white/20 text-white rounded-lg transition-colors touch-manipulation active:scale-95"
     : "min-w-8 min-h-8 px-2 bg-white/10 hover:bg-white/20 text-white rounded-lg transition-colors";
+  const relativeTime = formatRelativeTime(log.time);
+  const fullTime = formatFullTime(log.time);
   if (!isMobile) {
     return (
       <div
         key={log.id}
         className="relative group rounded-xl overflow-hidden"
+        title={fullTime ? `生成时间：${fullTime}` : undefined}
         draggable
         onDragStart={(e) => {
           e.dataTransfer.setData('text/plain', resolvedUrl);
@@ -135,8 +139,21 @@ const ResolvedHistoryItem = ({
             onError={handleMediaLoadError}
           />
         )}
+
+        {relativeTime && (
+          <div className="absolute left-2 bottom-2 rounded-full border border-white/10 bg-black/50 px-2 py-1 text-[10px] font-medium text-white/70 backdrop-blur-md transition-opacity duration-200 group-hover:opacity-0">
+            {relativeTime}
+          </div>
+        )}
         
         <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-all duration-200 flex flex-col justify-end p-2 pointer-events-none">
+          {fullTime && (
+            <div className="mb-auto flex justify-end">
+              <div className="rounded-full border border-white/10 bg-white/10 px-2 py-1 text-[10px] font-medium text-white/75 backdrop-blur-md">
+                生成时间：{fullTime}
+              </div>
+            </div>
+          )}
           <div className="flex justify-center gap-2 mb-2">
             <button 
               onClick={() => onViewImage && onViewImage(originalUrl)}
@@ -248,6 +265,11 @@ const ResolvedHistoryItem = ({
         <p className={`text-gray-300 leading-snug line-clamp-2 ${isMobile ? 'text-xs' : 'text-[11px]'}`}>
           {log.prompt || "无提示词"}
         </p>
+        {relativeTime && (
+          <div className="mt-1 text-[10px] text-gray-500" title={fullTime ? `生成时间：${fullTime}` : undefined}>
+            {relativeTime}
+          </div>
+        )}
         <div className="flex items-center gap-1.5 flex-wrap">
           <button
             type="button"

@@ -237,6 +237,7 @@ export const useGenerationLogic = () => {
         const currentNodes = useCanvasStore.getState().nodes;
         const currentNode = currentNodes.find(n => n.id === id);
         if (!currentNode) return;
+        const generatedAt = new Date().toISOString();
 
         // 1) Show result immediately with original URL first.
         // Avoid blocking first paint on local proxy latency.
@@ -248,7 +249,8 @@ export const useGenerationLogic = () => {
             thumbnailSrc,
             loading: false,
             error: false,
-            opacity: 1
+            opacity: 1,
+            createdAt: generatedAt,
         }, true);
 
         const logId = addLog(

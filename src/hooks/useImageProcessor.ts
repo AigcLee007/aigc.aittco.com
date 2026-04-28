@@ -12,6 +12,7 @@ export const useImageProcessor = () => {
 
     const processFiles = useCallback(async (items: (File | string)[], centerPoint?: Point) => {
         if (items.length === 0) return;
+        const importedAt = new Date().toISOString();
     
         const createNodeFromBlob = async (blob: Blob, prompt: string): Promise<NodeData> => {
            const assetId = await assetStorage.storeBlob(blob);
@@ -38,11 +39,12 @@ export const useImageProcessor = () => {
                      height, 
                      opacity: 1, 
                      locked: false, 
-                     src: src!, // managed by assetStorage
-                     assetId: assetId,
-                     prompt: prompt, 
-                     history: [], 
-                     historyIndex: 0 
+                      src: src!, // managed by assetStorage
+                      assetId: assetId,
+                      prompt: prompt, 
+                      createdAt: importedAt,
+                      history: [], 
+                      historyIndex: 0 
                  });
               };
               img.onerror = () => { 
@@ -77,7 +79,7 @@ export const useImageProcessor = () => {
               }
               // If we want to store web images locally to avoid CORS/broken links:
               // handle separately. For now, just pass src.
-              resolve({ id: generateId(), type: 'IMAGE', x: 0, y: 0, width, height, opacity: 1, locked: false, src: src, prompt: prompt, history: [{ src: src, prompt: prompt }], historyIndex: 0 });
+              resolve({ id: generateId(), type: 'IMAGE', x: 0, y: 0, width, height, opacity: 1, locked: false, src: src, prompt: prompt, createdAt: importedAt, history: [{ src: src, prompt: prompt }], historyIndex: 0 });
             };
             img.onerror = () => { resolve({ id: generateId(), type: 'IMAGE', x: 0, y: 0, width: 100, height: 100, src: '', error: true, errorMessage: "Failed to load image" } as any); };
             img.src = src;
