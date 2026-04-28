@@ -301,6 +301,49 @@ function getClassicLiveStatusLabel(status) {
   return "生成中";
 }
 
+function cleanClassicLiveMeta(meta = {}) {
+  const cleaned = { ...meta };
+  ["prompt", "modelLabel", "routeLabel", "size", "ratio"].forEach((key) => {
+    if (String(cleaned[key] || "").trim() === "") delete cleaned[key];
+  });
+  ["quantity", "referenceCount"].forEach((key) => {
+    if (!Number.isFinite(Number(cleaned[key])) || Number(cleaned[key]) <= 0) delete cleaned[key];
+  });
+  return cleaned;
+}
+
+function getClassicLiveCurrentPillLabel(pillId) {
+  const pill = document.getElementById(pillId);
+  return String(pill?.querySelector(".trigger-label")?.textContent || "").trim();
+}
+
+function getClassicLiveTaskDetails(task = {}) {
+  const prompt = String(task.prompt || document.getElementById("prompt")?.value || "").trim();
+  const modelLabel = String(task.modelLabel || getClassicLiveCurrentPillLabel("modelPill") || "未记录").trim();
+  const routeLabel = String(task.routeLabel || getClassicLiveCurrentPillLabel("linePill") || "未记录").trim();
+  const ratio = String(task.ratio || getClassicLiveCurrentPillLabel("ratioPill") || "").trim();
+  const size = String(task.size || getClassicLiveCurrentPillLabel("sizePill") || "").trim();
+  const quantity = Number(task.quantity || 0);
+  const quantityText =
+    quantity > 0 ? `${quantity}张` : String(getClassicLiveCurrentPillLabel("qtyPill") || "").trim();
+  const referenceCount = Number(
+    task.referenceCount ||
+      (typeof refImages !== "undefined" && Array.isArray(refImages) ? refImages.length : 0) ||
+      0,
+  );
+  const timeValue = task.completedAt || task.createdAt || Date.now();
+  return {
+    prompt: prompt || "未记录提示词",
+    modelLabel,
+    routeLabel,
+    ratio,
+    size,
+    quantityText,
+    referenceCount,
+    timeText: formatClassicLiveClock(timeValue) || "-",
+  };
+}
+
 function renderClassicLiveTasks() {
   const grid = document.getElementById("classicLiveGrid");
   if (!grid) return;
@@ -375,17 +418,23 @@ function renderClassicLiveTasks() {
         : "classic-live-actions";
       return `
         <div class="${actionClass}">
-          <button type="button" class="classic-live-action-btn" data-action="zoom" title="放大">🔍</button>
-          <button type="button" class="classic-live-action-btn" data-action="download" title="保存原图">💾</button>
-          <button type="button" class="classic-live-action-btn" data-action="regen" title="重生">♻️</button>
-          <button type="button" class="classic-live-action-btn" data-action="ref" title="设为参考图">🧩</button>
-          <button type="button" class="classic-live-action-btn" data-action="copy" title="复制原图链接">🔗</button>
+          <button type="button" class="classic-live-action-btn" data-action="zoom" title="放大" aria-label="放大">放大</button>
+          <button type="button" class="classic-live-action-btn" data-action="download" title="保存原图" aria-label="保存原图">下载</button>
+          <button type="button" class="classic-live-action-btn" data-action="regen" title="重生" aria-label="重生">重生</button>
+          <button type="button" class="classic-live-action-btn" data-action="ref" title="设为参考图" aria-label="设为参考图">参考</button>
+          <button type="button" class="classic-live-action-btn" data-action="copy" title="复制原图链接" aria-label="复制原图链接">链接</button>
         </div>
       `;
     };
 
     const bindLiveActions = (root, task) => {
       const readFullUrl = () => root.dataset.fullUrl || root.dataset.previewUrl || "";
+      const media = root.querySelector(".classic-live-media");
+      if (media) media.addEventListener("dblclick", (event) => {
+        event.preventDefault();
+        const fullUrl = readFullUrl();
+        if (fullUrl) openLightbox(fullUrl);
+      });
       const zoomBtn = root.querySelector('[data-action="zoom"]');
       if (zoomBtn) zoomBtn.addEventListener("click", (event) => {
         event.stopPropagation();
@@ -417,28 +466,28 @@ function renderClassicLiveTasks() {
     const primaryFullUrl = getClassicLiveFullUrl(primaryTask);
     const primaryPreviewUrl = getClassicLivePreviewUrl(primaryTask);
     const primaryTimeValue = primaryTask.completedAt || primaryTask.createdAt;
-    const primaryPrompt = primaryTask.prompt || "未记录提示词";
+    const primaryDetails = getClassicLiveTaskDetails(primaryTask);
     const primaryConfigText = [
-      primaryTask.modelLabel,
-      primaryTask.routeLabel,
-      primaryTask.size,
-      primaryTask.ratio,
+      primaryDetails.modelLabel,
+      primaryDetails.routeLabel,
+      primaryDetails.size,
+      primaryDetails.ratio,
     ]
       .filter(Boolean)
       .join(" / ");
     const primaryRefText =
-      primaryTask.referenceCount > 0 ? ` · 参考图 ${primaryTask.referenceCount}` : "";
+      primaryDetails.referenceCount > 0 ? ` · 参考图 ${primaryDetails.referenceCount}` : "";
     const primaryParamText = [
-      primaryTask.ratio ? `比例 ${primaryTask.ratio}` : "",
-      primaryTask.size ? `尺寸 ${primaryTask.size}` : "",
-      primaryTask.quantity ? `数量 ${primaryTask.quantity}张` : "",
-      primaryTask.referenceCount > 0 ? `参考图 ${primaryTask.referenceCount}` : "",
+      primaryDetails.ratio ? `比例 ${primaryDetails.ratio}` : "",
+      primaryDetails.size ? `尺寸 ${primaryDetails.size}` : "",
+      primaryDetails.quantityText ? `数量 ${primaryDetails.quantityText}` : "",
+      primaryDetails.referenceCount > 0 ? `参考图 ${primaryDetails.referenceCount}` : "",
     ]
       .filter(Boolean)
       .join(" / ");
-    const primaryClockText = formatClassicLiveClock(primaryTimeValue) || "-";
-    const primaryModelText = primaryTask.modelLabel || "未记录";
-    const primaryRouteText = primaryTask.routeLabel || "未记录";
+    const primaryClockText = primaryDetails.timeText;
+    const primaryModelText = primaryDetails.modelLabel || "未记录";
+    const primaryRouteText = primaryDetails.routeLabel || "未记录";
 
     const primaryCard = document.createElement("div");
     primaryCard.className = [
@@ -468,7 +517,7 @@ function renderClassicLiveTasks() {
         <div class="classic-live-info-body">
           <div class="classic-live-prompt-row">
             <span>提示词</span>
-            <p>${escapeHtml(primaryPrompt)}</p>
+            <p>${escapeHtml(primaryDetails.prompt)}</p>
           </div>
           <div class="classic-live-detail-grid">
             <div>
@@ -482,6 +531,10 @@ function renderClassicLiveTasks() {
             <div>
               <span>参数</span>
               <b>${escapeHtml(primaryParamText || primaryConfigText || "当前配置")}${escapeHtml(primaryRefText)}</b>
+            </div>
+            <div>
+              <span>生成时间</span>
+              <b>${escapeHtml(primaryClockText)}</b>
             </div>
           </div>
         </div>
@@ -712,10 +765,11 @@ function promoteClassicLiveTask(tempId, taskId, updates = {}) {
 function completeClassicLiveTask(idOrTaskId, url, meta = {}) {
   const fullUrl = String(url || meta.originalUrl || meta.fullUrl || "").trim();
   const id = String(idOrTaskId || meta.taskId || "").trim();
+  const cleanedMeta = cleanClassicLiveMeta(meta);
   let idx = findClassicLiveTaskIndex(id);
   if (idx < 0) {
     const createdId = createClassicLiveTask({
-      ...meta,
+      ...cleanedMeta,
       id: id || makeClassicLiveId(),
       taskId: meta.taskId || id,
       status: "running",
@@ -726,7 +780,7 @@ function completeClassicLiveTask(idOrTaskId, url, meta = {}) {
   const previous = classicLiveTasks[idx];
   classicLiveTasks[idx] = normalizeClassicLiveTask({
     ...previous,
-    ...meta,
+    ...cleanedMeta,
     status: "success",
     originalUrl: fullUrl || previous.originalUrl,
     previewUrl: String(meta.previewUrl || previous.previewUrl || getClassicLine4ThumbUrl(fullUrl) || ""),
@@ -741,10 +795,11 @@ function completeClassicLiveTask(idOrTaskId, url, meta = {}) {
 
 function failClassicLiveTask(idOrTaskId, message, meta = {}) {
   const id = String(idOrTaskId || meta.taskId || "").trim();
+  const cleanedMeta = cleanClassicLiveMeta(meta);
   let idx = findClassicLiveTaskIndex(id);
   if (idx < 0) {
     const createdId = createClassicLiveTask({
-      ...meta,
+      ...cleanedMeta,
       id: id || makeClassicLiveId(),
       taskId: meta.taskId || id,
       status: "running",
@@ -754,7 +809,7 @@ function failClassicLiveTask(idOrTaskId, message, meta = {}) {
   if (idx < 0) return "";
   classicLiveTasks[idx] = normalizeClassicLiveTask({
     ...classicLiveTasks[idx],
-    ...meta,
+    ...cleanedMeta,
     status: "failed",
     errorMessage: String(message || "生成失败，请重试"),
     completedAt: Number(meta.completedAt || Date.now()),
@@ -3645,7 +3700,10 @@ async function useAsRef(url, btnElement) {
 function appendImageToGrid(url, size, targetWrapper = null, options = {}) {
   const grid = document.getElementById("resultGrid");
   const imgContainer = document.getElementById("imgContainer");
-  const promptVal = document.getElementById("prompt")?.value?.trim() || "";
+  const promptVal =
+    String(options.promptSnapshot || options.prompt || "").trim() ||
+    document.getElementById("prompt")?.value?.trim() ||
+    "";
   const trackUi = options.trackUi !== false;
   const runToken = options.runToken || 0;
   const liveTaskKey = String(options.liveTaskId || options.taskId || "").trim();
@@ -3656,6 +3714,11 @@ function appendImageToGrid(url, size, targetWrapper = null, options = {}) {
         taskId: options.taskId || liveTaskKey,
         prompt: promptVal,
         size,
+        modelLabel: options.modelLabel || "",
+        routeLabel: options.routeLabel || "",
+        ratio: options.ratio || "",
+        quantity: options.quantity || 0,
+        referenceCount: options.referenceCount || 0,
       });
     }
     saveToHistory(url, promptVal);
@@ -3843,6 +3906,8 @@ function saveToHistory(url, promptText = "", previewUrl = "") {
       fullUrl,
       previewUrl: displayUrl,
       time: timeStr,
+      createdAt: now.toISOString(),
+      completedAt: now.toISOString(),
       prompt: cleanPrompt,
     };
     if (history.length > 0 && getHistoryFullUrl(history[0]) === fullUrl) return;

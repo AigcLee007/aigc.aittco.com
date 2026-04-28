@@ -1727,7 +1727,7 @@ select option {
 }
 
 .classic-live-card.is-primary {
-  flex: 1 1 auto;
+  flex: 0 0 auto;
   min-height: 0;
   display: flex;
   flex-direction: column;
@@ -1752,8 +1752,9 @@ select option {
 }
 
 .classic-live-card.is-primary .classic-live-media {
-  flex: 1 1 auto;
-  min-height: clamp(300px, calc(100vh - 500px), 520px);
+  flex: 0 0 auto;
+  height: clamp(300px, calc(100vh - 520px), 480px);
+  min-height: 300px;
 }
 
 .classic-live-media img {
@@ -1939,7 +1940,7 @@ select option {
 
 .classic-live-detail-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 8px;
 }
 
@@ -1973,12 +1974,12 @@ select option {
 
 .classic-live-primary-actions {
   position: absolute;
-  right: 16px;
-  bottom: 16px;
+  right: 14px;
+  bottom: 14px;
   z-index: 4;
-  padding: 8px;
-  border-radius: 16px;
-  background: rgba(0, 0, 0, 0.5);
+  padding: 6px;
+  border-radius: 14px;
+  background: rgba(3, 6, 12, 0.76);
   border: 1px solid rgba(255, 255, 255, 0.13);
   backdrop-filter: blur(12px);
   opacity: 0.96;
@@ -1992,16 +1993,19 @@ select option {
 }
 
 .classic-live-action-btn {
-  width: 32px;
+  min-width: 42px;
   height: 32px;
-  border-radius: 10px;
+  padding: 0 10px;
+  border-radius: 9px;
   border: 1px solid rgba(255, 255, 255, 0.12);
   background: rgba(255, 255, 255, 0.06);
   color: #fff;
   cursor: pointer;
-  display: grid;
-  place-items: center;
-  font-size: 15px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 850;
   transition: transform 0.18s ease, background 0.18s ease, border-color 0.18s ease;
 }
 
@@ -5081,7 +5085,8 @@ select option {
   }
 
   .classic-live-card.is-primary .classic-live-media {
-    min-height: clamp(300px, calc(100vh - 500px), 520px);
+    height: clamp(300px, calc(100vh - 520px), 480px);
+    min-height: 300px;
   }
 }
 

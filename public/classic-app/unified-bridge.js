@@ -1920,7 +1920,8 @@
     const ordered = [];
     (Array.isArray(records) ? records : []).forEach((record) => {
       const recordId = String(record?.id || "").trim();
-      const key = recordId || `${record?.createdAt || ""}:${record?.previewUrl || ""}`;
+      const urlKey = String(record?.resultUrls?.[0] || record?.previewUrl || "").trim();
+      const key = urlKey || recordId || `${record?.createdAt || ""}:${record?.previewUrl || ""}`;
       if (!key || seen.has(key)) return;
       seen.add(key);
       ordered.push(record);
@@ -1965,6 +1966,43 @@
     if (Number.isNaN(date.getTime())) return "";
     return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
   };
+  const readLocalClassicHistoryRecords = () => {
+    try {
+      const raw = JSON.parse(localStorage.getItem("nb_history") || "[]");
+      return (Array.isArray(raw) ? raw : [])
+        .map((item) => {
+          const fullUrl =
+            typeof item === "string"
+              ? item
+              : String(item?.fullUrl || item?.url || "").trim();
+          if (!fullUrl) return null;
+          const previewUrl =
+            typeof item === "string"
+              ? (typeof getClassicLine4ThumbUrl === "function" && getClassicLine4ThumbUrl(item)) || item
+              : String(item?.previewUrl || item?.displayUrl || item?.url || fullUrl).trim();
+          const completedAt =
+            typeof item === "object" && item?.completedAt
+              ? String(item.completedAt)
+              : typeof item === "object" && item?.createdAt
+                ? String(item.createdAt)
+                : new Date().toISOString();
+          return {
+            id: `local:${typeof item === "object" && item?.id ? item.id : fullUrl}`,
+            resultUrls: [fullUrl],
+            previewUrl: previewUrl || fullUrl,
+            prompt: typeof item === "object" ? String(item.prompt || "") : "",
+            createdAt: completedAt,
+            completedAt,
+            localOnly: true,
+          };
+        })
+        .filter(Boolean);
+    } catch (_) {
+      return [];
+    }
+  };
+  const mergeRemoteAndLocalHistoryRecords = (records = []) =>
+    dedupeHistoryRecords([...readLocalClassicHistoryRecords(), ...(Array.isArray(records) ? records : [])]);
   const renderRemoteHistoryGrid = async (records = []) => {
     if (typeof clearHistoryObjectUrlRefs === "function") {
       clearHistoryObjectUrlRefs();
@@ -1973,13 +2011,15 @@
     if (!grid) return;
     grid.innerHTML = "";
 
-    if (!Array.isArray(records) || records.length === 0) {
+    const mergedRecords = mergeRemoteAndLocalHistoryRecords(records);
+
+    if (!Array.isArray(mergedRecords) || mergedRecords.length === 0) {
       grid.innerHTML =
         '<div style="color:var(--text-sub); grid-column:1/-1; text-align:center; padding:20px; font-size:12px;">暂无历史记录</div>';
       return;
     }
 
-    records.forEach((record) => {
+    mergedRecords.forEach((record) => {
       const originalUrl = String(record.resultUrls?.[0] || record.previewUrl || "").trim();
       const url = String(record.previewUrl || originalUrl || "").trim();
       if (!originalUrl) return;
@@ -2080,9 +2120,12 @@
     };
   }
 
-  saveToHistory = function (url, promptText = "") {
+  saveToHistory = function (url, promptText = "", previewUrl = "") {
+    if (legacySaveToHistory) {
+      legacySaveToHistory(url, promptText, previewUrl);
+    }
     if (!isSessionAuthenticated()) {
-      return legacySaveToHistory ? legacySaveToHistory(url, promptText) : undefined;
+      return undefined;
     }
     scheduleRemoteHistoryRefresh();
     return undefined;
@@ -2280,6 +2323,9 @@
               runToken: options.runToken,
               trackUi: options.trackUi !== false,
               liveTaskId,
+              promptSnapshot: promptText,
+              modelLabel: options.modelLabel || "",
+              routeLabel: options.routeLabel || "",
             });
           } else {
             saveToHistory(imageUrl, promptText);
@@ -2450,6 +2496,9 @@
               trackUi,
               liveTaskId: liveTaskForSlot(0),
               taskId,
+              promptSnapshot,
+              modelLabel: options.modelLabel || "",
+              routeLabel: options.routeLabel || "",
             });
           } else {
             saveToHistory(imageUrls[0], promptSnapshot);
