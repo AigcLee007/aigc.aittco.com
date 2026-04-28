@@ -2195,11 +2195,27 @@
       records
         .filter((record) => record?.taskId)
         .forEach((record, index) => {
+          if (typeof window.ensureClassicLiveTaskForPending === "function") {
+            window.ensureClassicLiveTaskForPending({
+              taskId: record.taskId,
+              prompt: record.prompt || "",
+              size: String(record.outputSize || "1K"),
+              modelLabel: record.modelId || record.model || "",
+              routeLabel: record.routeId || record.route || "",
+              index: index + 1,
+              status: "running",
+              createdAt: record.createdAt ? new Date(record.createdAt).getTime() : Date.now(),
+            });
+          }
           if (remotePendingPollRegistry.has(record.taskId)) return;
           remotePendingPollRegistry.add(record.taskId);
           pollSingleTask(record.taskId, "", String(record.outputSize || "1K"), index + 1, {
             trackUi: false,
             route: getCurrentRoute(),
+            taskId: record.taskId,
+            promptSnapshot: record.prompt || "",
+            modelLabel: record.modelId || record.model || "",
+            routeLabel: record.routeId || record.route || "",
           });
         });
     } catch (error) {
@@ -2207,6 +2223,27 @@
     }
   };
   submitSingleTask = async function (payload, key, size, index, options = {}) {
+    const liveTaskIds = Array.isArray(options.liveTaskIds)
+      ? options.liveTaskIds.filter(Boolean)
+      : options.liveTaskId
+        ? [options.liveTaskId]
+        : [];
+    const liveTaskForSlot = (slot = 0) => liveTaskIds[slot] || liveTaskIds[0] || "";
+    const promptSnapshot = String(
+      options.promptSnapshot || document.getElementById("prompt")?.value?.trim() || "",
+    );
+    const failLiveTasks = (message) => {
+      if (typeof window.failClassicLiveTask !== "function") return;
+      const ids = liveTaskIds.length > 0 ? liveTaskIds : [options.taskId].filter(Boolean);
+      ids.forEach((liveId) => {
+        window.failClassicLiveTask(liveId, message, {
+          prompt: promptSnapshot,
+          size,
+          modelLabel: options.modelLabel || "",
+          routeLabel: options.routeLabel || "",
+        });
+      });
+    };
     try {
       const route = options.route || getCurrentRoute();
       const endpoint = String(options.endpoint || CONFIG.submitUrl || "/api/generate").trim();
@@ -2226,13 +2263,23 @@
 
       const directImageUrls = extractImmediateImageUrls(data);
       if (directImageUrls.length > 0) {
-        const promptText = document.getElementById("prompt")?.value?.trim() || "";
+        const promptText = promptSnapshot;
         const expectedCount = Math.max(1, Number(options.expectedCount || directImageUrls.length || 1));
-        directImageUrls.forEach((imageUrl) => {
+        directImageUrls.forEach((imageUrl, imageIndex) => {
+          const liveTaskId = liveTaskForSlot(imageIndex);
+          if (liveTaskId && typeof window.completeClassicLiveTask === "function") {
+            window.completeClassicLiveTask(liveTaskId, imageUrl, {
+              prompt: promptText,
+              size,
+              modelLabel: options.modelLabel || "",
+              routeLabel: options.routeLabel || "",
+            });
+          }
           if (canUpdateMainUi(options.runToken, options.trackUi !== false)) {
             appendImageToGrid(imageUrl, size, null, {
               runToken: options.runToken,
               trackUi: options.trackUi !== false,
+              liveTaskId,
             });
           } else {
             saveToHistory(imageUrl, promptText);
@@ -2240,6 +2287,15 @@
         });
         const missingCount = Math.max(0, expectedCount - directImageUrls.length);
         for (let missingIndex = 0; missingIndex < missingCount; missingIndex += 1) {
+          const liveTaskId = liveTaskForSlot(directImageUrls.length + missingIndex);
+          if (liveTaskId && typeof window.failClassicLiveTask === "function") {
+            window.failClassicLiveTask(liveTaskId, USER_FACING_GENERATION_ERROR_MESSAGE, {
+              prompt: promptText,
+              size,
+              modelLabel: options.modelLabel || "",
+              routeLabel: options.routeLabel || "",
+            });
+          }
           if (!canUpdateMainUi(options.runToken, options.trackUi !== false)) break;
           handleSingleError(USER_FACING_GENERATION_ERROR_MESSAGE, size);
         }
@@ -2252,6 +2308,16 @@
       }
 
       const directKeyForTask = shouldUseDirectApiKeyForRoute(route, key) ? key : "";
+      const liveTaskId = liveTaskForSlot(0);
+      if (typeof window.promoteClassicLiveTask === "function") {
+        window.promoteClassicLiveTask(liveTaskId || taskId, taskId, {
+          prompt: promptSnapshot,
+          size,
+          modelLabel: options.modelLabel || "",
+          routeLabel: options.routeLabel || "",
+          status: "running",
+        });
+      }
       savePendingTask(
         taskId,
         directKeyForTask,
@@ -2264,13 +2330,23 @@
       pollSingleTask(taskId, directKeyForTask, size, index, {
         ...options,
         route,
+        liveTaskIds,
+        liveTaskId,
+        taskId,
       });
     } catch (error) {
       console.error("[Classic Bridge] submit task failed:", error);
+      failLiveTasks(USER_FACING_GENERATION_ERROR_MESSAGE);
       if (!canUpdateMainUi(options.runToken, options.trackUi !== false)) return;
       const expectedCount = Math.max(1, Number(options.expectedCount || 1));
       for (let failureIndex = 0; failureIndex < expectedCount; failureIndex += 1) {
         handleSingleError(USER_FACING_GENERATION_ERROR_MESSAGE, size);
+      }
+    } finally {
+      if (typeof options.onSubmitSettled === "function") {
+        try {
+          options.onSubmitSettled();
+        } catch (_) {}
       }
     }
   };
@@ -2282,6 +2358,38 @@
     const startedAt = Date.now();
     const maxPollMs = 10 * 60 * 1000;
     const trackUi = options.trackUi !== false;
+    const liveTaskIds = Array.isArray(options.liveTaskIds)
+      ? options.liveTaskIds.filter(Boolean)
+      : options.liveTaskId
+        ? [options.liveTaskId]
+        : [];
+    const promptSnapshot = String(
+      options.promptSnapshot || document.getElementById("prompt")?.value?.trim() || "",
+    );
+    const liveTaskForSlot = (slot = 0) => liveTaskIds[slot] || liveTaskIds[0] || taskId;
+    const completeLiveTask = (imageUrl, slot = 0) => {
+      if (typeof window.completeClassicLiveTask !== "function") return;
+      window.completeClassicLiveTask(liveTaskForSlot(slot), imageUrl, {
+        taskId,
+        prompt: promptSnapshot,
+        size,
+        modelLabel: options.modelLabel || "",
+        routeLabel: options.routeLabel || "",
+      });
+    };
+    const failLiveTask = (message) => {
+      if (typeof window.failClassicLiveTask !== "function") return;
+      const ids = liveTaskIds.length > 0 ? liveTaskIds : [taskId];
+      ids.forEach((liveId) => {
+        window.failClassicLiveTask(liveId, message, {
+          taskId,
+          prompt: promptSnapshot,
+          size,
+          modelLabel: options.modelLabel || "",
+          routeLabel: options.routeLabel || "",
+        });
+      });
+    };
 
     const checkLoop = setInterval(async () => {
       try {
@@ -2289,6 +2397,7 @@
           clearInterval(checkLoop);
           removePendingTask(taskId);
           removePendingTaskFromGallery(taskId);
+          failLiveTask("查询超时，任务状态未完成");
           if (canUpdateMainUi(options.runToken, trackUi)) {
             handleSingleError(USER_FACING_GENERATION_ERROR_MESSAGE, size);
           }
@@ -2308,6 +2417,7 @@
           clearInterval(checkLoop);
           removePendingTask(taskId);
           removePendingTaskFromGallery(taskId);
+          failLiveTask("任务已失效或未找到");
           if (canUpdateMainUi(options.runToken, trackUi)) {
             handleSingleError(USER_FACING_GENERATION_ERROR_MESSAGE, size);
           }
@@ -2333,13 +2443,16 @@
           clearInterval(checkLoop);
           removePendingTask(taskId);
           removePendingTaskFromGallery(taskId);
+          completeLiveTask(imageUrls[0], 0);
           if (canUpdateMainUi(options.runToken, trackUi)) {
             appendImageToGrid(imageUrls[0], size, null, {
               runToken: options.runToken,
               trackUi,
+              liveTaskId: liveTaskForSlot(0),
+              taskId,
             });
           } else {
-            saveToHistory(imageUrls[0], document.getElementById("prompt")?.value?.trim() || "");
+            saveToHistory(imageUrls[0], promptSnapshot);
           }
           return;
         }
@@ -2350,6 +2463,7 @@
             clearInterval(checkLoop);
             removePendingTask(taskId);
             removePendingTaskFromGallery(taskId);
+            failLiveTask("任务成功但未返回图片链接");
             if (canUpdateMainUi(options.runToken, trackUi)) {
               handleSingleError(USER_FACING_GENERATION_ERROR_MESSAGE, size);
             }
@@ -2361,6 +2475,7 @@
           clearInterval(checkLoop);
           removePendingTask(taskId);
           removePendingTaskFromGallery(taskId);
+          failLiveTask("生成失败");
           if (canUpdateMainUi(options.runToken, trackUi)) {
             handleSingleError(USER_FACING_GENERATION_ERROR_MESSAGE, size);
           }
@@ -2372,6 +2487,7 @@
           clearInterval(checkLoop);
           removePendingTask(taskId);
           removePendingTaskFromGallery(taskId);
+          failLiveTask("查询连接持续失败");
           if (canUpdateMainUi(options.runToken, trackUi)) {
             handleSingleError(USER_FACING_GENERATION_ERROR_MESSAGE, size);
           }
@@ -2450,11 +2566,12 @@
     }
 
     btn.disabled = true;
-    imgContainer.style.display = "none";
+    btn.innerHTML = "提交中...";
+    imgContainer.style.display = "flex";
     manualBtn.style.display = "none";
     errPlaceholder.style.display = "none";
     resultGrid.innerHTML = "";
-    resultGrid.className = "result-grid";
+    resultGrid.className = "result-grid classic-legacy-result-grid";
     bar.style.display = "block";
     fill.style.width = "0%";
     statusText.innerText = "Initializing Unified Tasks...";
@@ -2496,7 +2613,53 @@
       imgData.includes(",") ? imgData.split(",")[1] : imgData,
     );
 
+    const modelLabel = selectedModel.label || selectedModel.name || selectedModel.id || requestModel;
+    const routeLabel =
+      typeof getClassicLineLabel === "function"
+        ? getClassicLineLabel(selectedRoute.line, selectedRoute.label)
+        : selectedRoute.label || selectedRoute.name || selectedRoute.id || "";
+    const releaseSubmitButton = () => {
+      if (btn) {
+        btn.disabled = false;
+        btn.innerHTML = "INITIATE // 开始生产";
+      }
+      if (statusText && activeTasksCount > 0) {
+        statusText.innerText = "任务已提交，可继续创作下一组";
+        statusText.style.color = "var(--banana)";
+      }
+    };
+    const createSubmitSettledTracker = (total) => {
+      const expectedTotal = Math.max(1, Number(total || 1));
+      let settledCount = 0;
+      let released = false;
+      return () => {
+        settledCount += 1;
+        if (!released && settledCount >= expectedTotal) {
+          released = true;
+          releaseSubmitButton();
+        }
+      };
+    };
+    const createLiveTask = (taskIndex) => {
+      if (typeof window.createClassicLiveTask !== "function") return "";
+      return window.createClassicLiveTask({
+        prompt: promptBaseText,
+        modelLabel,
+        routeLabel,
+        size,
+        ratio,
+        index: taskIndex,
+        quantity: batchSize,
+        referenceCount: normalizedRefImages.length,
+        status: "submitting",
+      });
+    };
+
     if (isGeminiNativeSyncRoute(selectedRoute)) {
+      const markSubmitSettled = createSubmitSettledTracker(1);
+      const liveTaskIds = Array.from({ length: batchSize }, (_, taskIndex) =>
+        createLiveTask(taskIndex + 1),
+      ).filter(Boolean);
       submitSingleTask(
         buildClassicGeminiPayload({
           selectedModel,
@@ -2518,13 +2681,20 @@
           trackUi: true,
           endpoint: "/api/gemini/generate",
           expectedCount: batchSize,
+          liveTaskIds,
+          promptSnapshot: promptBaseText,
+          modelLabel,
+          routeLabel,
+          onSubmitSettled: markSubmitSettled,
         },
       );
       return;
     }
 
     if (gptImage2Model) {
+      const markSubmitSettled = createSubmitSettledTracker(batchSize);
       for (let i = 0; i < batchSize; i += 1) {
+        const liveTaskId = createLiveTask(i + 1);
         setTimeout(() => {
           const payload = buildClassicGptPayload({
             selectedModel,
@@ -2548,6 +2718,12 @@
             trackUi: true,
             endpoint: normalizedRefImages.length > 0 ? "/api/edit" : CONFIG.submitUrl,
             expectedCount: 1,
+            liveTaskId,
+            liveTaskIds: liveTaskId ? [liveTaskId] : [],
+            promptSnapshot: promptBaseText,
+            modelLabel,
+            routeLabel,
+            onSubmitSettled: markSubmitSettled,
           });
         }, i * 180);
       }
@@ -2587,7 +2763,21 @@
         payloadBase.reference_image = rawPrimaryImage;
         payloadBase.reference_images = rawBase64Images.slice();
       } else {
-        const collageBase64 = await createClassicCollageFromSrcs(normalizedRefImages);
+        let collageBase64 = "";
+        try {
+          collageBase64 = await createClassicCollageFromSrcs(normalizedRefImages);
+        } catch (error) {
+          console.error("[Classic Bridge] create reference collage failed:", error);
+          activeTasksCount = 0;
+          clearInterval(progressInterval);
+          if (bar) bar.style.display = "none";
+          if (statusText) {
+            statusText.innerText = "参考图处理失败，请重新上传后再试";
+            statusText.style.color = "#FFD60A";
+          }
+          releaseSubmitButton();
+          return;
+        }
         const collageRaw = collageBase64.includes(",") ? collageBase64.split(",")[1] : collageBase64;
         payloadBase.prompt =
           normalizedRefImages.length > 1
@@ -2598,7 +2788,9 @@
       }
     }
 
+    const markSubmitSettled = createSubmitSettledTracker(batchSize);
     for (let i = 0; i < batchSize; i += 1) {
+      const liveTaskId = createLiveTask(i + 1);
       setTimeout(() => {
         submitSingleTask(
           {
@@ -2614,6 +2806,12 @@
             model: requestModel,
             runToken,
             trackUi: true,
+            liveTaskId,
+            liveTaskIds: liveTaskId ? [liveTaskId] : [],
+            promptSnapshot: promptBaseText,
+            modelLabel,
+            routeLabel,
+            onSubmitSettled: markSubmitSettled,
           },
         );
       }, i * 180);

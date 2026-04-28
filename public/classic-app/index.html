@@ -173,7 +173,9 @@
 
     <!-- TAB 1: CREATE -->
     <div id="tab-create" class="tab-content active">
-      <div class="dashboard">
+      <div class="dashboard classic-create-dashboard">
+        <div class="classic-create-layout">
+          <div class="classic-compose-column">
         <!-- Header removed as requested (Duplicate) -->
 
         <!-- 顶部通栏: 提示词 -->
@@ -489,17 +491,36 @@
           </button>
         </div>
 
-        <div class="tech-module result-module">
-          <div class="module-header" style="width: 100%; margin-bottom: auto">
-            生成结果 (OUTPUT)
           </div>
 
-          <div class="status-text" id="statusText">SYSTEM READY</div>
-          <div class="progress-bar" id="progressBar">
-            <div class="progress-fill" id="progressFill"></div>
+        <div class="tech-module result-module classic-live-panel" id="classicLivePanel">
+          <div class="classic-live-heading">
+            <div>
+              <div class="classic-live-kicker">实时生成区</div>
+              <div class="classic-live-title">创作页直接看大图</div>
+            </div>
+            <div class="classic-live-stats" aria-label="任务状态">
+              <span id="classicLiveRunning">进行中 0</span>
+              <span id="classicLiveDone">已完成 0</span>
+              <span id="classicLiveFailed">失败 0</span>
+            </div>
           </div>
 
-          <div class="image-container" id="imgContainer">
+          <div class="classic-live-status-row">
+            <div class="status-text" id="statusText">SYSTEM READY</div>
+            <div class="progress-bar" id="progressBar">
+              <div class="progress-fill" id="progressFill"></div>
+            </div>
+          </div>
+
+          <div class="image-container classic-live-container" id="imgContainer">
+            <div id="classicLiveGrid" class="classic-live-grid">
+              <div id="classicLiveEmpty" class="classic-live-empty">
+                <div class="classic-live-empty-icon">✦</div>
+                <div class="classic-live-empty-title">提交后会在这里显示大图</div>
+                <div class="classic-live-empty-sub">任务生成期间，你可以继续修改参数并提交下一组。</div>
+              </div>
+            </div>
             <div
               id="errorPlaceholder"
               style="
@@ -512,12 +533,13 @@
               ⚠️ 图片生成成功，但无法直接预览<br />这通常是因为网络阻断或浏览器安全策略
             </div>
 
-            <div id="resultGrid" class="result-grid"></div>
+            <div id="resultGrid" class="result-grid classic-legacy-result-grid"></div>
 
             <a id="manualLinkBtn" class="manual-link-btn" target="_blank"
               >🔗 点击跳转查看原图</a
             >
           </div>
+        </div>
         </div>
       </div>
     </div>
@@ -1103,8 +1125,8 @@
   </div>
 </div>
 
-    <script src="/classic-app/promptTags.js?v=classic_header_toolbar_v1"></script>
-    <script src="/classic-app/script.js?v=classic_header_toolbar_v1"></script>
-    <script src="/classic-app/unified-bridge.js?v=classic_header_toolbar_v1"></script>
+    <script src="/classic-app/promptTags.js?v=classic_parallel_live_v1"></script>
+    <script src="/classic-app/script.js?v=classic_parallel_live_v1"></script>
+    <script src="/classic-app/unified-bridge.js?v=classic_parallel_live_v1"></script>
   </body>
 </html>

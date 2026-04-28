@@ -206,6 +206,371 @@ function getHistoryDisplayUrl(item) {
   return String(item?.previewUrl || item?.displayUrl || item?.url || "").trim();
 }
 
+const CLASSIC_LIVE_TASKS_KEY = "nb_classic_live_tasks_v1";
+const CLASSIC_LIVE_MAX_TASKS = 30;
+const CLASSIC_LIVE_TTL_MS = 72 * 60 * 60 * 1000;
+let classicLiveTasks = [];
+
+function makeClassicLiveId() {
+  return `live_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+}
+
+function normalizeClassicLiveTask(task = {}) {
+  const createdAt = Number(task.createdAt || task.submittedAt || Date.now());
+  return {
+    id: String(task.id || task.tempId || task.taskId || makeClassicLiveId()),
+    tempId: String(task.tempId || ""),
+    taskId: String(task.taskId || ""),
+    status: String(task.status || "running"),
+    prompt: String(task.prompt || ""),
+    modelLabel: String(task.modelLabel || task.model || ""),
+    routeLabel: String(task.routeLabel || task.route || ""),
+    size: String(task.size || ""),
+    ratio: String(task.ratio || ""),
+    index: Number(task.index || 1),
+    quantity: Number(task.quantity || 1),
+    referenceCount: Number(task.referenceCount || 0),
+    originalUrl: String(task.originalUrl || task.fullUrl || task.resultUrl || task.url || ""),
+    previewUrl: String(task.previewUrl || task.thumbnailUrl || ""),
+    errorMessage: String(task.errorMessage || ""),
+    createdAt,
+    completedAt: task.completedAt ? Number(task.completedAt) : 0,
+    updatedAt: Number(task.updatedAt || Date.now()),
+  };
+}
+
+function readClassicLiveTasks() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(CLASSIC_LIVE_TASKS_KEY) || "[]");
+    const now = Date.now();
+    classicLiveTasks = (Array.isArray(raw) ? raw : [])
+      .map(normalizeClassicLiveTask)
+      .filter((task) => now - Number(task.createdAt || now) < CLASSIC_LIVE_TTL_MS)
+      .slice(0, CLASSIC_LIVE_MAX_TASKS);
+  } catch (_) {
+    classicLiveTasks = [];
+  }
+}
+
+function persistClassicLiveTasks() {
+  try {
+    classicLiveTasks = classicLiveTasks
+      .map(normalizeClassicLiveTask)
+      .sort((a, b) => Number(b.updatedAt || b.createdAt) - Number(a.updatedAt || a.createdAt))
+      .slice(0, CLASSIC_LIVE_MAX_TASKS);
+    localStorage.setItem(CLASSIC_LIVE_TASKS_KEY, JSON.stringify(classicLiveTasks));
+  } catch (_) {}
+}
+
+function findClassicLiveTaskIndex(idOrTaskId) {
+  const id = String(idOrTaskId || "").trim();
+  if (!id) return -1;
+  return classicLiveTasks.findIndex(
+    (task) => task.id === id || task.tempId === id || task.taskId === id,
+  );
+}
+
+function getClassicLiveFullUrl(task = {}) {
+  return String(task.originalUrl || task.fullUrl || task.resultUrl || task.url || "").trim();
+}
+
+function getClassicLivePreviewUrl(task = {}) {
+  const fullUrl = getClassicLiveFullUrl(task);
+  return String(task.previewUrl || task.thumbnailUrl || getClassicLine4ThumbUrl(fullUrl) || "").trim();
+}
+
+function formatClassicLiveClock(value) {
+  const date = new Date(Number(value || Date.now()));
+  if (Number.isNaN(date.getTime())) return "";
+  const now = new Date();
+  const sameDay =
+    date.getFullYear() === now.getFullYear() &&
+    date.getMonth() === now.getMonth() &&
+    date.getDate() === now.getDate();
+  const hm = `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+  if (sameDay) return hm;
+  return `${date.getMonth() + 1}/${date.getDate()} ${hm}`;
+}
+
+function getClassicLiveStatusLabel(status) {
+  if (status === "success") return "已完成";
+  if (status === "failed") return "失败";
+  if (status === "submitting") return "提交中";
+  return "生成中";
+}
+
+function renderClassicLiveTasks() {
+  const grid = document.getElementById("classicLiveGrid");
+  if (!grid) return;
+
+  const container = document.getElementById("imgContainer");
+  if (container) container.style.display = "flex";
+
+  const runningCount = classicLiveTasks.filter((task) =>
+    ["submitting", "running"].includes(String(task.status || "")),
+  ).length;
+  const doneCount = classicLiveTasks.filter((task) => task.status === "success").length;
+  const failedCount = classicLiveTasks.filter((task) => task.status === "failed").length;
+  const runningEl = document.getElementById("classicLiveRunning");
+  const doneEl = document.getElementById("classicLiveDone");
+  const failedEl = document.getElementById("classicLiveFailed");
+  if (runningEl) runningEl.textContent = `进行中 ${runningCount}`;
+  if (doneEl) doneEl.textContent = `已完成 ${doneCount}`;
+  if (failedEl) failedEl.textContent = `失败 ${failedCount}`;
+
+  grid.innerHTML = "";
+  if (classicLiveTasks.length === 0) {
+    const empty = document.createElement("div");
+    empty.id = "classicLiveEmpty";
+    empty.className = "classic-live-empty";
+    empty.innerHTML = `
+      <div class="classic-live-empty-icon">✦</div>
+      <div class="classic-live-empty-title">提交后会在这里显示大图</div>
+      <div class="classic-live-empty-sub">任务生成期间，你可以继续修改参数并提交下一组。</div>
+    `;
+    grid.appendChild(empty);
+    return;
+  }
+
+  classicLiveTasks.forEach((task, index) => {
+    const status = String(task.status || "running");
+    const fullUrl = getClassicLiveFullUrl(task);
+    const previewUrl = getClassicLivePreviewUrl(task);
+    const isSuccess = status === "success" && fullUrl;
+    const isFailed = status === "failed";
+    const card = document.createElement("div");
+    card.className = [
+      "classic-live-card",
+      index === 0 ? "is-primary" : "",
+      isSuccess ? "is-success" : "",
+      isFailed ? "is-failed" : "",
+    ]
+      .filter(Boolean)
+      .join(" ");
+    card.dataset.fullUrl = fullUrl;
+    card.dataset.previewUrl = previewUrl;
+
+    const timeValue = task.completedAt || task.createdAt;
+    const prompt = task.prompt || "未记录提示词";
+    const configText = [task.modelLabel, task.routeLabel, task.size, task.ratio]
+      .filter(Boolean)
+      .join(" / ");
+    const refText = task.referenceCount > 0 ? ` · 参考图 ${task.referenceCount}` : "";
+
+    let mediaHtml = "";
+    if (isSuccess) {
+      mediaHtml = `<img src="${escapeHtml(fullUrl)}" alt="生成结果" loading="lazy" referrerpolicy="no-referrer">`;
+    } else if (isFailed) {
+      mediaHtml = `<div class="classic-live-error">${escapeHtml(task.errorMessage || "生成失败，请重试")}</div>`;
+    } else {
+      mediaHtml = `
+        <div class="classic-live-pending-visual">
+          <div class="classic-live-spinner"></div>
+          <div>${status === "submitting" ? "正在提交任务..." : "上游正在生成..."}</div>
+          <div class="classic-live-loading-bar"></div>
+        </div>
+      `;
+    }
+
+    const actionsHtml = isSuccess
+      ? `
+        <div class="classic-live-actions">
+          <button type="button" class="classic-live-action-btn" data-action="zoom" title="放大">🔍</button>
+          <button type="button" class="classic-live-action-btn" data-action="download" title="保存原图">💾</button>
+          <button type="button" class="classic-live-action-btn" data-action="ref" title="设为参考图">🧩</button>
+          <button type="button" class="classic-live-action-btn" data-action="copy" title="复制原图链接">🔗</button>
+        </div>
+      `
+      : "";
+
+    card.innerHTML = `
+      <div class="classic-live-media">
+        ${mediaHtml}
+        <div class="classic-live-meta">
+          <span class="classic-live-chip">${escapeHtml(getClassicLiveStatusLabel(status))} #${Number(task.index || 1)}</span>
+          <span class="classic-live-time">${escapeHtml(formatClassicLiveClock(timeValue))}</span>
+        </div>
+      </div>
+      <div class="classic-live-info">
+        <div>
+          <div class="classic-live-prompt">${escapeHtml(prompt)}</div>
+          <div class="classic-live-config">${escapeHtml(configText || "当前配置")}${escapeHtml(refText)}</div>
+        </div>
+        ${actionsHtml}
+      </div>
+    `;
+
+    const img = card.querySelector("img");
+    if (img && previewUrl && previewUrl !== fullUrl) {
+      img.addEventListener("error", () => {
+        if (img.dataset.fallbackApplied === "1") return;
+        img.dataset.fallbackApplied = "1";
+        img.src = previewUrl;
+      });
+    }
+
+    const readFullUrl = () => card.dataset.fullUrl || card.dataset.previewUrl || "";
+    const zoomBtn = card.querySelector('[data-action="zoom"]');
+    if (zoomBtn) zoomBtn.addEventListener("click", () => openLightbox(readFullUrl()));
+    const downBtn = card.querySelector('[data-action="download"]');
+    if (downBtn) downBtn.addEventListener("click", () => downloadSingleImg(readFullUrl()));
+    const refBtn = card.querySelector('[data-action="ref"]');
+    if (refBtn) refBtn.addEventListener("click", () => useAsRef(readFullUrl(), refBtn));
+    const copyBtn = card.querySelector('[data-action="copy"]');
+    if (copyBtn) copyBtn.addEventListener("click", () => copyImgUrl(readFullUrl()));
+
+    grid.appendChild(card);
+  });
+}
+
+function createClassicLiveTask(snapshot = {}) {
+  const task = normalizeClassicLiveTask({
+    ...snapshot,
+    id: snapshot.id || makeClassicLiveId(),
+    tempId: snapshot.tempId || "",
+    status: snapshot.status || "submitting",
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  });
+  classicLiveTasks = [task, ...classicLiveTasks.filter((item) => item.id !== task.id)];
+  persistClassicLiveTasks();
+  renderClassicLiveTasks();
+  return task.id;
+}
+
+function ensureClassicLiveTaskForPending(snapshot = {}) {
+  const taskId = String(snapshot.taskId || snapshot.id || "").trim();
+  if (!taskId) return "";
+  const existingIndex = findClassicLiveTaskIndex(taskId);
+  const nextTask = normalizeClassicLiveTask({
+    ...snapshot,
+    id: existingIndex >= 0 ? classicLiveTasks[existingIndex].id : taskId,
+    taskId,
+    status: snapshot.status || "running",
+    updatedAt: Date.now(),
+  });
+  if (existingIndex >= 0) {
+    classicLiveTasks[existingIndex] = {
+      ...classicLiveTasks[existingIndex],
+      ...nextTask,
+      originalUrl: classicLiveTasks[existingIndex].originalUrl || nextTask.originalUrl,
+      previewUrl: classicLiveTasks[existingIndex].previewUrl || nextTask.previewUrl,
+    };
+  } else {
+    classicLiveTasks.unshift(nextTask);
+  }
+  persistClassicLiveTasks();
+  renderClassicLiveTasks();
+  return nextTask.id;
+}
+
+function updateClassicLiveTask(idOrTaskId, updates = {}) {
+  const idx = findClassicLiveTaskIndex(idOrTaskId);
+  if (idx < 0) return "";
+  classicLiveTasks[idx] = normalizeClassicLiveTask({
+    ...classicLiveTasks[idx],
+    ...updates,
+    updatedAt: Date.now(),
+  });
+  persistClassicLiveTasks();
+  renderClassicLiveTasks();
+  return classicLiveTasks[idx].id;
+}
+
+function promoteClassicLiveTask(tempId, taskId, updates = {}) {
+  const id = String(tempId || taskId || "").trim();
+  const taskKey = String(taskId || "").trim();
+  if (!id && !taskKey) return "";
+  const idx = findClassicLiveTaskIndex(id || taskKey);
+  if (idx < 0) {
+    return ensureClassicLiveTaskForPending({ ...updates, taskId: taskKey, status: "running" });
+  }
+  classicLiveTasks[idx] = normalizeClassicLiveTask({
+    ...classicLiveTasks[idx],
+    ...updates,
+    taskId: taskKey || classicLiveTasks[idx].taskId,
+    status: updates.status || "running",
+    updatedAt: Date.now(),
+  });
+  persistClassicLiveTasks();
+  renderClassicLiveTasks();
+  return classicLiveTasks[idx].id;
+}
+
+function completeClassicLiveTask(idOrTaskId, url, meta = {}) {
+  const fullUrl = String(url || meta.originalUrl || meta.fullUrl || "").trim();
+  const id = String(idOrTaskId || meta.taskId || "").trim();
+  let idx = findClassicLiveTaskIndex(id);
+  if (idx < 0) {
+    const createdId = createClassicLiveTask({
+      ...meta,
+      id: id || makeClassicLiveId(),
+      taskId: meta.taskId || id,
+      status: "running",
+    });
+    idx = findClassicLiveTaskIndex(createdId);
+  }
+  if (idx < 0) return "";
+  const previous = classicLiveTasks[idx];
+  classicLiveTasks[idx] = normalizeClassicLiveTask({
+    ...previous,
+    ...meta,
+    status: "success",
+    originalUrl: fullUrl || previous.originalUrl,
+    previewUrl: String(meta.previewUrl || previous.previewUrl || getClassicLine4ThumbUrl(fullUrl) || ""),
+    errorMessage: "",
+    completedAt: Number(meta.completedAt || Date.now()),
+    updatedAt: Date.now(),
+  });
+  persistClassicLiveTasks();
+  renderClassicLiveTasks();
+  return classicLiveTasks[idx].id;
+}
+
+function failClassicLiveTask(idOrTaskId, message, meta = {}) {
+  const id = String(idOrTaskId || meta.taskId || "").trim();
+  let idx = findClassicLiveTaskIndex(id);
+  if (idx < 0) {
+    const createdId = createClassicLiveTask({
+      ...meta,
+      id: id || makeClassicLiveId(),
+      taskId: meta.taskId || id,
+      status: "running",
+    });
+    idx = findClassicLiveTaskIndex(createdId);
+  }
+  if (idx < 0) return "";
+  classicLiveTasks[idx] = normalizeClassicLiveTask({
+    ...classicLiveTasks[idx],
+    ...meta,
+    status: "failed",
+    errorMessage: String(message || "生成失败，请重试"),
+    completedAt: Number(meta.completedAt || Date.now()),
+    updatedAt: Date.now(),
+  });
+  persistClassicLiveTasks();
+  renderClassicLiveTasks();
+  return classicLiveTasks[idx].id;
+}
+
+window.createClassicLiveTask = createClassicLiveTask;
+window.ensureClassicLiveTaskForPending = ensureClassicLiveTaskForPending;
+window.updateClassicLiveTask = updateClassicLiveTask;
+window.promoteClassicLiveTask = promoteClassicLiveTask;
+window.completeClassicLiveTask = completeClassicLiveTask;
+window.failClassicLiveTask = failClassicLiveTask;
+window.renderClassicLiveTasks = renderClassicLiveTasks;
+
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", () => {
+    readClassicLiveTasks();
+    renderClassicLiveTasks();
+  });
+} else {
+  readClassicLiveTasks();
+  renderClassicLiveTasks();
+}
+
 function clearHistoryObjectUrlRefs() {
   historyObjectUrls.forEach((url) => URL.revokeObjectURL(url));
   historyObjectUrls = [];
@@ -2177,7 +2542,7 @@ async function runGen() {
 
   // 清空结果
   resultGrid.innerHTML = "";
-  resultGrid.className = "result-grid";
+  resultGrid.className = "result-grid classic-legacy-result-grid";
 
   // 进度条初始化
   bar.style.display = "block";
@@ -2861,6 +3226,16 @@ function restorePendingTasks() {
     validTasks.forEach((t) => {
       // 在画廊中恢复占位图
       addPendingTaskToGallery(t.id, t.index);
+      if (typeof window.ensureClassicLiveTaskForPending === "function") {
+        window.ensureClassicLiveTaskForPending({
+          taskId: t.id,
+          index: t.index,
+          size: t.size,
+          modelLabel: t.model || "",
+          status: "running",
+          createdAt: t.time || Date.now(),
+        });
+      }
       if (t.mode === "grok_dual") {
         pollSingleTask(t.id, t.key, t.size, t.index, {
           mode: "grok_dual",
@@ -3054,6 +3429,26 @@ function appendImageToGrid(url, size, targetWrapper = null, options = {}) {
   const promptVal = document.getElementById("prompt")?.value?.trim() || "";
   const trackUi = options.trackUi !== false;
   const runToken = options.runToken || 0;
+  const liveTaskKey = String(options.liveTaskId || options.taskId || "").trim();
+
+  if (document.getElementById("classicLiveGrid")) {
+    if (liveTaskKey && typeof window.completeClassicLiveTask === "function") {
+      window.completeClassicLiveTask(liveTaskKey, url, {
+        taskId: options.taskId || liveTaskKey,
+        prompt: promptVal,
+        size,
+      });
+    }
+    saveToHistory(url, promptVal);
+    if (canUpdateMainUi(runToken, trackUi)) {
+      loadedImageCount++;
+      completedTasksCount++;
+      activeTasksCount--;
+      checkAllDone(size);
+    }
+    if (imgContainer) imgContainer.style.display = "flex";
+    return;
+  }
 
   const wrapper = targetWrapper || document.createElement("div");
   wrapper.className = "result-item-wrapper";
