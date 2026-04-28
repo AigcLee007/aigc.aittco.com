@@ -882,16 +882,21 @@ const dedupeResultUrls = (urls = []) =>
         .filter(Boolean),
     ),
   );
+const isUsableResultUrl = (value = "") => {
+  const trimmed = String(value || "").trim();
+  return (
+    trimmed.startsWith("http://") ||
+    trimmed.startsWith("https://") ||
+    trimmed.startsWith("data:") ||
+    trimmed.startsWith("/")
+  );
+};
 const collectResultUrls = (value, bucket = []) => {
   if (!value) return bucket;
 
   if (typeof value === "string") {
     const trimmed = value.trim();
-    if (
-      trimmed.startsWith("http://") ||
-      trimmed.startsWith("https://") ||
-      trimmed.startsWith("data:")
-    ) {
+    if (isUsableResultUrl(trimmed)) {
       bucket.push(trimmed);
     }
     return bucket;

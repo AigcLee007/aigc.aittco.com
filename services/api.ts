@@ -144,6 +144,11 @@ export interface TaskStatusResponse {
   [key: string]: any;
 }
 
+const isUsableResultUrl = (value: unknown): value is string => {
+  if (typeof value !== 'string') return false;
+  return value.startsWith('http') || value.startsWith('data:') || value.startsWith('/');
+};
+
 export function findAllUrlsInObject(obj: any, results: string[] = []) {
   if (!obj) return;
 
@@ -157,19 +162,19 @@ export function findAllUrlsInObject(obj: any, results: string[] = []) {
   if (
     obj.output &&
     typeof obj.output === 'string' &&
-    (obj.output.startsWith('http') || obj.output.startsWith('data:'))
+    isUsableResultUrl(obj.output)
   ) {
     results.push(obj.output);
   } else if (
     obj.url &&
     typeof obj.url === 'string' &&
-    (obj.url.startsWith('http') || obj.url.startsWith('data:'))
+    isUsableResultUrl(obj.url)
   ) {
     results.push(obj.url);
   } else if (
     obj.image_url &&
     typeof obj.image_url === 'string' &&
-    (obj.image_url.startsWith('http') || obj.image_url.startsWith('data:'))
+    isUsableResultUrl(obj.image_url)
   ) {
     results.push(obj.image_url);
   } else if (obj.b64_json && typeof obj.b64_json === 'string') {
@@ -187,7 +192,7 @@ export function findAllUrlsInObject(obj: any, results: string[] = []) {
 const extractGenerateResultUrls = (payload: any): string[] => {
   const urls: string[] = [];
   findAllUrlsInObject(payload, urls);
-  return Array.from(new Set(urls.filter((u) => typeof u === 'string' && (u.startsWith('http') || u.startsWith('data:')))));
+  return Array.from(new Set(urls.filter((u) => isUsableResultUrl(u))));
 };
 
 export const generateImageApi = async (
