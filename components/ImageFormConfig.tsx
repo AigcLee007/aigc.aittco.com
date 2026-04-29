@@ -19,7 +19,6 @@ import {
   getLowestCostImageRouteForModel,
   getImageRoutePointCost,
   getImageRouteOptions,
-  getImageRoutesByModelFamily,
   getSelectedImageRoute,
 } from '../src/config/imageRoutes';
 import { useImageRouteCatalog } from '../src/hooks/useImageRouteCatalog';
@@ -206,18 +205,12 @@ export const ImageFormConfig: React.FC<ImageFormConfigProps> = ({
   const modelOptions = useMemo(
     () =>
       visibleImageModels.map((model) => {
-        const familyRoutes = getImageRoutesByModelFamily(model.routeFamily).filter((route) => {
-          if (route.isActive === false) return false;
-          return restrictToDirectKeyCompatible ? route.allowUserApiKeyWithoutLogin === true : true;
-        });
-        const displayRoute =
-          familyRoutes.find((route) => route.line === imageLine) ||
-          familyRoutes.find((route) => route.isDefaultRoute) ||
-          familyRoutes.find((route) => route.isDefaultNanoBananaLine) ||
-          familyRoutes[0];
         const modelSize = getNormalizedImageSizeForModel(model.id, imageSize);
-        const displayCost = displayRoute
-          ? getImageRoutePointCost(displayRoute, modelSize)
+        const cheapestRoute = getLowestCostImageRouteForModel(model.id, modelSize, {
+          directKeyOnly: restrictToDirectKeyCompatible,
+        });
+        const displayCost = cheapestRoute
+          ? getImageRoutePointCost(cheapestRoute, modelSize)
           : model.selectorCost;
 
         return {
@@ -227,7 +220,7 @@ export const ImageFormConfig: React.FC<ImageFormConfigProps> = ({
           icon: <ImageModelIcon iconKind={model.iconKind} variant="selector" />,
         };
       }),
-    [imageLine, imageSize, restrictToDirectKeyCompatible, visibleImageModels],
+    [imageSize, restrictToDirectKeyCompatible, visibleImageModels],
   );
 
   if (visibleImageModels.length === 0) {

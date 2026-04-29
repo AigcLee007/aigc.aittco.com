@@ -726,6 +726,27 @@
       routes[0]
     );
   };
+  const getLowestCostRouteForModel = (modelId, size) => {
+    const routes = getRoutesForModel(modelId).filter((route) =>
+      isApiKeyCompatibilityMode() ? route.allowUserApiKeyWithoutLogin === true : true,
+    );
+    if (routes.length === 0) return null;
+    return [...routes].sort((left, right) => {
+      const leftCost = getRoutePointCost(left, size);
+      const rightCost = getRoutePointCost(right, size);
+      if (leftCost !== rightCost) return leftCost - rightCost;
+
+      const leftDefault = left.isDefaultRoute || left.isDefaultNanoBananaLine ? 1 : 0;
+      const rightDefault = right.isDefaultRoute || right.isDefaultNanoBananaLine ? 1 : 0;
+      if (leftDefault !== rightDefault) return rightDefault - leftDefault;
+
+      if ((left.sortOrder || 0) !== (right.sortOrder || 0)) {
+        return (left.sortOrder || 0) - (right.sortOrder || 0);
+      }
+
+      return String(left.label || "").localeCompare(String(right.label || ""));
+    })[0];
+  };
   const isGptImage2Model = (model, requestModel = "") => {
     const modelId = String(model?.id || "").trim();
     const resolvedRequestModel = String(requestModel || model?.requestModel || "").trim();
@@ -1007,7 +1028,6 @@
 
     const models = getVisibleModels();
     const selectedSize = getCurrentSelectedSize();
-    const preferredLine = String(localStorage.getItem(LINE_STORAGE_KEY) || "").trim();
     if (models.length === 0) {
       menu.innerHTML = '<div class="dropdown-item active" data-value=""><span>暂无可用模型</span></div>';
       pill.setAttribute("data-selected-value", "");
@@ -1024,7 +1044,7 @@
     const selected = getCurrentModel();
     menu.innerHTML = models
       .map((model) => {
-        const displayRoute = getDisplayRouteForModel(model.id, preferredLine);
+        const displayRoute = getLowestCostRouteForModel(model.id, selectedSize);
         const costLabel = formatCoinLabel(
           displayRoute ? getRoutePointCost(displayRoute, selectedSize) : model.selectorCost,
         );
@@ -1047,7 +1067,7 @@
       triggerLabel.innerText = selected ? `${icon ? `${icon} ` : ""}${selected.label}` : "暂无可用模型";
     }
     if (triggerVal) {
-      const selectedRoute = selected ? getDisplayRouteForModel(selected.id, preferredLine) : null;
+      const selectedRoute = selected ? getLowestCostRouteForModel(selected.id, selectedSize) : null;
       const selectedCost = formatCoinLabel(
         selectedRoute ? getRoutePointCost(selectedRoute, selectedSize) : selected?.selectorCost || 0,
       );
