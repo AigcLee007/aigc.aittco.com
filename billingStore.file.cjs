@@ -144,15 +144,10 @@ const expireStalePendingTasksInStore = (store) => {
     const timeoutMs = routeId.includes("video") ? videoTimeoutMs : imageTimeoutMs;
     if (now - createdAtMs < timeoutMs) return;
 
-    task.status = "FAILED";
+    task.status = "STALE";
     task.settledAt = new Date(now).toISOString();
-    const refund = refundChargeInStore(store, task.accountId, task.chargeId, {
-      reason: "pending_task_timeout",
-      taskId,
-      routeId: task.routeId,
-    });
-    task.refundId = refund?.refundId || null;
-    task.refundedAt = refund?.account?.updatedAt || null;
+    task.refundId = null;
+    task.refundedAt = null;
   });
 };
 

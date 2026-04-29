@@ -608,22 +608,14 @@ const expireStalePendingTasks = async () => {
     const nowDb = toDbDateTime();
     let expired = 0;
     for (const task of tasks || []) {
-      const refund = await refundChargeInTx(connection, task.account_id, task.charge_id, {
-        reason: "pending_task_timeout",
-        taskId: task.task_id,
-        routeId: task.route_id,
-      });
-
       await connection.execute(
         `
           UPDATE billing_pending_tasks
-          SET status = 'FAILED', settled_at = ?, refund_id = ?, refunded_at = ?
+          SET status = 'STALE', settled_at = ?, refund_id = NULL, refunded_at = NULL
           WHERE task_id = ? AND settled_at IS NULL
         `,
         [
           nowDb,
-          refund?.refundId || null,
-          refund?.account?.updatedAt ? toDbDateTime(refund.account.updatedAt) : null,
           task.task_id,
         ],
       );
