@@ -600,9 +600,6 @@ const validateResolvedRouteConfig = (payload) => {
   }
 
   if (transport === "gemini-native") {
-    if (mode !== "sync") {
-      throw new Error("Gemini native routes currently support sync mode only");
-    }
     if (!hasModelPlaceholder) {
       throw new Error("Gemini native routes must include {model} in generatePath");
     }
