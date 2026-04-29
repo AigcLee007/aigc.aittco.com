@@ -125,6 +125,8 @@ const logger = winston.createLogger({
 const app = express();
 const PORT = Number.parseInt(String(process.env.PORT || "3355"), 10);
 const UPSTREAM_URL = "https://api.bltcy.ai";
+const TRUST_PROXY_HOPS = Number.parseInt(String(process.env.TRUST_PROXY_HOPS || "1"), 10);
+app.set("trust proxy", Number.isFinite(TRUST_PROXY_HOPS) && TRUST_PROXY_HOPS > 0 ? TRUST_PROXY_HOPS : 1);
 
 // Default upstream kept for balance, video, and prompt helper endpoints.
 const SHARED_HTTPS_AGENT = new https.Agent({
