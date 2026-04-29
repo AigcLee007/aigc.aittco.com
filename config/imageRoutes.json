@@ -110,7 +110,21 @@
       "useRequestModel": true,
       "allowUserApiKeyWithoutLogin": true,
       "apiKeyEnv": "IMAGE_ROUTE_GPT_IMAGE_2_KEY",
-      "pointCost": 1
+      "pointCost": 1,
+      "sizeOverrides": {
+        "1k": {
+          "upstreamModel": "gpt-image-2-all",
+          "pointCost": 1
+        },
+        "2k": {
+          "upstreamModel": "gpt-image-2",
+          "pointCost": 2
+        },
+        "4k": {
+          "upstreamModel": "gpt-image-2",
+          "pointCost": 4
+        }
+      }
     }
   ]
 }

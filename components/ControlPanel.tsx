@@ -932,7 +932,9 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
       effectiveRatio = normalizeLine2Ratio(effectiveRatio);
     }
 
-    const isGptImage2Model = imageModel === 'gpt-image-2' || modelName === 'gpt-image-2';
+    const isGptImage2RequestModel = (model: string) =>
+      model === 'gpt-image-2' || model === 'gpt-image-2-all';
+    const isGptImage2Model = imageModel === 'gpt-image-2' || isGptImage2RequestModel(modelName);
     const promptWithoutAr = parsedPrompt.replace(/\s*--ar\s*\d+\s*[:：]\s*\d+/gi, '').trim();
     const promptWithRatio = `${promptWithoutAr} --ar ${effectiveRatio}`;
     const currentPrompt = isGptImage2Model ? promptWithoutAr : promptWithRatio;
@@ -959,10 +961,11 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
 
     const getGptImagePayload = (basePrompt: string, n = 1) => {
       const payload: any = {
-        model: 'gpt-image-2',
+        model: modelName,
         modelId: selectedImageModelConfig.id,
         prompt: basePrompt,
         size: calculateGptImageSize(imageSize, effectiveRatio),
+        image_size: imageSize,
         quality: gptImageQuality,
         output_format: gptImageOutputFormat,
         moderation: gptImageModeration,

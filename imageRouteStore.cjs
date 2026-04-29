@@ -130,6 +130,14 @@ const buildStaticRows = () =>
     ? staticCatalog.routes.map((route, index) => normalizeStaticRoute(route, index))
     : [];
 
+const getStaticRouteDefaults = (routeId) =>
+  buildStaticRows().find((row) => trimToString(row.route_id) === trimToString(routeId)) || null;
+
+const getMergedSizeOverrides = (row) => ({
+  ...normalizeSizeOverrides(getStaticRouteDefaults(row.route_id)?.size_overrides),
+  ...normalizeSizeOverrides(row.size_overrides),
+});
+
 const mapRowToRoute = (row, { includeSecrets = false } = {}) => ({
   id: trimToString(row.route_id),
   label: trimToString(row.label || row.route_id),
@@ -148,7 +156,7 @@ const mapRowToRoute = (row, { includeSecrets = false } = {}) => ({
   allowUserApiKeyWithoutLogin: parseBoolean(row.allow_user_api_key_without_login, false),
   apiKeyEnv: trimToString(row.api_key_env || ""),
   pointCost: parsePoint(row.point_cost, 0),
-  sizeOverrides: normalizeSizeOverrides(row.size_overrides),
+  sizeOverrides: getMergedSizeOverrides(row),
   sortOrder: parseInteger(row.sort_order, 0),
   isActive: parseBoolean(row.is_active, true),
   isDefaultRoute: parseBoolean(row.is_default_route, false),

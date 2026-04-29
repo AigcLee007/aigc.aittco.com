@@ -45,47 +45,47 @@ const MobileView: React.FC<MobileViewProps> = ({
       className="relative w-full h-full bg-neutral-900 overflow-y-auto pb-28 flex flex-col"
       style={{ minHeight: '100dvh' }}
     >
-      <div className="shrink-0 sticky top-0 z-20 bg-neutral-900/95 backdrop-blur-md border-b border-white/10 px-4 py-3 flex items-center justify-between shadow-lg">
-        <div className="flex items-center gap-2 min-w-0">
-          <img src={logo} alt="Nano Banana Pro" className="w-5 h-5 opacity-90" />
-          <h1 className="text-lg font-bold text-white tracking-tight truncate">
+      <div className="shrink-0 sticky top-0 z-20 bg-neutral-900/95 backdrop-blur-md border-b border-white/10 px-3 py-2.5 flex items-center gap-2 shadow-lg">
+        <div className="flex flex-1 items-center gap-2 min-w-0">
+          <img src={logo} alt="Nano Banana Pro" className="w-5 h-5 opacity-90 shrink-0" />
+          <h1 className="text-base font-bold text-white tracking-tight truncate max-w-[112px] min-[390px]:max-w-[150px]">
             <span className="bg-gradient-to-r from-yellow-400 to-orange-500 bg-clip-text text-transparent">
               Nano Banana Pro
             </span>
           </h1>
-          <div className="bg-white/10 rounded-full px-2 py-0.5 text-[11px] text-white font-medium">
+          <div className="hidden min-[390px]:inline-flex bg-white/10 rounded-full px-2 py-0.5 text-[11px] text-white font-medium shrink-0">
             {nodes.length} 作品
           </div>
         </div>
 
-        <div className="flex items-center gap-1 ml-2 shrink-0">
+        <div className="grid grid-cols-4 gap-1 shrink-0">
           <button
             onClick={onOpenHistory}
-            className="w-9 h-9 rounded-xl bg-white/5 border border-white/10 text-gray-200 flex items-center justify-center active:scale-95"
+            className="w-8 h-8 rounded-lg bg-white/5 border border-white/10 text-gray-200 flex items-center justify-center active:scale-95"
             title="历史记录"
           >
-            <History size={16} />
+            <History size={15} />
           </button>
           <button
             onClick={onOpenSettings}
-            className="w-9 h-9 rounded-xl bg-white/5 border border-white/10 text-gray-200 flex items-center justify-center active:scale-95"
+            className="w-8 h-8 rounded-lg bg-white/5 border border-white/10 text-gray-200 flex items-center justify-center active:scale-95"
             title="设置"
           >
-            <Settings size={16} />
+            <Settings size={15} />
           </button>
           <button
             onClick={onOpenClassicMode}
-            className="w-9 h-9 rounded-xl bg-white/5 border border-white/10 text-gray-200 flex items-center justify-center active:scale-95"
+            className="w-8 h-8 rounded-lg bg-white/5 border border-white/10 text-gray-200 flex items-center justify-center active:scale-95"
             title="经典版"
           >
-            <Layers size={16} />
+            <Layers size={15} />
           </button>
           <button
             onClick={onOpenCanvas}
-            className="w-9 h-9 rounded-xl bg-white/5 border border-white/10 text-gray-200 flex items-center justify-center active:scale-95"
+            className="w-8 h-8 rounded-lg bg-white/5 border border-white/10 text-gray-200 flex items-center justify-center active:scale-95"
             title="查看画布"
           >
-            <MapIcon size={16} />
+            <MapIcon size={15} />
           </button>
         </div>
       </div>

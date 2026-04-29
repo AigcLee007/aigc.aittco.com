@@ -33,16 +33,35 @@ import { useFileDrop } from "./src/hooks/useFileDrop";
 import { useGlobalPolling } from "./src/hooks/useGlobalPolling";
 
 const App: React.FC = () => {
+  const currentPath =
+    typeof window !== "undefined" ? window.location.pathname : "/";
+  const preferredCreateUi =
+    typeof window !== "undefined"
+      ? window.localStorage.getItem("preferred-create-ui")
+      : null;
+  const isInitialMobileViewport =
+    typeof window !== "undefined" &&
+    (window.innerWidth < 640 ||
+      window.matchMedia?.("(max-width: 639px)")?.matches === true);
   const classicModePreferred =
     typeof window !== "undefined" &&
-    window.location.pathname === "/" &&
-    window.localStorage.getItem("preferred-create-ui") === "classic";
+    currentPath === "/" &&
+    preferredCreateUi === "classic";
   const isAdminRoute =
     typeof window !== "undefined" &&
-    window.location.pathname.startsWith("/admin");
+    currentPath.startsWith("/admin");
   const isBillingRoute =
     typeof window !== "undefined" &&
-    window.location.pathname.startsWith("/billing");
+    currentPath.startsWith("/billing");
+  const isClassicCreateRoute =
+    typeof window !== "undefined" && currentPath.startsWith("/create/classic");
+  const mobileShouldDefaultToClassic =
+    typeof window !== "undefined" &&
+    isInitialMobileViewport &&
+    !isAdminRoute &&
+    !isBillingRoute &&
+    !isClassicCreateRoute &&
+    (currentPath === "/" || preferredCreateUi !== "canvas");
 
   if (isAdminRoute) {
     return <AdminDashboardPage />;
@@ -52,7 +71,7 @@ const App: React.FC = () => {
     return <BillingCenterPage />;
   }
 
-  if (classicModePreferred) {
+  if (classicModePreferred || mobileShouldDefaultToClassic) {
     window.location.replace("/create/classic");
     return null;
   }
@@ -306,7 +325,8 @@ const App: React.FC = () => {
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    if (!window.location.pathname.startsWith("/create/classic")) {
+    const isMobileViewport = window.innerWidth < 640;
+    if (!isMobileViewport && !window.location.pathname.startsWith("/create/classic")) {
       window.localStorage.setItem("preferred-create-ui", "canvas");
     }
   }, []);

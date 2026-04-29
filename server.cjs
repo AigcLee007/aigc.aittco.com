@@ -208,11 +208,25 @@ const toPublicImageRouteSizeOverrides = (overrides) => {
 
   return Object.entries(overrides).reduce((accumulator, [rawKey, rawValue]) => {
     const key = String(rawKey || "").trim().toLowerCase();
-    const pointCost = toPointNumber(rawValue?.pointCost ?? "", 0);
-    if (!["1k", "2k", "4k"].includes(key) || !Number.isFinite(pointCost) || pointCost < 0) {
+    const upstreamModel = String(rawValue?.upstreamModel || "").trim();
+    const hasPointCost =
+      rawValue?.pointCost !== undefined &&
+      rawValue?.pointCost !== null &&
+      rawValue?.pointCost !== "";
+    const pointCost = hasPointCost ? toPointNumber(rawValue.pointCost, 0) : null;
+    if (!["1k", "2k", "4k"].includes(key)) {
       return accumulator;
     }
-    accumulator[key] = { pointCost };
+    const entry = {};
+    if (upstreamModel) {
+      entry.upstreamModel = upstreamModel;
+    }
+    if (hasPointCost && Number.isFinite(pointCost) && pointCost >= 0) {
+      entry.pointCost = pointCost;
+    }
+    if (entry.upstreamModel || Number.isFinite(entry.pointCost)) {
+      accumulator[key] = entry;
+    }
     return accumulator;
   }, {});
 };
@@ -2871,6 +2885,10 @@ const GPT_IMAGE2_MAX_EDGE = 3840;
 const GPT_IMAGE2_MAX_ASPECT_RATIO = 3;
 const GPT_IMAGE2_MIN_PIXELS = 655360;
 const GPT_IMAGE2_MAX_PIXELS = 8294400;
+const GPT_IMAGE2_REQUEST_MODELS = new Set(["gpt-image-2", "gpt-image-2-all"]);
+
+const isGptImage2RequestModel = (model = "") =>
+  GPT_IMAGE2_REQUEST_MODELS.has(String(model || "").trim());
 
 const roundGptImage2ToMultiple = (value, multiple = GPT_IMAGE2_SIZE_MULTIPLE) =>
   Math.max(multiple, Math.round(Number(value || 0) / multiple) * multiple);
@@ -3249,7 +3267,7 @@ app.post("/api/generate", generateLimiter, async (req, res) => {
       }
     }
 
-    if (requestBody.model === "gpt-image-2") {
+    if (isGptImage2RequestModel(requestBody.model)) {
       const gptImage2Size = requestBody.size || requestBody.image_size;
       if (gptImage2Size) {
         requestBody.size = normalizeGptImage2RequestSize(
@@ -3303,9 +3321,9 @@ app.post("/api/generate", generateLimiter, async (req, res) => {
         messages: [{ role: "user", content: requestBody.prompt }],
         stream: false,
       };
-    } else if (requestBody.model === "gpt-image-2") {
+    } else if (isGptImage2RequestModel(requestBody.model)) {
       finalRequestBody = {
-        model: "gpt-image-2",
+        model: requestBody.model,
         prompt: requestBody.prompt,
         size: requestBody.size || "auto",
         quality: requestBody.quality || "auto",
@@ -3915,7 +3933,7 @@ app.post("/api/edit", generateLimiter, async (req, res) => {
       requestedImageModel?.requestModel || requestBody.model,
     );
 
-    if (requestBody.model === "gpt-image-2") {
+    if (isGptImage2RequestModel(requestBody.model)) {
       const gptImage2Size = requestBody.size || requestBody.image_size;
       if (gptImage2Size) {
         requestBody.size = normalizeGptImage2RequestSize(
@@ -3976,7 +3994,7 @@ app.post("/api/edit", generateLimiter, async (req, res) => {
     formData.append("model", requestBody.model);
     formData.append("prompt", requestBody.prompt);
 
-    const isGptImage2Edit = requestBody.model === "gpt-image-2";
+    const isGptImage2Edit = isGptImage2RequestModel(requestBody.model);
     if (isGptImage2Edit) {
       if (requestBody.size) formData.append("size", requestBody.size);
       if (requestBody.quality) formData.append("quality", requestBody.quality);

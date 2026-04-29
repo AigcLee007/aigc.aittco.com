@@ -554,12 +554,21 @@
 
     Object.entries(overrides).forEach(([rawKey, rawValue]) => {
       const key = normalizeSizeKey(rawKey);
+      const upstreamModel = String(rawValue?.upstreamModel || "").trim();
       const parsedPointCost = Number.parseFloat(String(rawValue?.pointCost ?? ""));
-      if (!key || !Number.isFinite(parsedPointCost) || parsedPointCost < 0) {
+      if (!key) {
         return;
       }
-      const pointCost = toPointNumber(parsedPointCost, 0);
-      next[key] = { pointCost };
+      const entry = {};
+      if (upstreamModel) {
+        entry.upstreamModel = upstreamModel;
+      }
+      if (Number.isFinite(parsedPointCost) && parsedPointCost >= 0) {
+        entry.pointCost = toPointNumber(parsedPointCost, 0);
+      }
+      if (entry.upstreamModel || Number.isFinite(entry.pointCost)) {
+        next[key] = entry;
+      }
     });
 
     return next;
@@ -693,6 +702,17 @@
     }
     return toPointNumber(route?.pointCost || 0, 0);
   };
+  const getRouteSizeOverride = (route, size) => {
+    const normalizedSize = normalizeSizeKey(size);
+    if (!normalizedSize) return null;
+    return route?.sizeOverrides?.[normalizedSize] || null;
+  };
+  const getClassicRequestModelForSize = (selectedModel, selectedRoute, size) => {
+    const sizeOverride = getRouteSizeOverride(selectedRoute, size);
+    if (sizeOverride?.upstreamModel) return sizeOverride.upstreamModel;
+    if (selectedRoute?.upstreamModel) return selectedRoute.upstreamModel;
+    return selectedModel?.requestModel || selectedModel?.id || "";
+  };
   const getDisplayRouteForModel = (modelId, preferredLine = "") => {
     const routes = getRoutesForModel(modelId).filter((route) =>
       isApiKeyCompatibilityMode() ? route.allowUserApiKeyWithoutLogin === true : true,
@@ -709,7 +729,11 @@
   const isGptImage2Model = (model, requestModel = "") => {
     const modelId = String(model?.id || "").trim();
     const resolvedRequestModel = String(requestModel || model?.requestModel || "").trim();
-    return modelId === "gpt-image-2" || resolvedRequestModel === "gpt-image-2";
+    return (
+      modelId === "gpt-image-2" ||
+      resolvedRequestModel === "gpt-image-2" ||
+      resolvedRequestModel === "gpt-image-2-all"
+    );
   };
   const isGeminiNativeSyncRoute = (route) =>
     String(route?.transport || "").trim() === "gemini-native" &&
@@ -840,6 +864,7 @@
   const buildClassicGptPayload = ({
     selectedModel,
     selectedRoute,
+    requestModel,
     prompt,
     size,
     ratio,
@@ -847,12 +872,13 @@
   }) => {
     const gptSettings = getClassicGptSettings();
     const payload = {
-      model: "gpt-image-2",
+      model: requestModel || getClassicRequestModelForSize(selectedModel, selectedRoute, size),
       modelId: selectedModel.id,
       routeId: selectedRoute.id,
       uiMode: "classic",
       prompt,
       size: calculateClassicGptImageSize(size, ratio),
+      image_size: size,
       quality: gptSettings.quality,
       output_format: gptSettings.outputFormat,
       moderation: gptSettings.moderation,
@@ -2692,7 +2718,7 @@
       }
     }
 
-    const requestModel = selectedModel.requestModel || selectedModel.id;
+    const requestModel = getClassicRequestModelForSize(selectedModel, selectedRoute, size);
     const normalizedRequestSize = String(size || "1K").trim().toLowerCase();
     const promptWithoutAr = stripAspectRatioSuffix(promptBaseText);
     const gptImage2Model = isGptImage2Model(selectedModel, requestModel);
@@ -2795,6 +2821,7 @@
           const payload = buildClassicGptPayload({
             selectedModel,
             selectedRoute,
+            requestModel,
             prompt: currentPrompt,
             size,
             ratio,

@@ -81,7 +81,18 @@ let classicPricingCatalog = {
       },
     },
     { id: "openai-image-default", label: "Default Route", modelFamily: "default", line: "default", pointCost: 12 },
-    { id: "gpt-image-2-default", label: "Default Route", modelFamily: "gpt-image-2", line: "default", pointCost: 1 },
+    {
+      id: "gpt-image-2-default",
+      label: "Default Route",
+      modelFamily: "gpt-image-2",
+      line: "default",
+      pointCost: 1,
+      sizeOverrides: {
+        "1k": { upstreamModel: "gpt-image-2-all", pointCost: 1 },
+        "2k": { upstreamModel: "gpt-image-2", pointCost: 2 },
+        "4k": { upstreamModel: "gpt-image-2", pointCost: 4 },
+      },
+    },
   ],
 };
 

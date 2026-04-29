@@ -36,6 +36,11 @@ import {
   getImageModelExtraAspectRatios,
   getImageModelRequestName,
 } from '../src/config/imageModels';
+import {
+  getImageModelNameForRoute,
+  getImageRouteById,
+  getImageRoutePointCost,
+} from '../src/config/imageRoutes';
 import { formatPoint } from '../src/utils/pointFormat';
 
 type MaskMode = 'transparent' | 'binary';
@@ -263,6 +268,7 @@ const ImageEditPanel: React.FC<ImageEditPanelProps> = ({
     routeCapabilities.find((item) => item.routeId === selectedRouteId) ||
     routeCapabilities[0] ||
     null;
+  const currentRoute = currentCapability ? getImageRouteById(currentCapability.routeId) : null;
 
   const hasMask =
     selectedNode?.type === 'IMAGE' &&
@@ -378,8 +384,10 @@ const ImageEditPanel: React.FC<ImageEditPanelProps> = ({
     return promptText ? `${getEditTypeLabel(editType)}：${promptText}` : getEditTypeLabel(editType);
   }, [editPrompt, editType]);
 
+  const unitPointCost =
+    currentRoute && currentModel ? getImageRoutePointCost(currentRoute, selectedSize) : 0;
   const pointCost = currentCapability
-    ? currentCapability.pointCost *
+    ? unitPointCost *
       Math.max(1, Number.isFinite(selectedQuantity) ? selectedQuantity : 1)
     : 0;
   const hasEditableModelOptions = editableModels.length > 0;
@@ -532,7 +540,13 @@ const ImageEditPanel: React.FC<ImageEditPanelProps> = ({
       const payload = {
         modelId: currentModel.id,
         routeId: currentCapability.routeId,
-        model: getImageModelRequestName(currentModel.id),
+        model: currentRoute
+          ? getImageModelNameForRoute({
+              imageModel: currentModel.id,
+              imageLine: currentRoute.line,
+              imageSize: selectedSize,
+            })
+          : getImageModelRequestName(currentModel.id),
         prompt: promptText,
         image: punchedBase64,
         mask: maskBase64,
@@ -715,7 +729,7 @@ const ImageEditPanel: React.FC<ImageEditPanelProps> = ({
                   {currentCapability.routeMode === 'sync' ? '同步返图' : '异步任务'}
                 </span>
                 <span className="rounded-full border border-white/10 bg-white/5 px-2 py-1 text-gray-300">
-                  默认 {currentCapability.pointCostText} 点 / 张
+                  默认 {formatPoint(unitPointCost || currentCapability.pointCost)} 点 / 张
                 </span>
               </div>
             </div>
