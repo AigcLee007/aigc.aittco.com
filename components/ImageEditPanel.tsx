@@ -749,7 +749,7 @@ const ImageEditPanel: React.FC<ImageEditPanelProps> = ({
               <DropUpSelect
                 value={String(selectedQuantity)}
                 onChange={(value) => setSelectedQuantity(Number(value))}
-                options={['1', '2', '4'].map((value) => ({
+                options={['1', '2', '4', '8', '16'].map((value) => ({
                   value,
                   label: value,
                 }))}

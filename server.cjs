@@ -588,6 +588,13 @@ const mergeAdminRouteRuntimeStats = (catalog, stats = []) => {
       requestsLast24h: 0,
       successfulLast24h: 0,
       failedLast24h: 0,
+      requestsLast30m: 0,
+      successfulLast30m: 0,
+      failedLast30m: 0,
+      grossChargePointsLast30m: 0,
+      refundedPointsLast30m: 0,
+      netSpentPointsLast30m: 0,
+      successRateLast30m: 0,
       successRate: 0,
       successRateLast24h: 0,
       lastChargeAt: null,
@@ -620,6 +627,13 @@ const mergeAdminRouteRuntimeStats = (catalog, stats = []) => {
       requestsLast24h: 0,
       successfulLast24h: 0,
       failedLast24h: 0,
+      requestsLast30m: 0,
+      successfulLast30m: 0,
+      failedLast30m: 0,
+      grossChargePointsLast30m: 0,
+      refundedPointsLast30m: 0,
+      netSpentPointsLast30m: 0,
+      successRateLast30m: 0,
       successRate: 0,
       successRateLast24h: 0,
       lastChargeAt: null,
@@ -680,6 +694,13 @@ const mergeAdminModelRuntimeStats = (catalog, stats = []) => {
       requestsLast24h: 0,
       successfulLast24h: 0,
       failedLast24h: 0,
+      requestsLast30m: 0,
+      successfulLast30m: 0,
+      failedLast30m: 0,
+      grossChargePointsLast30m: 0,
+      refundedPointsLast30m: 0,
+      netSpentPointsLast30m: 0,
+      successRateLast30m: 0,
       successRate: 0,
       successRateLast24h: 0,
       lastChargeAt: null,
@@ -713,6 +734,13 @@ const mergeAdminModelRuntimeStats = (catalog, stats = []) => {
       requestsLast24h: 0,
       successfulLast24h: 0,
       failedLast24h: 0,
+      requestsLast30m: 0,
+      successfulLast30m: 0,
+      failedLast30m: 0,
+      grossChargePointsLast30m: 0,
+      refundedPointsLast30m: 0,
+      netSpentPointsLast30m: 0,
+      successRateLast30m: 0,
       successRate: 0,
       successRateLast24h: 0,
       lastChargeAt: null,
@@ -2221,11 +2249,12 @@ app.post("/api/admin/redeem-codes", async (req, res) => {
 
 app.get("/api/admin/users", async (req, res) => {
   try {
-    await requireAdminAccess(req, EMERGENCY_ADMIN_API_KEYS);
+    const actor = await requireAdminAccess(req, EMERGENCY_ADMIN_API_KEYS);
     const result = await listAdminUsers({
       search: String(req.query?.search || "").trim(),
       page: parsePositivePage(req.query?.page, 1),
       pageSize: parsePositivePage(req.query?.pageSize, 20),
+      includeAdminNote: actor?.isSuperAdmin === true,
     });
     res.json(await buildAdminUserListPayload(result));
   } catch (error) {
@@ -2237,9 +2266,9 @@ app.get("/api/admin/users", async (req, res) => {
 
 app.get("/api/admin/users/:userId", async (req, res) => {
   try {
-    await requireAdminAccess(req, EMERGENCY_ADMIN_API_KEYS);
+    const actor = await requireAdminAccess(req, EMERGENCY_ADMIN_API_KEYS);
     const userId = String(req.params.userId || "").trim();
-    const user = await getAdminUserById(userId);
+    const user = await getAdminUserById(userId, { includeAdminNote: actor?.isSuperAdmin === true });
     if (!user) {
       return res.status(404).json({ error: "User does not exist" });
     }
@@ -2264,6 +2293,7 @@ app.patch("/api/admin/users/:userId", async (req, res) => {
       displayName: req.body?.displayName,
       role: req.body?.role,
       status: req.body?.status,
+      adminNote: req.body?.adminNote,
     });
     res.json(
       await buildAdminUserDetailPayload(user, {

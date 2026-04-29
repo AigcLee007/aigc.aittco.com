@@ -17,6 +17,7 @@ const API_BASE_URL =
 const cleanUrl = (url: string) => url.replace(/\/$/, '');
 
 export interface AdminManagedUser extends AuthUserProfile {
+  adminNote?: string;
   account: BillingAccountProfile | null;
 }
 
@@ -31,7 +32,7 @@ export interface AdminUserListPayload {
 
 export interface AdminUserDetailPayload {
   success: boolean;
-  user: AuthUserProfile;
+  user: AuthUserProfile & { adminNote?: string };
   account: BillingAccountProfile | null;
   ledger: BillingLedgerPayload;
   pricing: BillingRoutePricing[];
@@ -106,6 +107,7 @@ export const updateAdminUserProfile = async ({
   displayName,
   role,
   status,
+  adminNote,
   ledgerPage = 1,
   ledgerPageSize = 20,
 }: {
@@ -113,6 +115,7 @@ export const updateAdminUserProfile = async ({
   displayName?: string;
   role?: AuthUserProfile['role'];
   status?: AuthUserProfile['status'];
+  adminNote?: string;
   ledgerPage?: number;
   ledgerPageSize?: number;
 }): Promise<AdminUserDetailPayload> => {
@@ -132,6 +135,7 @@ export const updateAdminUserProfile = async ({
         displayName,
         role,
         status,
+        adminNote,
       }),
     },
   );

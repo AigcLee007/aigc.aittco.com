@@ -123,9 +123,9 @@ const resolveStoredRole = (row = {}) => {
   return shouldAutoPromoteEmail(row.email) ? "admin" : storedRole;
 };
 
-const toPublicUser = (user) => {
+const toPublicUser = (user, { includeAdminNote = false } = {}) => {
   const role = getEffectiveRole(user);
-  return {
+  const publicUser = {
     userId: user.user_id || user.userId,
     email: normalizeEmail(user.email),
     displayName:
@@ -140,6 +140,10 @@ const toPublicUser = (user) => {
     updatedAt: fromDbDateTime(user.updated_at || user.updatedAt),
     lastLoginAt: fromDbDateTime(user.last_login_at || user.lastLoginAt),
   };
+  if (includeAdminNote) {
+    publicUser.adminNote = String(user.admin_note || user.adminNote || "").trim();
+  }
+  return publicUser;
 };
 
 const createSession = (userId) => {
@@ -171,6 +175,7 @@ const ensureAuthSchema = async () => {
           user_id VARCHAR(32) PRIMARY KEY,
           email VARCHAR(255) NOT NULL UNIQUE,
           display_name VARCHAR(120) NULL,
+          admin_note TEXT NULL,
           password_hash VARCHAR(255) NULL,
           role VARCHAR(24) NOT NULL DEFAULT 'user',
           status VARCHAR(24) NOT NULL DEFAULT 'active',
@@ -183,6 +188,7 @@ const ensureAuthSchema = async () => {
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
       `);
       await ensureColumn("ALTER TABLE auth_users ADD COLUMN display_name VARCHAR(120) NULL");
+      await ensureColumn("ALTER TABLE auth_users ADD COLUMN admin_note TEXT NULL");
       await ensureColumn("ALTER TABLE auth_users ADD COLUMN password_hash VARCHAR(255) NULL");
       await ensureColumn("ALTER TABLE auth_users ADD COLUMN role VARCHAR(24) NOT NULL DEFAULT 'user'");
       await ensureColumn("ALTER TABLE auth_users ADD COLUMN status VARCHAR(24) NOT NULL DEFAULT 'active'");
@@ -940,7 +946,7 @@ const normalizePagination = ({ page = 1, pageSize = 20 } = {}) => {
   };
 };
 
-const listAdminUsers = async ({ search = "", page = 1, pageSize = 20 } = {}) => {
+const listAdminUsers = async ({ search = "", page = 1, pageSize = 20, includeAdminNote = false } = {}) => {
   await ensureAuthSchema();
   await cleanupExpiredAuthArtifacts();
 
@@ -980,7 +986,7 @@ const listAdminUsers = async ({ search = "", page = 1, pageSize = 20 } = {}) => 
     page: safePage,
     pageSize: safePageSize,
     totalPages: Math.max(1, Math.ceil(total / safePageSize)),
-    users: rows.map((row) => toPublicUser(row)),
+    users: rows.map((row) => toPublicUser(row, { includeAdminNote })),
   };
 };
 
@@ -1088,13 +1094,13 @@ const getAdminAuthOverview = async ({
   };
 };
 
-const getAdminUserById = async (userId) => {
+const getAdminUserById = async (userId, { includeAdminNote = false } = {}) => {
   await ensureAuthSchema();
   const targetUserId = String(userId || "").trim();
   if (!targetUserId) return null;
   const rows = await query("SELECT * FROM auth_users WHERE user_id = ? LIMIT 1", [targetUserId]);
   if (!rows?.[0]) return null;
-  return toPublicUser(rows[0]);
+  return toPublicUser(rows[0], { includeAdminNote });
 };
 
 const updateAdminUser = async (actor, userId, changes = {}) => {
@@ -1131,6 +1137,10 @@ const updateAdminUser = async (actor, userId, changes = {}) => {
       Object.prototype.hasOwnProperty.call(changes, "status")
         ? normalizeStatus(changes.status, normalizeStatus(existing.status, "active"))
         : normalizeStatus(existing.status, "active");
+    const nextAdminNote =
+      Object.prototype.hasOwnProperty.call(changes, "adminNote")
+        ? String(changes.adminNote || "").trim().slice(0, 2000)
+        : String(existing.admin_note || "").trim();
 
     if (!["user", "admin", "super_admin"].includes(nextRole)) {
       throw new AuthError("INVALID_USER_ROLE", "Unsupported user role");
@@ -1174,10 +1184,10 @@ const updateAdminUser = async (actor, userId, changes = {}) => {
     await connection.execute(
       `
         UPDATE auth_users
-        SET display_name = ?, role = ?, status = ?, updated_at = ?
+        SET display_name = ?, role = ?, status = ?, admin_note = ?, updated_at = ?
         WHERE user_id = ?
       `,
-      [nextDisplayName, nextRole, nextStatus, nowDb, targetUserId],
+      [nextDisplayName, nextRole, nextStatus, nextAdminNote || null, nowDb, targetUserId],
     );
 
     if (nextStatus !== "active") {
@@ -1189,8 +1199,9 @@ const updateAdminUser = async (actor, userId, changes = {}) => {
       display_name: nextDisplayName,
       role: nextRole,
       status: nextStatus,
+      admin_note: nextAdminNote,
       updated_at: nowDb,
-    });
+    }, { includeAdminNote: true });
   });
 };
 

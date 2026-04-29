@@ -287,7 +287,9 @@ export const useSelectionStore = create<SelectionStore>()(
       setCustomRatio: (val) => set(state => { state.customRatio = val; }),
       setImageSize: (val) => set(state => { state.imageSize = val; }),
       setThinkingLevel: (val) => set(state => { state.thinkingLevel = val; }),
-      setQuantity: (val) => set(state => { state.quantity = val; }),
+      setQuantity: (val) => set(state => {
+        state.quantity = [1, 2, 4, 8, 16].includes(Number(val)) ? Number(val) : 1;
+      }),
       setVideoAspectRatio: (val) => set(state => { state.videoAspectRatio = val; }),
       setVideoDuration: (val) => set(state => { state.videoDuration = val; }),
       setVideoHd: (val) => set(state => { state.videoHd = val; }),

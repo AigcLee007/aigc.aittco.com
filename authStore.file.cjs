@@ -58,6 +58,7 @@ const normalizeUser = (user = {}, emailFallback = "") => {
     userId: String(user.userId || buildUserId()).trim(),
     email,
     displayName: normalizeDisplayName(user.displayName) || toDisplayNameFallback(email),
+    adminNote: String(user.adminNote || "").trim(),
     passwordHash: String(user.passwordHash || "").trim() || null,
     role,
     status: normalizeStatus(user.status, "active"),
@@ -160,9 +161,9 @@ const withStore = (mutator) => {
   return result;
 };
 
-const toPublicUser = (user) => {
+const toPublicUser = (user, { includeAdminNote = false } = {}) => {
   const role = getEffectiveRole(user);
-  return {
+  const publicUser = {
     userId: user.userId,
     email: normalizeEmail(user.email),
     displayName:
@@ -176,6 +177,10 @@ const toPublicUser = (user) => {
     updatedAt: user.updatedAt,
     lastLoginAt: user.lastLoginAt || null,
   };
+  if (includeAdminNote) {
+    publicUser.adminNote = String(user.adminNote || "").trim();
+  }
+  return publicUser;
 };
 
 const createSession = (userId) => {
@@ -753,14 +758,14 @@ const requireAdminAccess = (req, fallbackApiKeys = []) => {
   throw new AuthError("ADMIN_REQUIRED", "Administrator access is required");
 };
 
-const listAdminUsers = ({ search = "", page = 1, pageSize = 20 } = {}) => {
+const listAdminUsers = ({ search = "", page = 1, pageSize = 20, includeAdminNote = false } = {}) => {
   const trimmedSearch = String(search || "").trim().toLowerCase();
   const safePage = Math.max(1, Number.parseInt(String(page || 1), 10) || 1);
   const safePageSize = Math.min(100, Math.max(1, Number.parseInt(String(pageSize || 20), 10) || 20));
 
   const store = readStore();
   const users = Object.values(store.users)
-    .map((user) => toPublicUser(user))
+    .map((user) => toPublicUser(user, { includeAdminNote }))
     .filter((user) => {
       if (!trimmedSearch) return true;
       return [user.email, user.displayName, user.userId]
@@ -873,12 +878,12 @@ const getAdminAuthOverview = ({
   };
 };
 
-const getAdminUserById = (userId) => {
+const getAdminUserById = (userId, { includeAdminNote = false } = {}) => {
   const targetUserId = String(userId || "").trim();
   if (!targetUserId) return null;
   const store = readStore();
   const user = store.users[targetUserId];
-  return user ? toPublicUser(user) : null;
+  return user ? toPublicUser(user, { includeAdminNote }) : null;
 };
 
 const updateAdminUser = (actor, userId, changes = {}) => {
@@ -909,6 +914,10 @@ const updateAdminUser = (actor, userId, changes = {}) => {
       Object.prototype.hasOwnProperty.call(changes, "status")
         ? normalizeStatus(changes.status, normalizeStatus(user.status, "active"))
         : normalizeStatus(user.status, "active");
+    const nextAdminNote =
+      Object.prototype.hasOwnProperty.call(changes, "adminNote")
+        ? String(changes.adminNote || "").trim().slice(0, 2000)
+        : String(user.adminNote || "").trim();
 
     const targetWasSuperAdmin = normalizeRole(user.role, "user") === "super_admin";
     const targetWillRemainSuperAdmin = nextRole === "super_admin" && nextStatus === "active";
@@ -939,6 +948,7 @@ const updateAdminUser = (actor, userId, changes = {}) => {
     user.displayName = nextDisplayName;
     user.role = nextRole;
     user.status = nextStatus;
+    user.adminNote = nextAdminNote;
     user.updatedAt = new Date().toISOString();
 
     if (nextStatus !== "active") {
@@ -949,7 +959,7 @@ const updateAdminUser = (actor, userId, changes = {}) => {
       });
     }
 
-    return toPublicUser(user);
+    return toPublicUser(user, { includeAdminNote: true });
   });
 };
 

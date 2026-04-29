@@ -1880,6 +1880,18 @@ select option {
   background: linear-gradient(135deg, rgba(0, 0, 0, 0.26), rgba(255, 255, 255, 0.025));
 }
 
+.classic-live-selected-info {
+  flex: 0 0 auto;
+  display: block;
+  padding: 12px 14px 14px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 214, 10, 0.16);
+  background:
+    linear-gradient(135deg, rgba(255, 214, 10, 0.06), rgba(77, 190, 255, 0.035)),
+    rgba(7, 10, 16, 0.82);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.025);
+}
+
 .classic-live-info-head {
   display: flex;
   align-items: center;

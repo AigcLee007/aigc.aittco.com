@@ -344,6 +344,48 @@ function getClassicLiveTaskDetails(task = {}) {
   };
 }
 
+function buildClassicLiveInfoHtml(task = {}) {
+  const details = getClassicLiveTaskDetails(task);
+  const paramText = [
+    details.ratio ? `比例 ${details.ratio}` : "",
+    details.size ? `尺寸 ${details.size}` : "",
+    details.quantityText ? `数量 ${details.quantityText}` : "",
+    details.referenceCount > 0 ? `参考图 ${details.referenceCount}` : "参考图 0",
+  ]
+    .filter(Boolean)
+    .join(" / ");
+  return `
+    <div class="classic-live-info-head">
+      <span>图像信息</span>
+      <b>${escapeHtml(details.timeText)}</b>
+    </div>
+    <div class="classic-live-info-body">
+      <div class="classic-live-prompt-row">
+        <span>提示词</span>
+        <p>${escapeHtml(details.prompt)}</p>
+      </div>
+      <div class="classic-live-detail-grid">
+        <div>
+          <span>模型</span>
+          <b>${escapeHtml(details.modelLabel || "未记录")}</b>
+        </div>
+        <div>
+          <span>线路</span>
+          <b>${escapeHtml(details.routeLabel || "未记录")}</b>
+        </div>
+        <div>
+          <span>参数</span>
+          <b>${escapeHtml(paramText || "当前配置")}</b>
+        </div>
+        <div>
+          <span>生成时间</span>
+          <b>${escapeHtml(details.timeText)}</b>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
 function renderClassicLiveTasks() {
   const grid = document.getElementById("classicLiveGrid");
   if (!grid) return;
@@ -466,28 +508,6 @@ function renderClassicLiveTasks() {
     const primaryFullUrl = getClassicLiveFullUrl(primaryTask);
     const primaryPreviewUrl = getClassicLivePreviewUrl(primaryTask);
     const primaryTimeValue = primaryTask.completedAt || primaryTask.createdAt;
-    const primaryDetails = getClassicLiveTaskDetails(primaryTask);
-    const primaryConfigText = [
-      primaryDetails.modelLabel,
-      primaryDetails.routeLabel,
-      primaryDetails.size,
-      primaryDetails.ratio,
-    ]
-      .filter(Boolean)
-      .join(" / ");
-    const primaryRefText =
-      primaryDetails.referenceCount > 0 ? ` · 参考图 ${primaryDetails.referenceCount}` : "";
-    const primaryParamText = [
-      primaryDetails.ratio ? `比例 ${primaryDetails.ratio}` : "",
-      primaryDetails.size ? `尺寸 ${primaryDetails.size}` : "",
-      primaryDetails.quantityText ? `数量 ${primaryDetails.quantityText}` : "",
-      primaryDetails.referenceCount > 0 ? `参考图 ${primaryDetails.referenceCount}` : "",
-    ]
-      .filter(Boolean)
-      .join(" / ");
-    const primaryClockText = primaryDetails.timeText;
-    const primaryModelText = primaryDetails.modelLabel || "未记录";
-    const primaryRouteText = primaryDetails.routeLabel || "未记录";
 
     const primaryCard = document.createElement("div");
     primaryCard.className = [
@@ -509,36 +529,6 @@ function renderClassicLiveTasks() {
         </div>
         ${buildActionsHtml(primaryTask, true)}
       </div>
-      <div class="classic-live-info classic-live-info-drawer">
-        <div class="classic-live-info-head">
-          <span>图像信息</span>
-          <b>${escapeHtml(primaryClockText)}</b>
-        </div>
-        <div class="classic-live-info-body">
-          <div class="classic-live-prompt-row">
-            <span>提示词</span>
-            <p>${escapeHtml(primaryDetails.prompt)}</p>
-          </div>
-          <div class="classic-live-detail-grid">
-            <div>
-              <span>模型</span>
-              <b>${escapeHtml(primaryModelText)}</b>
-            </div>
-            <div>
-              <span>线路</span>
-              <b>${escapeHtml(primaryRouteText)}</b>
-            </div>
-            <div>
-              <span>参数</span>
-              <b>${escapeHtml(primaryParamText || primaryConfigText || "当前配置")}${escapeHtml(primaryRefText)}</b>
-            </div>
-            <div>
-              <span>生成时间</span>
-              <b>${escapeHtml(primaryClockText)}</b>
-            </div>
-          </div>
-        </div>
-      </div>
     `;
     const primaryImg = primaryCard.querySelector("img");
     if (primaryImg && primaryPreviewUrl && primaryPreviewUrl !== primaryFullUrl) {
@@ -550,6 +540,11 @@ function renderClassicLiveTasks() {
     }
     bindLiveActions(primaryCard, primaryTask);
     grid.appendChild(primaryCard);
+
+    const selectedInfo = document.createElement("div");
+    selectedInfo.className = "classic-live-selected-info";
+    selectedInfo.innerHTML = buildClassicLiveInfoHtml(primaryTask);
+    grid.appendChild(selectedInfo);
 
     if (classicLiveTasks.length > 1) {
       const strip = document.createElement("div");
@@ -1683,7 +1678,7 @@ function getClassicQuantity() {
     document.getElementById("qtyPill")?.getAttribute("data-selected-value") || "1",
     10,
   );
-  return Number.isFinite(value) && value > 0 ? value : 1;
+  return [1, 2, 4, 8, 16].includes(value) ? value : 1;
 }
 
 function getClassicCurrentPricing() {

@@ -64,6 +64,7 @@ const UserAdminPanel: React.FC<UserAdminPanelProps> = ({ session }) => {
   const [editDisplayName, setEditDisplayName] = useState('');
   const [editRole, setEditRole] = useState<'user' | 'admin' | 'super_admin'>('user');
   const [editStatus, setEditStatus] = useState<'active' | 'disabled'>('active');
+  const [editAdminNote, setEditAdminNote] = useState('');
   const [adjustDelta, setAdjustDelta] = useState('100');
   const [adjustNote, setAdjustNote] = useState('');
 
@@ -71,6 +72,7 @@ const UserAdminPanel: React.FC<UserAdminPanelProps> = ({ session }) => {
     setEditDisplayName(payload?.user?.displayName || '');
     setEditRole((payload?.user?.role || 'user') as 'user' | 'admin' | 'super_admin');
     setEditStatus((payload?.user?.status || 'active') as 'active' | 'disabled');
+    setEditAdminNote(payload?.user?.adminNote || '');
   }, []);
 
   const loadDetail = useCallback(
@@ -167,6 +169,7 @@ const UserAdminPanel: React.FC<UserAdminPanelProps> = ({ session }) => {
         displayName: editDisplayName.trim(),
         role: editRole,
         status: editStatus,
+        adminNote: editAdminNote.trim(),
         ledgerPage,
         ledgerPageSize: 20,
       });
@@ -258,8 +261,8 @@ const UserAdminPanel: React.FC<UserAdminPanelProps> = ({ session }) => {
         </div>
       )}
 
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[0.9fr_1.1fr]">
-        <div className="space-y-3 rounded-2xl border border-white/10 bg-black/20 p-4">
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[420px_minmax(0,1fr)]">
+        <div className="min-w-0 space-y-3 rounded-2xl border border-white/10 bg-black/20 p-4">
           <div className="flex items-center gap-2">
             <div className="relative flex-1">
               <Search
@@ -298,7 +301,7 @@ const UserAdminPanel: React.FC<UserAdminPanelProps> = ({ session }) => {
             </span>
           </div>
 
-          <div className="max-h-[560px] space-y-2 overflow-y-auto pr-1">
+          <div className="max-h-[560px] space-y-2 overflow-y-auto pr-1 [scrollbar-gutter:stable]">
             {catalog?.users?.length ? (
               catalog.users.map((user) => (
                 <button
@@ -376,7 +379,7 @@ const UserAdminPanel: React.FC<UserAdminPanelProps> = ({ session }) => {
           </div>
         </div>
 
-        <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
+        <div className="min-w-0 rounded-2xl border border-white/10 bg-black/20 p-4">
           {detailLoading ? (
             <div className="flex min-h-[240px] items-center justify-center gap-2 text-sm text-gray-300">
               <Loader2 size={16} className="animate-spin" />
@@ -417,8 +420,8 @@ const UserAdminPanel: React.FC<UserAdminPanelProps> = ({ session }) => {
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 gap-4 xl:grid-cols-[0.9fr_1.1fr]">
-                <div className="space-y-3 rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+              <div className="grid grid-cols-1 gap-4 xl:grid-cols-[320px_minmax(0,1fr)]">
+                <div className="min-w-0 space-y-3 rounded-2xl border border-white/10 bg-white/[0.03] p-4">
                   <div className="text-xs font-medium text-gray-300">用户资料</div>
 
                   <div>
@@ -469,6 +472,21 @@ const UserAdminPanel: React.FC<UserAdminPanelProps> = ({ session }) => {
                       </select>
                     </div>
                   </div>
+
+                  {isSuperAdmin && (
+                    <div>
+                      <label className="mb-1 block text-[11px] uppercase tracking-wider text-gray-500">
+                        管理备注
+                      </label>
+                      <textarea
+                        value={editAdminNote}
+                        onChange={(event) => setEditAdminNote(event.target.value)}
+                        maxLength={2000}
+                        placeholder="仅超级管理员可见，可记录来源、风险、沟通记录等"
+                        className="min-h-24 w-full resize-y rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm leading-6 text-white placeholder:text-gray-500 focus:border-white/20 focus:outline-none"
+                      />
+                    </div>
+                  )}
 
                   <div className="space-y-1 text-[11px] text-gray-400">
                     <div>
@@ -524,7 +542,7 @@ const UserAdminPanel: React.FC<UserAdminPanelProps> = ({ session }) => {
                   )}
                 </div>
 
-                <div className="space-y-3 rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+                <div className="min-w-0 space-y-3 rounded-2xl border border-white/10 bg-white/[0.03] p-4">
                   <div className="flex items-center justify-between gap-2">
                     <div className="text-xs font-medium text-gray-300">消费流水</div>
                     <div className="text-[11px] text-gray-500">共 {detail.ledger.total} 条</div>
@@ -555,7 +573,7 @@ const UserAdminPanel: React.FC<UserAdminPanelProps> = ({ session }) => {
                             <span>余额 {formatPoint(entry.balanceAfter)}</span>
                           </div>
                           {entry.meta && (
-                            <div className="mt-2 text-[11px] text-gray-400">
+                            <div className="mt-2 break-all text-[11px] text-gray-400">
                               {[
                                 String(entry.meta.routeId || ''),
                                 String(entry.meta.action || entry.meta.actionName || ''),

@@ -579,6 +579,12 @@ const createMetricBucket = (seed = {}) => ({
   requestsLast24h: 0,
   successfulLast24h: 0,
   failedLast24h: 0,
+  requestsLast30m: 0,
+  successfulLast30m: 0,
+  failedLast30m: 0,
+  grossChargePointsLast30m: 0,
+  refundedPointsLast30m: 0,
+  netSpentPointsLast30m: 0,
   lastChargeAt: null,
   ...seed,
 });
@@ -594,6 +600,7 @@ const buildAdminBillingOverviewFromRows = ({
     Number.parseInt(String(recentWindowHours || 24), 10) || 24,
   );
   const recentCutoffMs = Date.now() - safeRecentWindowHours * 60 * 60 * 1000;
+  const recent30mCutoffMs = Date.now() - 30 * 60 * 1000;
 
   const overall = createMetricBucket({
     totalAccounts: 0,
@@ -610,7 +617,7 @@ const buildAdminBillingOverviewFromRows = ({
     return Date.parse(nextValue) > Date.parse(currentValue) ? nextValue : currentValue;
   };
 
-  const applyChargeToBucket = (bucket, { refunded, isRecent, createdAt, points }) => {
+  const applyChargeToBucket = (bucket, { refunded, isRecent, isRecent30m, createdAt, points }) => {
     bucket.totalCharges += 1;
     bucket.grossChargePoints = toPointNumber(bucket.grossChargePoints + points, 0);
     bucket.lastChargeAt = touchLatestTimestamp(bucket.lastChargeAt, createdAt);
@@ -619,14 +626,26 @@ const buildAdminBillingOverviewFromRows = ({
       bucket.failedCharges += 1;
       bucket.refundedPoints = toPointNumber(bucket.refundedPoints + points, 0);
       if (isRecent) bucket.failedLast24h += 1;
+      if (isRecent30m) {
+        bucket.failedLast30m += 1;
+        bucket.refundedPointsLast30m = toPointNumber(bucket.refundedPointsLast30m + points, 0);
+      }
     } else {
       bucket.successfulCharges += 1;
       bucket.netSpentPoints = toPointNumber(bucket.netSpentPoints + points, 0);
       if (isRecent) bucket.successfulLast24h += 1;
+      if (isRecent30m) {
+        bucket.successfulLast30m += 1;
+        bucket.netSpentPointsLast30m = toPointNumber(bucket.netSpentPointsLast30m + points, 0);
+      }
     }
 
     if (isRecent) {
       bucket.requestsLast24h += 1;
+    }
+    if (isRecent30m) {
+      bucket.requestsLast30m += 1;
+      bucket.grossChargePointsLast30m = toPointNumber(bucket.grossChargePointsLast30m + points, 0);
     }
   };
 
@@ -666,10 +685,11 @@ const buildAdminBillingOverviewFromRows = ({
       null;
     const createdAtMs = createdAt ? Date.parse(createdAt) : NaN;
     const isRecent = Number.isFinite(createdAtMs) && createdAtMs >= recentCutoffMs;
+    const isRecent30m = Number.isFinite(createdAtMs) && createdAtMs >= recent30mCutoffMs;
     const refunded = Boolean(entry.refunded_at || entry.refundedAt);
     const points = toPointNumber(entry.points || 0);
 
-    applyChargeToBucket(overall, { refunded, isRecent, createdAt, points });
+    applyChargeToBucket(overall, { refunded, isRecent, isRecent30m, createdAt, points });
 
     const routeId = String(meta?.routeId || "").trim() || "unknown";
     const routeBucket =
@@ -678,7 +698,7 @@ const buildAdminBillingOverviewFromRows = ({
         routeId,
         line: String(meta?.line || "").trim() || null,
       });
-    applyChargeToBucket(routeBucket, { refunded, isRecent, createdAt, points });
+    applyChargeToBucket(routeBucket, { refunded, isRecent, isRecent30m, createdAt, points });
     routeStats.set(routeId, routeBucket);
 
     const modelId = String(meta?.modelId || "").trim();
@@ -691,7 +711,7 @@ const buildAdminBillingOverviewFromRows = ({
         modelId: modelId || null,
         requestModel: requestModel || null,
       });
-    applyChargeToBucket(modelBucket, { refunded, isRecent, createdAt, points });
+    applyChargeToBucket(modelBucket, { refunded, isRecent, isRecent30m, createdAt, points });
     modelStats.set(modelKey, modelBucket);
   }
 
@@ -700,6 +720,9 @@ const buildAdminBillingOverviewFromRows = ({
     grossChargePoints: toPointNumber(bucket.grossChargePoints, 0),
     refundedPoints: toPointNumber(bucket.refundedPoints, 0),
     netSpentPoints: toPointNumber(bucket.netSpentPoints, 0),
+    grossChargePointsLast30m: toPointNumber(bucket.grossChargePointsLast30m, 0),
+    refundedPointsLast30m: toPointNumber(bucket.refundedPointsLast30m, 0),
+    netSpentPointsLast30m: toPointNumber(bucket.netSpentPointsLast30m, 0),
     totalBalancePoints: toPointNumber(bucket.totalBalancePoints, 0),
     totalRechargedPoints: toPointNumber(bucket.totalRechargedPoints, 0),
     totalSpentPoints: toPointNumber(bucket.totalSpentPoints, 0),
@@ -710,6 +733,10 @@ const buildAdminBillingOverviewFromRows = ({
     successRateLast24h:
       bucket.requestsLast24h > 0
         ? Number(((bucket.successfulLast24h / bucket.requestsLast24h) * 100).toFixed(1))
+        : 0,
+    successRateLast30m:
+      bucket.requestsLast30m > 0
+        ? Number(((bucket.successfulLast30m / bucket.requestsLast30m) * 100).toFixed(1))
         : 0,
   });
 

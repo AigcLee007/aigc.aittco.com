@@ -25,6 +25,12 @@ const formatTime = (value?: string | null) =>
 
 const formatRate = (value?: number | null) => `${Number(value || 0).toFixed(1)}%`;
 
+const typeLabel = (value?: string) => {
+  if (value === 'video') return '视频';
+  if (value === 'image') return '图片';
+  return '未知';
+};
+
 const MetricCard = ({
   title,
   value,
@@ -38,7 +44,7 @@ const MetricCard = ({
 }) => (
   <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4 shadow-[0_12px_40px_rgba(0,0,0,0.18)]">
     <div className="flex items-start justify-between gap-3">
-      <div>
+      <div className="min-w-0">
         <div className="text-[11px] uppercase tracking-[0.18em] text-gray-500">{title}</div>
         <div className="mt-2 text-3xl font-semibold text-white">{value}</div>
         <div className="mt-2 text-xs leading-5 text-gray-400">{hint}</div>
@@ -53,12 +59,10 @@ const MetricCard = ({
 const SectionTable = ({
   title,
   description,
-  emptyText,
   children,
 }: {
   title: string;
   description: string;
-  emptyText: string;
   children: React.ReactNode;
 }) => (
   <div className="rounded-3xl border border-white/10 bg-black/20 p-5">
@@ -66,21 +70,9 @@ const SectionTable = ({
       <div className="text-sm font-semibold text-white">{title}</div>
       <div className="mt-1 text-xs leading-5 text-gray-400">{description}</div>
     </div>
-    <div className="overflow-hidden rounded-2xl border border-white/10">
-      {children || (
-        <div className="bg-white/[0.03] px-4 py-10 text-center text-sm text-gray-500">
-          {emptyText}
-        </div>
-      )}
-    </div>
+    <div className="overflow-hidden rounded-2xl border border-white/10">{children}</div>
   </div>
 );
-
-const typeLabel = (value?: string) => {
-  if (value === 'video') return '视频';
-  if (value === 'image') return '图片';
-  return '未知';
-};
 
 const AdminOverviewPanel: React.FC<AdminOverviewPanelProps> = ({
   data,
@@ -101,8 +93,7 @@ const AdminOverviewPanel: React.FC<AdminOverviewPanelProps> = ({
               独立管理后台
             </h2>
             <p className="mt-3 max-w-2xl text-sm leading-7 text-gray-300">
-              在这里可以直接看全站用户活跃度、模型与线路运行状态、24 小时请求量和成功率，
-              不需要再到设置页里来回翻找。
+              查看全站用户、点数、线路、模型运行情况，并重点关注最近 30 分钟的实时波动。
             </p>
           </div>
 
@@ -136,13 +127,19 @@ const AdminOverviewPanel: React.FC<AdminOverviewPanelProps> = ({
         <MetricCard
           title="在线用户"
           value={data?.auth?.onlineUsers ?? 0}
-          hint={`过去 ${data?.windows?.onlineWindowMinutes ?? 5} 分钟内活跃用户 ${data?.auth?.onlineUsers ?? 0}，当前活跃会话 ${data?.auth?.activeSessions ?? 0}。`}
+          hint={`过去 ${data?.windows?.onlineWindowMinutes ?? 5} 分钟活跃用户 ${data?.auth?.onlineUsers ?? 0}，当前活跃会话 ${data?.auth?.activeSessions ?? 0}。`}
           icon={<Users size={20} />}
         />
         <MetricCard
-          title="24 小时请求"
+          title="近30分钟请求"
+          value={data?.billing?.requestsLast30m ?? 0}
+          hint={`成功 ${data?.billing?.successfulLast30m ?? 0}，失败 ${data?.billing?.failedLast30m ?? 0}，成功率 ${formatRate(data?.billing?.successRateLast30m)}，净消耗 ${formatPoint(data?.billing?.netSpentPointsLast30m ?? 0)} 点。`}
+          icon={<Activity size={20} />}
+        />
+        <MetricCard
+          title="24小时请求"
           value={data?.billing?.requestsLast24h ?? 0}
-          hint={`24 小时成功率 ${formatRate(data?.billing?.successRateLast24h)}，当前待处理任务 ${data?.billing?.pendingTasks ?? 0}。`}
+          hint={`成功率 ${formatRate(data?.billing?.successRateLast24h)}，当前待处理任务 ${data?.billing?.pendingTasks ?? 0}。`}
           icon={<Clock3 size={20} />}
         />
         <MetricCard
@@ -158,12 +155,6 @@ const AdminOverviewPanel: React.FC<AdminOverviewPanelProps> = ({
           icon={<Users size={20} />}
         />
         <MetricCard
-          title="模型 / 线路"
-          value={`${data?.modelCatalog?.activeModels ?? 0} / ${data?.routeCatalog?.activeRoutes ?? 0}`}
-          hint={`图片模型 ${data?.modelCatalog?.imageActiveModels ?? 0} 个，视频模型 ${data?.modelCatalog?.videoActiveModels ?? 0} 个；图片线路 ${data?.routeCatalog?.imageActiveRoutes ?? 0} 条，视频线路 ${data?.routeCatalog?.videoActiveRoutes ?? 0} 条。`}
-          icon={<Boxes size={20} />}
-        />
-        <MetricCard
           title="点数余额"
           value={formatPoint(data?.billing?.totalBalancePoints ?? 0)}
           hint={`累计充值 ${formatPoint(data?.billing?.totalRechargedPoints ?? 0)} 点，累计净消费 ${formatPoint(data?.billing?.netSpentPoints ?? 0)} 点。`}
@@ -174,14 +165,14 @@ const AdminOverviewPanel: React.FC<AdminOverviewPanelProps> = ({
       <div className="grid grid-cols-1 gap-6 2xl:grid-cols-[1.1fr_0.9fr]">
         <SectionTable
           title="线路运行情况"
-          description="展示每条线路的请求量、成功率、待处理任务和最近活跃时间，方便快速判断哪条线更稳。"
-          emptyText="暂无线路统计数据"
+          description="按线路查看最近 30 分钟、24 小时和累计表现。"
         >
           <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-white/10 text-left text-sm">
               <thead className="bg-white/[0.03] text-[11px] uppercase tracking-[0.16em] text-gray-400">
                 <tr>
                   <th className="px-4 py-3">线路</th>
+                  <th className="px-4 py-3">近30分钟</th>
                   <th className="px-4 py-3">24h / 累计</th>
                   <th className="px-4 py-3">成功率</th>
                   <th className="px-4 py-3">待处理</th>
@@ -208,9 +199,13 @@ const AdminOverviewPanel: React.FC<AdminOverviewPanelProps> = ({
                         </div>
                       </td>
                       <td className="px-4 py-3 text-gray-300">
-                        <div>
-                          {route.requestsLast24h} / {route.totalCharges}
+                        <div>{route.requestsLast30m} / {formatRate(route.successRateLast30m)}</div>
+                        <div className="mt-1 text-xs text-gray-500">
+                          净消耗 {formatPoint(route.netSpentPointsLast30m)} 点
                         </div>
+                      </td>
+                      <td className="px-4 py-3 text-gray-300">
+                        <div>{route.requestsLast24h} / {route.totalCharges}</div>
                         <div className="mt-1 text-xs text-gray-500">
                           失败 {route.failedLast24h} / {route.failedCharges}
                         </div>
@@ -222,18 +217,13 @@ const AdminOverviewPanel: React.FC<AdminOverviewPanelProps> = ({
                         </div>
                       </td>
                       <td className="px-4 py-3 text-gray-300">{route.pendingTasks}</td>
-                      <td className="px-4 py-3 text-gray-300">
-                        <div>{formatPoint(route.netSpentPoints)} 点</div>
-                        <div className="mt-1 text-xs text-gray-500">
-                          退款 {formatPoint(route.refundedPoints)} 点
-                        </div>
-                      </td>
+                      <td className="px-4 py-3 text-gray-300">{formatPoint(route.netSpentPoints)} 点</td>
                       <td className="px-4 py-3 text-gray-400">{formatTime(route.lastChargeAt)}</td>
                     </tr>
                   ))
                 ) : (
                   <tr>
-                    <td colSpan={6} className="px-4 py-10 text-center text-sm text-gray-500">
+                    <td colSpan={7} className="px-4 py-10 text-center text-sm text-gray-500">
                       暂无线路统计数据
                     </td>
                   </tr>
@@ -245,14 +235,14 @@ const AdminOverviewPanel: React.FC<AdminOverviewPanelProps> = ({
 
         <SectionTable
           title="模型运行情况"
-          description="展示模型维度的用量和成功率，方便判断哪些模型值得保留、提价或者下线。"
-          emptyText="暂无模型统计数据"
+          description="按模型查看最近 30 分钟、24 小时和累计表现。"
         >
           <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-white/10 text-left text-sm">
               <thead className="bg-white/[0.03] text-[11px] uppercase tracking-[0.16em] text-gray-400">
                 <tr>
                   <th className="px-4 py-3">模型</th>
+                  <th className="px-4 py-3">近30分钟</th>
                   <th className="px-4 py-3">24h / 累计</th>
                   <th className="px-4 py-3">成功率</th>
                   <th className="px-4 py-3">净消费</th>
@@ -279,9 +269,13 @@ const AdminOverviewPanel: React.FC<AdminOverviewPanelProps> = ({
                         </div>
                       </td>
                       <td className="px-4 py-3 text-gray-300">
-                        <div>
-                          {model.requestsLast24h} / {model.totalCharges}
+                        <div>{model.requestsLast30m} / {formatRate(model.successRateLast30m)}</div>
+                        <div className="mt-1 text-xs text-gray-500">
+                          净消耗 {formatPoint(model.netSpentPointsLast30m)} 点
                         </div>
+                      </td>
+                      <td className="px-4 py-3 text-gray-300">
+                        <div>{model.requestsLast24h} / {model.totalCharges}</div>
                         <div className="mt-1 text-xs text-gray-500">
                           失败 {model.failedLast24h} / {model.failedCharges}
                         </div>
@@ -298,7 +292,7 @@ const AdminOverviewPanel: React.FC<AdminOverviewPanelProps> = ({
                   ))
                 ) : (
                   <tr>
-                    <td colSpan={5} className="px-4 py-10 text-center text-sm text-gray-500">
+                    <td colSpan={6} className="px-4 py-10 text-center text-sm text-gray-500">
                       暂无模型统计数据
                     </td>
                   </tr>
