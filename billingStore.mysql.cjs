@@ -878,9 +878,9 @@ const listPendingTasks = async ({
       WHERE status = ?
         AND settled_at IS NULL
       ORDER BY created_at ASC
-      LIMIT ?
+      LIMIT ${safeLimit}
     `,
-    [normalizedStatus, safeLimit],
+    [normalizedStatus],
   );
 
   return rows.map((row) => ({
