@@ -1494,22 +1494,50 @@ const executeGeminiNativeGenerate = async ({
   }
 
   const processImagePart = (img, { camelCase = false } = {}) => {
-    let base64Data = img;
-    let mimeType = "image/jpeg";
+    const rawValue =
+      typeof img === "string"
+        ? img
+        : img && typeof img === "object"
+          ? String(img.fileUri || img.file_uri || "").trim()
+          : "";
+    const explicitMimeType =
+      typeof img === "object" && img
+        ? String(img.mimeType || img.mime_type || "").trim().toLowerCase()
+        : "";
+    let normalizedValue = String(rawValue || "").trim();
+    let mimeType = explicitMimeType || "image/jpeg";
 
-    if (typeof img === "string" && img.startsWith("data:")) {
-      const match = img.match(/^data:(image\/\w+);base64,(.+)$/);
+    if (normalizedValue.startsWith("data:")) {
+      const match = normalizedValue.match(/^data:(image\/\w+);base64,(.+)$/);
       if (match) {
         mimeType = match[1];
-        base64Data = match[2];
+        normalizedValue = match[2];
       }
+    }
+
+    if (/^https?:\/\//i.test(normalizedValue)) {
+      if (camelCase) {
+        return {
+          fileData: {
+            mimeType,
+            fileUri: normalizedValue,
+          },
+        };
+      }
+
+      return {
+        file_data: {
+          mime_type: mimeType,
+          file_uri: normalizedValue,
+        },
+      };
     }
 
     if (camelCase) {
       return {
         inlineData: {
           mimeType,
-          data: base64Data,
+          data: normalizedValue,
         },
       };
     }
@@ -1517,7 +1545,7 @@ const executeGeminiNativeGenerate = async ({
     return {
       inline_data: {
         mime_type: mimeType,
-        data: base64Data,
+        data: normalizedValue,
       },
     };
   };
@@ -1530,13 +1558,23 @@ const executeGeminiNativeGenerate = async ({
       img.forEach((item) => appendImagePart(item));
       return;
     }
-    if (typeof img !== "string") return;
-    const normalized = String(img || "").trim();
+    const normalized =
+      typeof img === "string"
+        ? String(img || "").trim()
+        : img && typeof img === "object"
+          ? String(img.fileUri || img.file_uri || "").trim()
+          : "";
     if (!normalized) return;
-    if (seenImageParts.has(normalized)) return;
-    seenImageParts.add(normalized);
-    camelParts.push(processImagePart(normalized, { camelCase: true }));
-    snakeParts.push(processImagePart(normalized));
+    const mimeType =
+      img && typeof img === "object"
+        ? String(img.mimeType || img.mime_type || "").trim().toLowerCase()
+        : "";
+    const dedupeKey = `${mimeType}|${normalized}`;
+    if (seenImageParts.has(dedupeKey)) return;
+    seenImageParts.add(dedupeKey);
+    const payload = mimeType ? { fileUri: normalized, mimeType } : normalized;
+    camelParts.push(processImagePart(payload, { camelCase: true }));
+    snakeParts.push(processImagePart(payload));
   };
 
   if (Array.isArray(requestBody.images)) {
@@ -1556,6 +1594,14 @@ const executeGeminiNativeGenerate = async ({
         appendImagePart(
           `data:${inlineData.mimeType || inlineData.mime_type || "image/jpeg"};base64,${inlineData.data}`,
         );
+        return;
+      }
+      const fileData = part.fileData || part.file_data;
+      if (fileData?.fileUri || fileData?.file_uri) {
+        appendImagePart({
+          fileUri: fileData.fileUri || fileData.file_uri,
+          mimeType: fileData.mimeType || fileData.mime_type || "image/jpeg",
+        });
       }
     });
   }
@@ -1584,7 +1630,7 @@ const executeGeminiNativeGenerate = async ({
   const authorization = getRouteAuthorization(route, fallbackAuthorization);
   const buildGeminiBodies = (resolvedImageSize) => {
     const camelBody = {
-      contents: [{ parts: camelParts }],
+      contents: [{ role: "user", parts: camelParts }],
       generationConfig: {
         responseModalities:
           output_format === "IMAGE_ONLY" ? ["IMAGE"] : ["IMAGE", "TEXT"],
@@ -1603,7 +1649,7 @@ const executeGeminiNativeGenerate = async ({
     }
 
     const snakeBody = {
-      contents: [{ parts: snakeParts }],
+      contents: [{ role: "user", parts: snakeParts }],
       generationConfig: {
         response_modalities:
           output_format === "IMAGE_ONLY" ? ["IMAGE"] : ["IMAGE", "TEXT"],
@@ -3025,6 +3071,25 @@ app.post("/api/generate", generateLimiter, async (req, res) => {
     }
 
     delete requestBody.uiMode;
+    const routeMode = String(route?.mode || "").trim().toLowerCase();
+    const geminiRequestedCount = Math.max(
+      1,
+      Number.parseInt(
+        String(
+          requestBody.n ||
+            requestBody.candidateCount ||
+            requestBody.generationConfig?.candidateCount ||
+            requestBody.generationConfig?.candidate_count ||
+            1,
+        ),
+        10,
+      ) || 1,
+    );
+    if (isGeminiNativeRoute(route) && geminiRequestedCount > 1) {
+      return res.status(400).json({
+        error: "当前 Gemini 原生线路暂仅支持 1 张图片，请先选择 1 张生成。",
+      });
+    }
     const pointCost = shouldUseBilling ? getRoutePointCost(route, requestBody.n, requestBody) : 0;
     if (shouldUseBilling) {
       billingAccount = await requireBillingAccount(req);
@@ -3040,11 +3105,12 @@ app.post("/api/generate", generateLimiter, async (req, res) => {
     );
 
     if (isGeminiNativeRoute(route)) {
+      const isAsyncGeminiRoute = routeMode === "async";
       if (shouldUseBilling) {
         billingCharge = await reservePoints(billingAccount.accountId, pointCost, {
           action: "generate",
           routeId: route.id,
-          mode: route.mode,
+          mode: isAsyncGeminiRoute ? "async" : route.mode,
           model: requestBody.model,
           modelId: requestedImageModel?.id || null,
         });
@@ -3066,9 +3132,148 @@ app.post("/api/generate", generateLimiter, async (req, res) => {
         status: "PENDING",
         meta: {
           transport: route.transport,
-          routeMode: route.mode,
+          routeMode: isAsyncGeminiRoute ? "async" : route.mode,
         },
       });
+
+      if (isAsyncGeminiRoute) {
+        const localJobId = createLocalImageJobId();
+        localTaskId = buildImageTaskToken(route.id, localJobId);
+        setLocalImageJob(localJobId, {
+          localTaskId,
+          routeId: route.id,
+          status: "processing",
+          progress: 0,
+          results: [],
+        });
+        scheduleLocalImageJobCleanup(localJobId);
+
+        if (shouldUseBilling) {
+          await registerPendingTask(localTaskId, {
+            accountId: billingAccount.accountId,
+            chargeId: billingCharge?.chargeId || null,
+            points: pointCost,
+            routeId: route.id,
+            action: "generate",
+          });
+        }
+        if (generationRecord?.id) {
+          await attachTaskToGenerationRecord(generationRecord.id, localTaskId);
+        }
+
+        (async () => {
+          try {
+            const result = await executeGeminiNativeGenerate({
+              route,
+              requestBody,
+              fallbackAuthorization,
+              logTag: "Generate",
+            });
+            const resultUrls = extractResultUrlsFromPayload(result);
+            let successPayload = {
+              ...toImmediateImagePayload(result),
+              id: localTaskId,
+              task_id: localTaskId,
+              status: "succeeded",
+            };
+            const persistedResult = await persistImageResultPayloadSafe({
+              payload: successPayload,
+              resultUrls,
+              req,
+              billingAccount,
+              generationRecord,
+              route,
+              modelId: requestedImageModel?.id || null,
+              taskId: localTaskId,
+            });
+            successPayload = {
+              ...persistedResult.payload,
+              id: localTaskId,
+              task_id: localTaskId,
+              status: "succeeded",
+            };
+            setLocalImageJob(localJobId, {
+              status: "succeeded",
+              progress: 100,
+              responseData: successPayload,
+            });
+            await settlePendingTask(localTaskId, "SUCCESS");
+            await completeGenerationRecordSuccessSafe({
+              recordId: generationRecord?.id,
+              taskId: localTaskId,
+              resultUrls: persistedResult.resultUrls,
+              previewUrl: persistedResult.previewUrl,
+              outputSize: requestBody.image_size || requestBody.size || null,
+              aspectRatio: requestBody.aspect_ratio || requestBody.aspectRatio || null,
+              meta: mergeGeneratedAssetMeta({
+                transport: route.transport,
+                routeMode: "async",
+                settled: "gemini_native_background_job",
+              }, persistedResult),
+            });
+          } catch (error) {
+            setLocalImageJob(localJobId, {
+              status: "failed",
+              progress: 100,
+              responseData: {
+                id: localTaskId,
+                task_id: localTaskId,
+                status: "failed",
+                error: error.message,
+                failure_reason: error.message,
+                results: [],
+              },
+            });
+            await settlePendingTask(localTaskId, "FAILED");
+            if (shouldUseBilling && billingCharge?.chargeId && billingAccount?.accountId) {
+              await refundPoints(billingAccount.accountId, billingCharge.chargeId, {
+                reason: "request_failed",
+                routeId: route.id,
+              });
+            }
+            await completeGenerationRecordFailureSafe({
+              recordId: generationRecord?.id,
+              taskId: localTaskId,
+              errorMessage: error.message,
+              outputSize: requestBody.image_size || requestBody.size || null,
+              aspectRatio: requestBody.aspect_ratio || requestBody.aspectRatio || null,
+              meta: {
+                transport: route.transport,
+                routeMode: "async",
+              },
+            });
+            logger.error({
+              timestamp: new Date().toISOString(),
+              type: "Gemini Native Background Generate Error",
+              message: error.message,
+              stack: error.stack,
+              response: error.response?.data,
+            });
+          }
+        })();
+
+        return res.json(
+          shouldUseBilling
+            ? {
+                id: localTaskId,
+                task_id: localTaskId,
+                status: "processing",
+                progress: 0,
+                results: [],
+                billing: {
+                  deductedPoints: pointCost,
+                  remainingPoints: billingCharge?.account?.points,
+                },
+              }
+            : {
+                id: localTaskId,
+                task_id: localTaskId,
+                status: "processing",
+                progress: 0,
+                results: [],
+              },
+        );
+      }
 
       try {
         const result = await executeGeminiNativeGenerate({
@@ -3095,7 +3300,7 @@ app.post("/api/generate", generateLimiter, async (req, res) => {
           aspectRatio: requestBody.aspect_ratio || requestBody.aspectRatio || null,
           meta: mergeGeneratedAssetMeta({
             transport: route.transport,
-            routeMode: route.mode,
+            routeMode: "sync",
           }, persistedResult),
         });
         return res.json(
@@ -3231,7 +3436,6 @@ app.post("/api/generate", generateLimiter, async (req, res) => {
       }
     };
 
-    const routeMode = String(route?.mode || "").trim().toLowerCase();
     const isSyncLine = requestBody.isSync === true || routeMode === "sync";
     if (isSyncLine) {
       delete requestBody.isSync;
@@ -4194,6 +4398,53 @@ const isTaskSuccessStatus = (status = "") =>
   ["SUCCESS", "SUCCEEDED", "COMPLETED"].includes(String(status || "").trim().toUpperCase());
 const isTaskFailureStatus = (status = "") =>
   ["FAILURE", "FAILED"].includes(String(status || "").trim().toUpperCase());
+const buildImageTaskResponseFromGenerationRecord = (record, taskId) => {
+  if (!record) return null;
+
+  const normalizedTaskId =
+    String(taskId || record.taskId || "").trim() || null;
+  const resultUrls = dedupeResultUrls(record.resultUrls || []);
+  const previewUrl =
+    String(record.previewUrl || "").trim() || resultUrls[0] || null;
+  const normalizedStatus = String(record.status || "").trim().toUpperCase();
+
+  if (normalizedStatus === "SUCCESS") {
+    return {
+      id: normalizedTaskId,
+      task_id: normalizedTaskId,
+      status: "succeeded",
+      progress: 100,
+      results: resultUrls,
+      url: previewUrl,
+      image_url: previewUrl,
+      images: resultUrls,
+      error: "",
+      failure_reason: "",
+    };
+  }
+
+  if (normalizedStatus === "FAILED") {
+    return {
+      id: normalizedTaskId,
+      task_id: normalizedTaskId,
+      status: "failed",
+      progress: 100,
+      results: [],
+      error: record.errorMessage || "Image task failed",
+      failure_reason: record.errorMessage || "Image task failed",
+    };
+  }
+
+  return {
+    id: normalizedTaskId,
+    task_id: normalizedTaskId,
+    status: "processing",
+    progress: 0,
+    results: [],
+    error: "",
+    failure_reason: "",
+  };
+};
 const isVideoPendingTaskEntry = (task = {}) => {
   const actionName = String(task.actionName || "").trim().toLowerCase();
   if (actionName.startsWith("video_")) return true;
@@ -4236,6 +4487,14 @@ const pollImageTaskAndSettle = async ({
         results: localJob.results || [],
       }
     );
+  }
+
+  const generationRecord = await getGenerationRecordByTaskId(normalizedTaskId).catch(() => null);
+  if (
+    generationRecord &&
+    (String(upstreamTaskId).startsWith("local-") || isGeminiNativeRoute(route))
+  ) {
+    return buildImageTaskResponseFromGenerationRecord(generationRecord, normalizedTaskId);
   }
 
   const authorization = getRouteAuthorization(route, fallbackAuthorization, {
@@ -4293,14 +4552,15 @@ const pollImageTaskAndSettle = async ({
 
   const taskStatus = extractResultStatus(responseData);
   if (isTaskSuccessStatus(taskStatus)) {
-    const generationRecord = await getGenerationRecordByTaskId(normalizedTaskId).catch(() => null);
+    const latestGenerationRecord =
+      generationRecord || (await getGenerationRecordByTaskId(normalizedTaskId).catch(() => null));
     const persistedResult = await persistImageResultPayloadSafe({
       payload: responseData,
       resultUrls: extractResultUrlsFromPayload(responseData),
       req,
-      generationRecord,
+      generationRecord: latestGenerationRecord,
       route,
-      modelId: generationRecord?.modelId || null,
+      modelId: latestGenerationRecord?.modelId || null,
       taskId: normalizedTaskId,
     });
     responseData = persistedResult.payload;
