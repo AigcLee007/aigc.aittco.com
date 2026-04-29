@@ -5382,11 +5382,11 @@ const BACKGROUND_TASK_SETTLEMENT_ENABLED =
   String(process.env.BACKGROUND_TASK_SETTLEMENT_ENABLED || "true").trim().toLowerCase() !== "false";
 const BACKGROUND_TASK_SETTLEMENT_INTERVAL_MS = Math.max(
   5000,
-  readPositiveIntEnv("BACKGROUND_TASK_SETTLEMENT_INTERVAL_MS", 15000),
+  readPositiveIntEnv("BACKGROUND_TASK_SETTLEMENT_INTERVAL_MS", 300000),
 );
 const BACKGROUND_TASK_SETTLEMENT_BATCH_SIZE = Math.max(
   1,
-  readPositiveIntEnv("BACKGROUND_TASK_SETTLEMENT_BATCH_SIZE", 24),
+  readPositiveIntEnv("BACKGROUND_TASK_SETTLEMENT_BATCH_SIZE", 10),
 );
 let backgroundTaskSettlementRunning = false;
 
