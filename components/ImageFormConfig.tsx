@@ -19,6 +19,7 @@ import {
   getLowestCostImageRouteForModel,
   getImageRoutePointCost,
   getImageRouteOptions,
+  getImageRoutesByModelFamily,
   getSelectedImageRoute,
 } from '../src/config/imageRoutes';
 import { useImageRouteCatalog } from '../src/hooks/useImageRouteCatalog';
