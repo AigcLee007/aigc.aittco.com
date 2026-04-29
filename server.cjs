@@ -458,47 +458,6 @@ const applyVisionaryImageCompat = (requestBody = {}) => {
     requestBody.imageSize = String(resolvedImageSize).trim().toUpperCase();
   }
 };
-const buildVisionaryImageRequestBody = (requestBody = {}) => {
-  const images = Array.isArray(requestBody.images)
-    ? requestBody.images
-    : requestBody.image
-      ? [requestBody.image]
-      : [];
-  const imageSize = String(
-    requestBody.imageSize || requestBody.image_size || requestBody.size || "",
-  ).trim().toUpperCase();
-  const ratio = String(
-    requestBody.ratio || requestBody.aspect_ratio || requestBody.aspectRatio || "1:1",
-  ).trim();
-  const payload = {
-    prompt: requestBody.prompt,
-    model: requestBody.model,
-    ratio,
-    images,
-  };
-  if (imageSize) {
-    payload.imageSize = imageSize;
-  }
-  return payload;
-};
-const extractAxiosResponseError = (error) => {
-  const data = error?.response?.data;
-  if (!data) return error?.message || "Request failed";
-  if (typeof data === "string") return data;
-  const message =
-    data.error?.message ||
-    data.error ||
-    data.message ||
-    data.fail_reason ||
-    data.failure_reason ||
-    data.detail;
-  if (message) return typeof message === "string" ? message : JSON.stringify(message);
-  try {
-    return JSON.stringify(data);
-  } catch (_) {
-    return error?.message || "Request failed";
-  }
-};
 const getRoutePointCost = (route, quantity = 1, requestBody = {}) => {
   const sizeOverride = getRouteSizeOverride(route, requestBody);
   const pointCost = toPointNumber(sizeOverride?.pointCost ?? route?.pointCost ?? 0);
@@ -3319,8 +3278,6 @@ app.post("/api/generate", generateLimiter, async (req, res) => {
         messages: [{ role: "user", content: requestBody.prompt }],
         stream: false,
       };
-    } else if (isVisionaryImageRoute(route)) {
-      finalRequestBody = buildVisionaryImageRequestBody(requestBody);
     } else if (requestBody.model === "gpt-image-2") {
       finalRequestBody = {
         model: "gpt-image-2",
@@ -3507,7 +3464,6 @@ app.post("/api/generate", generateLimiter, async (req, res) => {
             }, persistedResult),
           });
         } catch (error) {
-          const upstreamError = extractAxiosResponseError(error);
           setLocalImageJob(localJobId, {
             status: "failed",
             progress: 100,
@@ -3515,8 +3471,7 @@ app.post("/api/generate", generateLimiter, async (req, res) => {
               id: localTaskId,
               task_id: localTaskId,
               status: "failed",
-              error: upstreamError,
-              upstream_error: error.response?.data || null,
+              error: error.message,
               results: [],
             },
           });
@@ -3530,13 +3485,12 @@ app.post("/api/generate", generateLimiter, async (req, res) => {
           await completeGenerationRecordFailureSafe({
             recordId: generationRecord?.id,
             taskId: localTaskId,
-            errorMessage: upstreamError,
+            errorMessage: error.message,
           });
           logger.error({
             timestamp: new Date().toISOString(),
             type: "Visionary Background Generate Error",
             message: error.message,
-            upstreamError,
             stack: error.stack,
             response: error.response?.data,
           });
