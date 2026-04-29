@@ -861,6 +861,41 @@ const getAdminBillingOverview = async ({ recentWindowHours = 24 } = {}) => {
   });
 };
 
+const listPendingTasks = async ({
+  status = "PENDING",
+  limit = 50,
+} = {}) => {
+  await ensureBillingSchema();
+  await expireStalePendingTasks();
+  await cleanupBillingArtifacts();
+
+  const normalizedStatus = String(status || "PENDING").trim().toUpperCase();
+  const safeLimit = Math.min(200, Math.max(1, Number.parseInt(String(limit || 50), 10) || 50));
+  const rows = await query(
+    `
+      SELECT task_id, account_id, charge_id, points, route_id, action_name, created_at, settled_at, status
+      FROM billing_pending_tasks
+      WHERE status = ?
+        AND settled_at IS NULL
+      ORDER BY created_at ASC
+      LIMIT ?
+    `,
+    [normalizedStatus, safeLimit],
+  );
+
+  return rows.map((row) => ({
+    taskId: String(row.task_id || "").trim(),
+    accountId: String(row.account_id || "").trim() || null,
+    chargeId: String(row.charge_id || "").trim() || null,
+    points: toPointNumber(row.points || 0, 0),
+    routeId: String(row.route_id || "").trim() || null,
+    actionName: String(row.action_name || "").trim() || null,
+    createdAt: fromDbDateTime(row.created_at) || null,
+    settledAt: fromDbDateTime(row.settled_at) || null,
+    status: String(row.status || "").trim().toUpperCase() || "PENDING",
+  }));
+};
+
 const reservePoints = async (accountId, points, meta = {}) => {
   return withAccountSerializedTransaction(accountId, async (connection, targetAccountId) => {
     const [rows] = await connection.execute(
@@ -1492,6 +1527,7 @@ module.exports = {
   requireBillingAccount,
   getAccountSummary,
   getBillingPricing,
+  listPendingTasks,
   reservePoints,
   refundPoints,
   registerPendingTask,

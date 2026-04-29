@@ -245,6 +245,14 @@ const completeGenerationRecordByTaskId = async (taskId, updates = {}) =>
     return publicRecord(record);
   });
 
+const getGenerationRecordByTaskId = async (taskId) =>
+  withStore((store) => {
+    const normalizedTaskId = String(taskId || "").trim();
+    if (!normalizedTaskId) return null;
+    const record = store.records.find((item) => item.taskId === normalizedTaskId);
+    return record ? publicRecord(record) : null;
+  });
+
 const listGenerationRecordsForUser = async (userId, options = {}) => {
   const normalizedUserId = String(userId || "").trim();
   const mediaType = String(options.mediaType || "all").trim().toUpperCase();
@@ -347,5 +355,6 @@ module.exports = {
   completeGenerationRecord,
   completeGenerationRecordByTaskId,
   createGenerationRecord,
+  getGenerationRecordByTaskId,
   listGenerationRecordsForUser,
 };

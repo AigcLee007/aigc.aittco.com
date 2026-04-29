@@ -349,6 +349,19 @@ const completeGenerationRecordByTaskId = async (taskId, updates = {}) => {
   return rows[0] ? publicRecord(rows[0]) : null;
 };
 
+const getGenerationRecordByTaskId = async (taskId) => {
+  await ensureGenerationRecordSchema();
+  const normalizedTaskId = String(taskId || "").trim();
+  if (!normalizedTaskId) return null;
+
+  const pool = await getPool();
+  const [rows] = await pool.execute(
+    "SELECT * FROM generation_records WHERE task_id = ? LIMIT 1",
+    [normalizedTaskId],
+  );
+  return rows[0] ? publicRecord(rows[0]) : null;
+};
+
 const listGenerationRecordsForUser = async (userId, options = {}) => {
   await ensureGenerationRecordSchema();
 
@@ -474,5 +487,6 @@ module.exports = {
   completeGenerationRecord,
   completeGenerationRecordByTaskId,
   createGenerationRecord,
+  getGenerationRecordByTaskId,
   listGenerationRecordsForUser,
 };

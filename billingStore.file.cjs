@@ -570,6 +570,28 @@ const getAdminBillingOverview = ({ recentWindowHours = 24 } = {}) =>
     return buildAdminBillingOverviewFromStore(store, { recentWindowHours });
   });
 
+const listPendingTasks = ({ status = "PENDING", limit = 50 } = {}) =>
+  withStore((store) => {
+    expireStalePendingTasksInStore(store);
+    const normalizedStatus = String(status || "PENDING").trim().toUpperCase();
+    const safeLimit = Math.min(200, Math.max(1, Number.parseInt(String(limit || 50), 10) || 50));
+    return Object.entries(store.pendingTasks || {})
+      .map(([taskId, task]) => ({
+        taskId,
+        accountId: String(task?.accountId || "").trim() || null,
+        chargeId: String(task?.chargeId || "").trim() || null,
+        points: toPointNumber(task?.points || 0, 0),
+        routeId: String(task?.routeId || "").trim() || null,
+        actionName: String(task?.action || task?.actionName || "").trim() || null,
+        createdAt: String(task?.createdAt || "").trim() || null,
+        settledAt: String(task?.settledAt || "").trim() || null,
+        status: String(task?.status || "").trim().toUpperCase() || "PENDING",
+      }))
+      .filter((task) => task.status === normalizedStatus && !task.settledAt)
+      .sort((left, right) => String(left.createdAt || "").localeCompare(String(right.createdAt || "")))
+      .slice(0, safeLimit);
+  });
+
 const reservePoints = (accountId, points, meta = {}) =>
   withStore((store) => {
     const account = store.accounts[accountId];
@@ -933,6 +955,7 @@ module.exports = {
   requireBillingAccount,
   getAccountSummary,
   getBillingPricing,
+  listPendingTasks,
   reservePoints,
   refundPoints,
   registerPendingTask,

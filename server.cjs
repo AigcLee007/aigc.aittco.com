@@ -48,6 +48,7 @@ const {
   requireBillingAccount,
   getAccountSummary,
   getBillingPricing,
+  listPendingTasks,
   listRedeemCodes,
   reservePoints,
   redeemCode,
@@ -62,6 +63,7 @@ const {
   completeGenerationRecord,
   completeGenerationRecordByTaskId,
   createGenerationRecord,
+  getGenerationRecordByTaskId,
   listGenerationRecordsForUser,
 } = require("./generationRecordStore.cjs");
 const {
@@ -4176,113 +4178,233 @@ app.get("/api/proxy/image", async (req, res) => {
   }
 });
 
+const isTaskSuccessStatus = (status = "") =>
+  ["SUCCESS", "SUCCEEDED", "COMPLETED"].includes(String(status || "").trim().toUpperCase());
+const isTaskFailureStatus = (status = "") =>
+  ["FAILURE", "FAILED"].includes(String(status || "").trim().toUpperCase());
+const isVideoPendingTaskEntry = (task = {}) => {
+  const actionName = String(task.actionName || "").trim().toLowerCase();
+  if (actionName.startsWith("video_")) return true;
+  return String(task.routeId || "").trim().toLowerCase().includes("video");
+};
+
+const pollImageTaskAndSettle = async ({
+  encodedTask,
+  fallbackAuthorization = "",
+  req = null,
+  source = "image_task_poll",
+  preferUserProvidedAuth = true,
+} = {}) => {
+  const normalizedTaskId = String(encodedTask || "").trim();
+  if (!normalizedTaskId) {
+    throw new Error("Missing image task id");
+  }
+
+  const decodedTask = parseImageTaskToken(normalizedTaskId);
+  const route =
+    (decodedTask?.routeId
+      ? await getImageRouteById(decodedTask.routeId, {
+          includeInactive: true,
+          includeSecrets: true,
+        })
+      : null) || (await resolveImageRoute(undefined, { includeInactive: true }));
+  if (!route) {
+    throw new Error("Image route not found for task poll");
+  }
+
+  const upstreamTaskId = decodedTask?.upstreamTaskId || normalizedTaskId;
+  const localJob = getLocalImageJob(upstreamTaskId);
+  if (localJob) {
+    return (
+      localJob.responseData || {
+        id: normalizedTaskId,
+        task_id: normalizedTaskId,
+        status: localJob.status || "processing",
+        progress: localJob.progress ?? 0,
+        results: localJob.results || [],
+      }
+    );
+  }
+
+  const authorization = getRouteAuthorization(route, fallbackAuthorization, {
+    preferUserProvided: preferUserProvidedAuth && shouldUseUserProvidedApiKey(route, fallbackAuthorization),
+  });
+  let responseData = null;
+
+  if (isVisionaryImageRoute(route)) {
+    if (String(upstreamTaskId).startsWith("local-")) {
+      return {
+        id: normalizedTaskId,
+        task_id: normalizedTaskId,
+        status: "processing",
+        progress: 0,
+        results: [],
+        error: "",
+        failure_reason: "",
+      };
+    }
+
+    const record = await fetchVisionaryRecordById({
+      route,
+      authorization,
+      upstreamTaskId,
+    });
+    responseData =
+      record || {
+        id: upstreamTaskId,
+        results: [],
+        progress: 0,
+        status: "processing",
+        failure_reason: "",
+        error: "",
+      };
+  } else {
+    if (!route.taskPath || !isOpenAiImageRoute(route)) {
+      throw new Error("Image route does not support task polling");
+    }
+
+    const pollUrl = buildRouteUrl(route, route.taskPath, { taskId: upstreamTaskId });
+    const response = await requestWithRetry(
+      () =>
+        axios.get(pollUrl, {
+          headers: {
+            Authorization: authorization,
+            "Content-Type": "application/json",
+          },
+          timeout: 10000,
+          httpsAgent: SHARED_HTTPS_AGENT,
+        }),
+      { retries: 2, delayMs: 350, label: `task-poll-${route.id}` },
+    );
+    responseData = response.data;
+  }
+
+  const taskStatus = extractResultStatus(responseData);
+  if (isTaskSuccessStatus(taskStatus)) {
+    const generationRecord = await getGenerationRecordByTaskId(normalizedTaskId).catch(() => null);
+    const persistedResult = await persistImageResultPayloadSafe({
+      payload: responseData,
+      resultUrls: extractResultUrlsFromPayload(responseData),
+      req,
+      generationRecord,
+      route,
+      modelId: generationRecord?.modelId || null,
+      taskId: normalizedTaskId,
+    });
+    responseData = persistedResult.payload;
+    await settlePendingTask(normalizedTaskId, "SUCCESS");
+    await completeGenerationRecordSuccessSafe({
+      taskId: normalizedTaskId,
+      resultUrls: persistedResult.resultUrls,
+      previewUrl: persistedResult.previewUrl,
+      meta: mergeGeneratedAssetMeta(
+        {
+          polledAt: new Date().toISOString(),
+          source,
+        },
+        persistedResult,
+      ),
+    });
+  } else if (isTaskFailureStatus(taskStatus)) {
+    await settlePendingTask(normalizedTaskId, "FAILED");
+    await completeGenerationRecordFailureSafe({
+      taskId: normalizedTaskId,
+      errorMessage:
+        responseData?.error ||
+        responseData?.message ||
+        responseData?.fail_reason ||
+        "Image task failed",
+      meta: {
+        polledAt: new Date().toISOString(),
+        source,
+      },
+    });
+  }
+
+  return responseData;
+};
+
+const pollVideoTaskAndSettle = async ({
+  encodedTaskId,
+  fallbackAuthorization = "",
+  source = "video_task_poll",
+} = {}) => {
+  const normalizedTaskId = String(encodedTaskId || "").trim();
+  if (!normalizedTaskId) {
+    throw new Error("Missing video task id");
+  }
+
+  const decodedTask = parseVideoTaskToken(normalizedTaskId);
+  const route =
+    (decodedTask?.routeId
+      ? await getVideoRouteById(decodedTask.routeId, {
+          includeInactive: true,
+          includeSecrets: true,
+        })
+      : null) || (await resolveVideoRoute(undefined, { includeInactive: true }));
+  if (!route?.taskPath) {
+    throw new Error("Video route does not support task polling");
+  }
+
+  const userKey = getRouteAuthorization(route, fallbackAuthorization, {
+    preferUserProvided: false,
+  });
+  const upstreamTaskId = decodedTask?.upstreamTaskId || normalizedTaskId;
+  const url = buildRouteUrl(route, route.taskPath, { taskId: upstreamTaskId });
+  const response = await requestWithRetry(
+    () =>
+      axios.get(url, {
+        headers: {
+          Authorization: userKey,
+          "Content-Type": "application/json",
+        },
+        timeout: 10000,
+        httpsAgent: SHARED_HTTPS_AGENT,
+      }),
+    { retries: 2, delayMs: 350, label: `video-task-poll-${route.id}` },
+  );
+
+  const responseData = response.data;
+  const taskStatus = extractResultStatus(responseData);
+  if (isTaskSuccessStatus(taskStatus)) {
+    await settlePendingTask(normalizedTaskId, "SUCCESS");
+    await completeGenerationRecordSuccessSafe({
+      taskId: normalizedTaskId,
+      resultUrls: extractResultUrlsFromPayload(responseData),
+      meta: {
+        polledAt: new Date().toISOString(),
+        source,
+      },
+    });
+  } else if (isTaskFailureStatus(taskStatus)) {
+    await settlePendingTask(normalizedTaskId, "FAILED");
+    await completeGenerationRecordFailureSafe({
+      taskId: normalizedTaskId,
+      errorMessage:
+        responseData?.error ||
+        responseData?.message ||
+        responseData?.fail_reason ||
+        "Video task failed",
+      meta: {
+        polledAt: new Date().toISOString(),
+        source,
+      },
+    });
+  }
+
+  return responseData;
+};
+
 // ==================== Image Task Polling ====================
 app.get("/api/task/:taskId", pollingLimiter, async (req, res) => {
   try {
-    const fallbackAuthorization = req.headers["authorization"];
-    const encodedTask = String(req.params.taskId || "").trim();
-    const decodedTask = parseImageTaskToken(encodedTask);
-    const route =
-      (decodedTask?.routeId
-        ? await getImageRouteById(decodedTask.routeId, {
-            includeInactive: true,
-            includeSecrets: true,
-          })
-        : null) || (await resolveImageRoute(undefined, { includeInactive: true }));
-
-    const upstreamTaskId = decodedTask?.upstreamTaskId || encodedTask;
-    const localJob = getLocalImageJob(upstreamTaskId);
-    if (localJob) {
-      return res.json(
-        localJob.responseData || {
-          id: encodedTask,
-          task_id: encodedTask,
-          status: localJob.status || "processing",
-          progress: localJob.progress ?? 0,
-          results: localJob.results || [],
-        },
-      );
-    }
-
-    const authorization = getRouteAuthorization(route, fallbackAuthorization, {
-      preferUserProvided: shouldUseUserProvidedApiKey(route, fallbackAuthorization),
+    const responseData = await pollImageTaskAndSettle({
+      encodedTask: req.params.taskId,
+      fallbackAuthorization: req.headers["authorization"],
+      req,
+      source: "image_task_poll",
+      preferUserProvidedAuth: true,
     });
-    let responseData = null;
-
-    if (isVisionaryImageRoute(route)) {
-      const record = await fetchVisionaryRecordById({
-        route,
-        authorization,
-        upstreamTaskId,
-      });
-      responseData =
-        record || {
-          id: upstreamTaskId,
-          results: [],
-          progress: 0,
-          status: "processing",
-          failure_reason: "",
-          error: "",
-        };
-    } else {
-      if (!route?.taskPath || !isOpenAiImageRoute(route)) {
-        return sendUserFacingGenerationError(res, 400);
-      }
-
-      const pollUrl = buildRouteUrl(route, route.taskPath, { taskId: upstreamTaskId });
-      const response = await requestWithRetry(
-        () =>
-          axios.get(pollUrl, {
-            headers: {
-              Authorization: authorization,
-              "Content-Type": "application/json",
-            },
-            timeout: 10000,
-            httpsAgent: SHARED_HTTPS_AGENT,
-          }),
-        { retries: 2, delayMs: 350, label: `task-poll-${route.id}` },
-      );
-      responseData = response.data;
-    }
-
-    const taskStatus = String(
-      responseData?.status || responseData?.state || responseData?.data?.status || "",
-    ).toUpperCase();
-    if (["SUCCESS", "SUCCEEDED", "COMPLETED"].includes(taskStatus)) {
-      const persistedResult = await persistImageResultPayloadSafe({
-        payload: responseData,
-        resultUrls: extractResultUrlsFromPayload(responseData),
-        req,
-        route,
-        taskId: encodedTask,
-      });
-      responseData = persistedResult.payload;
-      await settlePendingTask(encodedTask, "SUCCESS");
-      await completeGenerationRecordSuccessSafe({
-        taskId: encodedTask,
-        resultUrls: persistedResult.resultUrls,
-        previewUrl: persistedResult.previewUrl,
-        meta: mergeGeneratedAssetMeta({
-          polledAt: new Date().toISOString(),
-          source: "image_task_poll",
-        }, persistedResult),
-      });
-    } else if (["FAILURE", "FAILED"].includes(taskStatus)) {
-      await settlePendingTask(encodedTask, "FAILED");
-      await completeGenerationRecordFailureSafe({
-        taskId: encodedTask,
-        errorMessage:
-          responseData?.error ||
-          responseData?.message ||
-          responseData?.fail_reason ||
-          "Image task failed",
-        meta: {
-          polledAt: new Date().toISOString(),
-          source: "image_task_poll",
-        },
-      });
-    }
-
     res.json(responseData);
   } catch (error) {
     console.error("[Task Poll] Error:", error.message);
@@ -4627,82 +4749,19 @@ app.post("/api/video/generate", generateLimiter, async (req, res) => {
 // ==================== Video Task Polling ====================
 app.get("/api/video/task/:taskId", pollingLimiter, async (req, res) => {
   try {
-    const fallbackAuthorization = req.headers["authorization"];
     await requireBillingAccount(req);
-    const encodedTaskId = String(req.params.taskId || "").trim();
-    const decodedTask = parseVideoTaskToken(encodedTaskId);
-    const route =
-      (decodedTask?.routeId
-        ? await getVideoRouteById(decodedTask.routeId, {
-            includeInactive: true,
-            includeSecrets: true,
-          })
-        : null) || (await resolveVideoRoute(undefined, { includeInactive: true }));
-
-    if (!route?.taskPath) {
-      return sendUserFacingGenerationError(res, 400);
-    }
-
-    const userKey = getRouteAuthorization(route, fallbackAuthorization, {
-      preferUserProvided: false,
+    const responseData = await pollVideoTaskAndSettle({
+      encodedTaskId: req.params.taskId,
+      fallbackAuthorization: req.headers["authorization"],
+      source: "video_task_poll",
     });
-    const upstreamTaskId = decodedTask?.upstreamTaskId || encodedTaskId;
-    const url = buildRouteUrl(route, route.taskPath, { taskId: upstreamTaskId });
-    console.log(`[Video Task Poll] Requesting: ${url}`);
-
-    const response = await requestWithRetry(
-      () =>
-        axios.get(url, {
-          headers: {
-            Authorization: userKey,
-            "Content-Type": "application/json",
-          },
-          timeout: 10000,
-          httpsAgent: SHARED_HTTPS_AGENT,
-        }),
-      { retries: 2, delayMs: 350, label: `video-task-poll-${route.id}` },
-    );
-
     logger.info({
       timestamp: new Date().toISOString(),
       type: "Poll Response",
-      taskId: upstreamTaskId,
-      responsePreview: JSON.stringify(response.data).substring(0, 1000),
+      taskId: String(req.params.taskId || "").trim(),
+      responsePreview: JSON.stringify(responseData).substring(0, 1000),
     });
-
-    console.log(
-      "[Video Task Poll] Response:",
-      JSON.stringify(response.data).substring(0, 500),
-    );
-
-    const taskStatus = extractResultStatus(response.data);
-    if (["SUCCESS", "SUCCEEDED", "COMPLETED"].includes(taskStatus)) {
-      await settlePendingTask(encodedTaskId, "SUCCESS");
-      await completeGenerationRecordSuccessSafe({
-        taskId: encodedTaskId,
-        resultUrls: extractResultUrlsFromPayload(response.data),
-        meta: {
-          polledAt: new Date().toISOString(),
-          source: "video_task_poll",
-        },
-      });
-    } else if (["FAILURE", "FAILED"].includes(taskStatus)) {
-      await settlePendingTask(encodedTaskId, "FAILED");
-      await completeGenerationRecordFailureSafe({
-        taskId: encodedTaskId,
-        errorMessage:
-          response.data?.error ||
-          response.data?.message ||
-          response.data?.fail_reason ||
-          "Video task failed",
-        meta: {
-          polledAt: new Date().toISOString(),
-          source: "video_task_poll",
-        },
-      });
-    }
-
-    res.json(response.data);
+    res.json(responseData);
   } catch (error) {
     console.error("[Video Task Poll] Error:", error.message);
     respondWithUserFacingGenerationError(res, error, 500);
@@ -5319,6 +5378,98 @@ app.delete("/api/announcement/:id", async (req, res) => {
   }
 });
 
+const BACKGROUND_TASK_SETTLEMENT_ENABLED =
+  String(process.env.BACKGROUND_TASK_SETTLEMENT_ENABLED || "true").trim().toLowerCase() !== "false";
+const BACKGROUND_TASK_SETTLEMENT_INTERVAL_MS = Math.max(
+  5000,
+  readPositiveIntEnv("BACKGROUND_TASK_SETTLEMENT_INTERVAL_MS", 15000),
+);
+const BACKGROUND_TASK_SETTLEMENT_BATCH_SIZE = Math.max(
+  1,
+  readPositiveIntEnv("BACKGROUND_TASK_SETTLEMENT_BATCH_SIZE", 24),
+);
+let backgroundTaskSettlementRunning = false;
+
+const runBackgroundTaskSettlement = async () => {
+  if (!BACKGROUND_TASK_SETTLEMENT_ENABLED || backgroundTaskSettlementRunning) {
+    return;
+  }
+
+  backgroundTaskSettlementRunning = true;
+  try {
+    const pendingTasks = await listPendingTasks({
+      status: "PENDING",
+      limit: BACKGROUND_TASK_SETTLEMENT_BATCH_SIZE,
+    });
+    if (!pendingTasks.length) {
+      return;
+    }
+    logger.info({
+      timestamp: new Date().toISOString(),
+      type: "Background Task Settlement Batch",
+      pendingCount: pendingTasks.length,
+    });
+
+    for (const task of pendingTasks) {
+      if (!task?.taskId) continue;
+      try {
+        let responseData = null;
+        if (isVideoPendingTaskEntry(task)) {
+          responseData = await pollVideoTaskAndSettle({
+            encodedTaskId: task.taskId,
+            source: "background_video_task_poll",
+          });
+        } else {
+          responseData = await pollImageTaskAndSettle({
+            encodedTask: task.taskId,
+            source: "background_image_task_poll",
+            preferUserProvidedAuth: false,
+          });
+        }
+        const settledStatus = extractResultStatus(responseData);
+        if (isTaskSuccessStatus(settledStatus) || isTaskFailureStatus(settledStatus)) {
+          logger.info({
+            timestamp: new Date().toISOString(),
+            type: "Background Task Settled",
+            taskId: task.taskId,
+            routeId: task.routeId || null,
+            actionName: task.actionName || null,
+            status: settledStatus,
+          });
+        }
+      } catch (error) {
+        logger.warn({
+          timestamp: new Date().toISOString(),
+          type: "Background Task Settlement Warning",
+          taskId: task.taskId,
+          routeId: task.routeId || null,
+          actionName: task.actionName || null,
+          message: error.message,
+        });
+      }
+    }
+  } finally {
+    backgroundTaskSettlementRunning = false;
+  }
+};
+
+const startBackgroundTaskSettlement = () => {
+  if (!BACKGROUND_TASK_SETTLEMENT_ENABLED) {
+    console.log("[Background Settlement] Disabled");
+    return;
+  }
+
+  setTimeout(() => {
+    void runBackgroundTaskSettlement();
+  }, 5000);
+  setInterval(() => {
+    void runBackgroundTaskSettlement();
+  }, BACKGROUND_TASK_SETTLEMENT_INTERVAL_MS);
+  console.log(
+    `[Background Settlement] Enabled: every ${BACKGROUND_TASK_SETTLEMENT_INTERVAL_MS}ms, batch ${BACKGROUND_TASK_SETTLEMENT_BATCH_SIZE}`,
+  );
+};
+
 // ==================== Static Files ====================
 app.use(
   "/generated-assets/line4",
@@ -5355,4 +5506,5 @@ app.get("/{*splat}", (req, res) => {
 app.listen(PORT, () => {
   console.log(`Backend server running on http://localhost:${PORT}`);
   console.log(`   Upstream API: ${UPSTREAM_URL}`);
+  startBackgroundTaskSettlement();
 });
