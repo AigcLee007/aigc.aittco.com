@@ -1,6 +1,17 @@
 node_modules
 dist
 .git
+.env
+.env.*
+uploads
+storage
+*.db
+*.sqlite
+*.sqlite3
+debug_error.log
+gcm-diagnose.log
+mockups
+classic-header-scheme1.png
 .gitignore
 *.log
 docker-compose.yml
