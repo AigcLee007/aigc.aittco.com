@@ -2839,6 +2839,112 @@ app.get("/api/balance/info", async (req, res) => {
   }
 });
 
+const GPT_IMAGE2_SIZE_PATTERN = /^\s*(\d+)\s*[xX×]\s*(\d+)\s*$/;
+const GPT_IMAGE2_RATIO_PATTERN = /^\s*(\d+(?:\.\d+)?)\s*[:xX×]\s*(\d+(?:\.\d+)?)\s*$/;
+const GPT_IMAGE2_SIZE_MULTIPLE = 16;
+const GPT_IMAGE2_MAX_EDGE = 3840;
+const GPT_IMAGE2_MAX_ASPECT_RATIO = 3;
+const GPT_IMAGE2_MIN_PIXELS = 655360;
+const GPT_IMAGE2_MAX_PIXELS = 8294400;
+
+const roundGptImage2ToMultiple = (value, multiple = GPT_IMAGE2_SIZE_MULTIPLE) =>
+  Math.max(multiple, Math.round(Number(value || 0) / multiple) * multiple);
+
+const floorGptImage2ToMultiple = (value, multiple = GPT_IMAGE2_SIZE_MULTIPLE) =>
+  Math.max(multiple, Math.floor(Number(value || 0) / multiple) * multiple);
+
+const ceilGptImage2ToMultiple = (value, multiple = GPT_IMAGE2_SIZE_MULTIPLE) =>
+  Math.max(multiple, Math.ceil(Number(value || 0) / multiple) * multiple);
+
+const parseGptImage2Ratio = (ratio) => {
+  const match = String(ratio || "").trim().match(GPT_IMAGE2_RATIO_PATTERN);
+  if (!match) return { width: 1, height: 1 };
+  const width = Number(match[1]);
+  const height = Number(match[2]);
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+    return { width: 1, height: 1 };
+  }
+  return { width, height };
+};
+
+const normalizeGptImage2Dimensions = (width, height) => {
+  let normalizedWidth = roundGptImage2ToMultiple(width);
+  let normalizedHeight = roundGptImage2ToMultiple(height);
+  const scaleToFit = (scale) => {
+    normalizedWidth = floorGptImage2ToMultiple(normalizedWidth * scale);
+    normalizedHeight = floorGptImage2ToMultiple(normalizedHeight * scale);
+  };
+  const scaleToFill = (scale) => {
+    normalizedWidth = ceilGptImage2ToMultiple(normalizedWidth * scale);
+    normalizedHeight = ceilGptImage2ToMultiple(normalizedHeight * scale);
+  };
+
+  for (let i = 0; i < 4; i += 1) {
+    const maxEdge = Math.max(normalizedWidth, normalizedHeight);
+    if (maxEdge > GPT_IMAGE2_MAX_EDGE) {
+      scaleToFit(GPT_IMAGE2_MAX_EDGE / maxEdge);
+    }
+
+    if (normalizedWidth / normalizedHeight > GPT_IMAGE2_MAX_ASPECT_RATIO) {
+      normalizedWidth = floorGptImage2ToMultiple(normalizedHeight * GPT_IMAGE2_MAX_ASPECT_RATIO);
+    } else if (normalizedHeight / normalizedWidth > GPT_IMAGE2_MAX_ASPECT_RATIO) {
+      normalizedHeight = floorGptImage2ToMultiple(normalizedWidth * GPT_IMAGE2_MAX_ASPECT_RATIO);
+    }
+
+    const pixels = normalizedWidth * normalizedHeight;
+    if (pixels > GPT_IMAGE2_MAX_PIXELS) {
+      scaleToFit(Math.sqrt(GPT_IMAGE2_MAX_PIXELS / pixels));
+    } else if (pixels < GPT_IMAGE2_MIN_PIXELS) {
+      scaleToFill(Math.sqrt(GPT_IMAGE2_MIN_PIXELS / pixels));
+    }
+  }
+
+  return { width: normalizedWidth, height: normalizedHeight };
+};
+
+const normalizeGptImage2RequestSize = (size, ratio = "1:1") => {
+  const normalizedSize = String(size || "auto").trim().toLowerCase();
+  if (!normalizedSize || normalizedSize === "auto") return "auto";
+
+  const explicitMatch = normalizedSize.match(GPT_IMAGE2_SIZE_PATTERN);
+  if (explicitMatch) {
+    const normalized = normalizeGptImage2Dimensions(Number(explicitMatch[1]), Number(explicitMatch[2]));
+    return `${normalized.width}x${normalized.height}`;
+  }
+
+  const tier = normalizedSize === "4k" ? "4k" : normalizedSize === "2k" ? "2k" : "1k";
+  const parsedRatio = parseGptImage2Ratio(ratio);
+  const ratioWidth = parsedRatio.width;
+  const ratioHeight = parsedRatio.height;
+  let width;
+  let height;
+
+  if (ratioWidth === ratioHeight) {
+    const side = tier === "1k" ? 1024 : tier === "2k" ? 2048 : 3840;
+    width = side;
+    height = side;
+  } else if (tier === "1k") {
+    const shortSide = 1024;
+    width = ratioWidth > ratioHeight
+      ? roundGptImage2ToMultiple((shortSide * ratioWidth) / ratioHeight)
+      : shortSide;
+    height = ratioWidth > ratioHeight
+      ? shortSide
+      : roundGptImage2ToMultiple((shortSide * ratioHeight) / ratioWidth);
+  } else {
+    const longSide = tier === "2k" ? 2048 : 3840;
+    width = ratioWidth > ratioHeight
+      ? longSide
+      : roundGptImage2ToMultiple((longSide * ratioWidth) / ratioHeight);
+    height = ratioWidth > ratioHeight
+      ? roundGptImage2ToMultiple((longSide * ratioHeight) / ratioWidth)
+      : longSide;
+  }
+
+  const normalized = normalizeGptImage2Dimensions(width, height);
+  return `${normalized.width}x${normalized.height}`;
+};
+
 // ==================== Image Generation ====================
 app.post("/api/generate", generateLimiter, async (req, res) => {
   let billingAccount = null;
@@ -3115,6 +3221,16 @@ app.post("/api/generate", generateLimiter, async (req, res) => {
         } else {
           requestBody.size = sizeKey;
         }
+      }
+    }
+
+    if (requestBody.model === "gpt-image-2") {
+      const gptImage2Size = requestBody.size || requestBody.image_size;
+      if (gptImage2Size) {
+        requestBody.size = normalizeGptImage2RequestSize(
+          gptImage2Size,
+          requestBody.aspect_ratio || requestBody.aspectRatio || "1:1",
+        );
       }
     }
 
@@ -3773,6 +3889,16 @@ app.post("/api/edit", generateLimiter, async (req, res) => {
       requestBody,
       requestedImageModel?.requestModel || requestBody.model,
     );
+
+    if (requestBody.model === "gpt-image-2") {
+      const gptImage2Size = requestBody.size || requestBody.image_size;
+      if (gptImage2Size) {
+        requestBody.size = normalizeGptImage2RequestSize(
+          gptImage2Size,
+          requestBody.aspect_ratio || requestBody.aspectRatio || "1:1",
+        );
+      }
+    }
 
     console.log("[Edit] Proxying request:", {
       routeId: route.id,

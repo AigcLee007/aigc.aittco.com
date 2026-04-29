@@ -720,13 +720,23 @@
       .trim();
   const GPT_SIZE_PATTERN = /^\s*(\d+)\s*[xX]\s*(\d+)\s*$/;
   const GPT_RATIO_PATTERN = /^\s*(\d+(?:\.\d+)?)\s*[:xX]\s*(\d+(?:\.\d+)?)\s*$/;
+  const GPT_IMAGE_SIZE_MULTIPLE = 16;
+  const GPT_IMAGE_MAX_EDGE = 3840;
+  const GPT_IMAGE_MAX_ASPECT_RATIO = 3;
+  const GPT_IMAGE_MIN_PIXELS = 655360;
+  const GPT_IMAGE_MAX_PIXELS = 8294400;
   const roundToMultiple = (value, multiple) =>
     Math.max(multiple, Math.round(Number(value || 0) / multiple) * multiple);
+  const floorToMultiple = (value, multiple) =>
+    Math.max(multiple, Math.floor(Number(value || 0) / multiple) * multiple);
+  const ceilToMultiple = (value, multiple) =>
+    Math.max(multiple, Math.ceil(Number(value || 0) / multiple) * multiple);
   const normalizeGptImageSize = (size) => {
     const trimmed = String(size || "").trim();
     const match = trimmed.match(GPT_SIZE_PATTERN);
     if (!match) return trimmed;
-    return `${roundToMultiple(Number(match[1]), 16)}x${roundToMultiple(Number(match[2]), 16)}`;
+    const normalized = normalizeGptImageDimensions(Number(match[1]), Number(match[2]));
+    return `${normalized.width}x${normalized.height}`;
   };
   const parseGptRatio = (ratio) => {
     const match = String(ratio || "").trim().match(GPT_RATIO_PATTERN);
@@ -737,6 +747,39 @@
       return null;
     }
     return { width, height };
+  };
+  const normalizeGptImageDimensions = (width, height) => {
+    let normalizedWidth = roundToMultiple(width, GPT_IMAGE_SIZE_MULTIPLE);
+    let normalizedHeight = roundToMultiple(height, GPT_IMAGE_SIZE_MULTIPLE);
+    const scaleToFit = (scale) => {
+      normalizedWidth = floorToMultiple(normalizedWidth * scale, GPT_IMAGE_SIZE_MULTIPLE);
+      normalizedHeight = floorToMultiple(normalizedHeight * scale, GPT_IMAGE_SIZE_MULTIPLE);
+    };
+    const scaleToFill = (scale) => {
+      normalizedWidth = ceilToMultiple(normalizedWidth * scale, GPT_IMAGE_SIZE_MULTIPLE);
+      normalizedHeight = ceilToMultiple(normalizedHeight * scale, GPT_IMAGE_SIZE_MULTIPLE);
+    };
+
+    for (let i = 0; i < 4; i += 1) {
+      const maxEdge = Math.max(normalizedWidth, normalizedHeight);
+      if (maxEdge > GPT_IMAGE_MAX_EDGE) {
+        scaleToFit(GPT_IMAGE_MAX_EDGE / maxEdge);
+      }
+      if (normalizedWidth / normalizedHeight > GPT_IMAGE_MAX_ASPECT_RATIO) {
+        normalizedWidth = floorToMultiple(normalizedHeight * GPT_IMAGE_MAX_ASPECT_RATIO, GPT_IMAGE_SIZE_MULTIPLE);
+      } else if (normalizedHeight / normalizedWidth > GPT_IMAGE_MAX_ASPECT_RATIO) {
+        normalizedHeight = floorToMultiple(normalizedWidth * GPT_IMAGE_MAX_ASPECT_RATIO, GPT_IMAGE_SIZE_MULTIPLE);
+      }
+
+      const pixels = normalizedWidth * normalizedHeight;
+      if (pixels > GPT_IMAGE_MAX_PIXELS) {
+        scaleToFit(Math.sqrt(GPT_IMAGE_MAX_PIXELS / pixels));
+      } else if (pixels < GPT_IMAGE_MIN_PIXELS) {
+        scaleToFill(Math.sqrt(GPT_IMAGE_MIN_PIXELS / pixels));
+      }
+    }
+
+    return { width: normalizedWidth, height: normalizedHeight };
   };
   const calculateClassicGptImageSize = (size, ratio) => {
     const normalizedSize = String(size || "").trim().toLowerCase();
@@ -750,32 +793,36 @@
 
     if (ratioWidth === ratioHeight) {
       const side = tier === "1k" ? 1024 : tier === "2k" ? 2048 : 3840;
-      return `${side}x${side}`;
+      const normalized = normalizeGptImageDimensions(side, side);
+      return `${normalized.width}x${normalized.height}`;
     }
 
+    let width;
+    let height;
     if (tier === "1k") {
       const shortSide = 1024;
-      const width =
+      width =
         ratioWidth > ratioHeight
-          ? roundToMultiple((shortSide * ratioWidth) / ratioHeight, 16)
+          ? roundToMultiple((shortSide * ratioWidth) / ratioHeight, GPT_IMAGE_SIZE_MULTIPLE)
           : shortSide;
-      const height =
+      height =
         ratioWidth > ratioHeight
           ? shortSide
-          : roundToMultiple((shortSide * ratioHeight) / ratioWidth, 16);
-      return `${width}x${height}`;
+          : roundToMultiple((shortSide * ratioHeight) / ratioWidth, GPT_IMAGE_SIZE_MULTIPLE);
+    } else {
+      const longSide = tier === "2k" ? 2048 : 3840;
+      width =
+        ratioWidth > ratioHeight
+          ? longSide
+          : roundToMultiple((longSide * ratioWidth) / ratioHeight, GPT_IMAGE_SIZE_MULTIPLE);
+      height =
+        ratioWidth > ratioHeight
+          ? roundToMultiple((longSide * ratioHeight) / ratioWidth, GPT_IMAGE_SIZE_MULTIPLE)
+          : longSide;
     }
 
-    const longSide = tier === "2k" ? 2048 : 3840;
-    const width =
-      ratioWidth > ratioHeight
-        ? longSide
-        : roundToMultiple((longSide * ratioWidth) / ratioHeight, 16);
-    const height =
-      ratioWidth > ratioHeight
-        ? roundToMultiple((longSide * ratioHeight) / ratioWidth, 16)
-        : longSide;
-    return `${width}x${height}`;
+    const normalized = normalizeGptImageDimensions(width, height);
+    return `${normalized.width}x${normalized.height}`;
   };
   const getClassicGptSettings = () =>
     typeof window.getClassicGptSettings === "function"
