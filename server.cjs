@@ -1258,6 +1258,16 @@ const toSafeHttpStatus = (status, fallbackStatus = 500) => {
   if (numeric < 400 || numeric > 599) return fallbackStatus;
   return numeric;
 };
+const formatErrorValue = (value) => {
+  if (!value) return "";
+  if (typeof value === "string") return value;
+  try {
+    return JSON.stringify(value);
+  } catch (_error) {
+    return String(value);
+  }
+};
+
 const buildErrorDetails = (error) => {
   if (!error) return "";
   const parts = [];
@@ -1269,9 +1279,17 @@ const buildErrorDetails = (error) => {
     error.response?.statusText ||
     "";
 
+  const upstreamStatus = error.response?.status;
+  const geminiNative = error.geminiNative || null;
+
   if (code) parts.push(`code=${code}`);
+  if (upstreamStatus) parts.push(`upstream_status=${upstreamStatus}`);
   if (message) parts.push(`message=${message}`);
-  if (upstream) parts.push(`upstream=${String(upstream)}`);
+  if (geminiNative?.routeId) parts.push(`route=${geminiNative.routeId}`);
+  if (geminiNative?.model) parts.push(`model=${geminiNative.model}`);
+  if (geminiNative?.imageSize) parts.push(`imageSize=${geminiNative.imageSize}`);
+  if (geminiNative?.aspectRatio) parts.push(`aspectRatio=${geminiNative.aspectRatio}`);
+  if (upstream) parts.push(`upstream=${formatErrorValue(upstream)}`);
 
   return parts.join("; ");
 };
@@ -1740,7 +1758,19 @@ const executeGeminiNativeGenerate = async ({
     }
   };
 
-  const response = await executeGeminiPayloadSequence(finalImageSize);
+  let response;
+  try {
+    response = await executeGeminiPayloadSequence(finalImageSize);
+  } catch (error) {
+    error.geminiNative = {
+      routeId: route?.id || null,
+      model,
+      endpoint,
+      imageSize: finalImageSize,
+      aspectRatio: normalizedAspectRatio,
+    };
+    throw error;
+  }
 
   const candidates = response.data?.candidates;
   if (!candidates || candidates.length === 0) {
@@ -3213,6 +3243,7 @@ app.post("/api/generate", generateLimiter, async (req, res) => {
               }, persistedResult),
             });
           } catch (error) {
+            const failureDetails = buildErrorDetails(error) || error.message;
             setLocalImageJob(localJobId, {
               status: "failed",
               progress: 100,
@@ -3220,8 +3251,11 @@ app.post("/api/generate", generateLimiter, async (req, res) => {
                 id: localTaskId,
                 task_id: localTaskId,
                 status: "failed",
-                error: error.message,
-                failure_reason: error.message,
+                error: failureDetails,
+                failure_reason: failureDetails,
+                upstream_status: error.response?.status || null,
+                upstream_error: error.response?.data || null,
+                upstream_context: error.geminiNative || null,
                 results: [],
               },
             });
@@ -3235,19 +3269,24 @@ app.post("/api/generate", generateLimiter, async (req, res) => {
             await completeGenerationRecordFailureSafe({
               recordId: generationRecord?.id,
               taskId: localTaskId,
-              errorMessage: error.message,
+              errorMessage: failureDetails,
               outputSize: requestBody.image_size || requestBody.size || null,
               aspectRatio: requestBody.aspect_ratio || requestBody.aspectRatio || null,
               meta: {
                 transport: route.transport,
                 routeMode: "async",
+                upstreamStatus: error.response?.status || null,
+                upstreamError: error.response?.data || null,
+                upstreamContext: error.geminiNative || null,
               },
             });
             logger.error({
               timestamp: new Date().toISOString(),
               type: "Gemini Native Background Generate Error",
-              message: error.message,
+              message: failureDetails,
               stack: error.stack,
+              status: error.response?.status,
+              context: error.geminiNative,
               response: error.response?.data,
             });
           }
