@@ -401,14 +401,13 @@ const applyImageRoutePreset = <T extends AdminImageRoutePayload>(
 ): T =>
   preset === 'openai'
     ? { ...route, transport: 'openai-image' as const, mode: 'async' as const, generatePath: '/v1/images/generations?async=true', taskPath: '/v1/images/tasks/{taskId}', editPath: '/v1/images/edits?async=true', chatPath: '', useRequestModel: false, allowUserApiKeyWithoutLogin: false }
-    : { ...route, transport: 'gemini-native' as const, mode: 'sync' as const, generatePath: '/v1beta/models/{model}:generateContent', taskPath: '', editPath: '', chatPath: '', useRequestModel: false, allowUserApiKeyWithoutLogin: false };
+    : { ...route, transport: 'gemini-native' as const, mode: 'async' as const, generatePath: '/v1beta/models/{model}:generateContent', taskPath: '', editPath: '', chatPath: '', useRequestModel: false, allowUserApiKeyWithoutLogin: false };
 
 const validateImageRoutePayload = (payload: AdminImageRoutePayload) => {
   const generatePath = String(payload.generatePath || '').trim();
   if (!payload.id || !payload.label || !payload.modelFamily || !payload.line || !payload.baseUrl) return '图片线路请至少填写 route id、显示名称、线路族、line 和 baseUrl。';
   if (payload.transport === 'openai-image' && /generatecontent/i.test(generatePath)) return 'OpenAI 图片线路不能填写 Gemini generateContent 接口。';
   if (payload.transport === 'openai-image' && payload.mode === 'async' && !String(payload.taskPath || '').trim()) return 'OpenAI 异步图片线路必须填写 taskPath。';
-  if (payload.transport === 'gemini-native' && payload.mode !== 'sync') return 'Gemini 原生图片线路只能使用 sync 模式。';
   if (payload.transport === 'gemini-native' && !/\{model\}/.test(generatePath)) return 'Gemini 原生线路的 generatePath 必须包含 {model}。';
   if (payload.transport === 'gemini-native' && !payload.useRequestModel && !String(payload.upstreamModel || '').trim() && !hasImageRouteSizeOverrideModel(payload)) return 'Gemini 原生线路需要填写默认 upstreamModel、尺寸覆写模型，或开启“使用模型请求名”。';
   if (payload.allowUserApiKeyWithoutLogin && !(payload.transport === 'openai-image' && payload.mode === 'async')) return '“允许用户 API Key 免登录”只适用于 OpenAI 兼容异步图片线路。';
@@ -1066,7 +1065,7 @@ const MediaCatalogAdminPanel: React.FC<MediaCatalogAdminPanelProps> = ({ session
           </div>
           <div className="space-y-2 text-xs leading-5 text-cyan-100/85">
             <p>OpenAI 图片异步：`openai-image + async + /v1/images/generations?async=true + taskPath`。</p>
-            <p>Gemini 同步：`gemini-native + sync + /v1beta/models/{'{model}'}:generateContent`。</p>
+            <p>Gemini 原生：`gemini-native + async + /v1beta/models/{'{model}'}:generateContent`，后端会包装成本地异步任务。</p>
             <p>默认 `upstreamModel` 和默认点数会作为兜底；如果填写 1K / 2K / 4K 覆写，则这些尺寸会优先走各自的模型和点数。</p>
             <p>如果你想兼容旧用户 Key，只建议给 OpenAI 异步线路打开“允许用户 API Key 免登录”。</p>
           </div>
