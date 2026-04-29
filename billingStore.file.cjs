@@ -14,6 +14,16 @@ const BILLING_FILE = path.join(__dirname, "billing-data.json");
 const BILLING_VERSION = 1;
 const LEDGER_LIMIT = 5000;
 const SETTLED_TASK_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
+const PENDING_TASK_TIMEOUT_MINUTES = () =>
+  Math.max(
+    10,
+    Number.parseInt(String(process.env.BILLING_PENDING_TASK_TIMEOUT_MINUTES || "90"), 10) || 90,
+  );
+const VIDEO_PENDING_TASK_TIMEOUT_MINUTES = () =>
+  Math.max(
+    PENDING_TASK_TIMEOUT_MINUTES(),
+    Number.parseInt(String(process.env.BILLING_VIDEO_PENDING_TASK_TIMEOUT_MINUTES || "360"), 10) || 360,
+  );
 
 class BillingError extends Error {
   constructor(code, message, extra = {}) {
@@ -116,6 +126,33 @@ const cleanupStore = (store) => {
     if (task.settledAt && now - new Date(task.settledAt).getTime() > SETTLED_TASK_RETENTION_MS) {
       delete store.pendingTasks[taskId];
     }
+  });
+};
+
+const expireStalePendingTasksInStore = (store) => {
+  const now = Date.now();
+  const imageTimeoutMs = PENDING_TASK_TIMEOUT_MINUTES() * 60 * 1000;
+  const videoTimeoutMs = VIDEO_PENDING_TASK_TIMEOUT_MINUTES() * 60 * 1000;
+
+  Object.entries(store.pendingTasks || {}).forEach(([taskId, task]) => {
+    if (!task || String(task.status || "").toUpperCase() !== "PENDING" || task.settledAt) {
+      return;
+    }
+    const createdAtMs = Date.parse(task.createdAt || "");
+    if (!Number.isFinite(createdAtMs)) return;
+    const routeId = String(task.routeId || "").toLowerCase();
+    const timeoutMs = routeId.includes("video") ? videoTimeoutMs : imageTimeoutMs;
+    if (now - createdAtMs < timeoutMs) return;
+
+    task.status = "FAILED";
+    task.settledAt = new Date(now).toISOString();
+    const refund = refundChargeInStore(store, task.accountId, task.chargeId, {
+      reason: "pending_task_timeout",
+      taskId,
+      routeId: task.routeId,
+    });
+    task.refundId = refund?.refundId || null;
+    task.refundedAt = refund?.account?.updatedAt || null;
   });
 };
 
@@ -533,7 +570,10 @@ const buildAdminBillingOverviewFromStore = (store, { recentWindowHours = 24 } = 
 };
 
 const getAdminBillingOverview = ({ recentWindowHours = 24 } = {}) =>
-  withStore((store) => buildAdminBillingOverviewFromStore(store, { recentWindowHours }));
+  withStore((store) => {
+    expireStalePendingTasksInStore(store);
+    return buildAdminBillingOverviewFromStore(store, { recentWindowHours });
+  });
 
 const reservePoints = (accountId, points, meta = {}) =>
   withStore((store) => {

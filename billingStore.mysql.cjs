@@ -18,6 +18,16 @@ const {
 
 const LEDGER_LIMIT = 5000;
 const SETTLED_TASK_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
+const PENDING_TASK_TIMEOUT_MINUTES = () =>
+  Math.max(
+    10,
+    Number.parseInt(String(process.env.BILLING_PENDING_TASK_TIMEOUT_MINUTES || "90"), 10) || 90,
+  );
+const VIDEO_PENDING_TASK_TIMEOUT_MINUTES = () =>
+  Math.max(
+    PENDING_TASK_TIMEOUT_MINUTES(),
+    Number.parseInt(String(process.env.BILLING_VIDEO_PENDING_TASK_TIMEOUT_MINUTES || "360"), 10) || 360,
+  );
 
 class BillingError extends Error {
   constructor(code, message, extra = {}) {
@@ -568,6 +578,62 @@ const getAccountLedgerReport = async (
   );
 };
 
+const expireStalePendingTasks = async () => {
+  await ensureBillingSchema();
+  const imageCutoff = toDbDateTime(
+    new Date(Date.now() - PENDING_TASK_TIMEOUT_MINUTES() * 60 * 1000),
+  );
+  const videoCutoff = toDbDateTime(
+    new Date(Date.now() - VIDEO_PENDING_TASK_TIMEOUT_MINUTES() * 60 * 1000),
+  );
+
+  return withTransaction(async (connection) => {
+    const [tasks] = await connection.execute(
+      `
+        SELECT *
+        FROM billing_pending_tasks
+        WHERE settled_at IS NULL
+          AND status = 'PENDING'
+          AND (
+            (LOWER(COALESCE(route_id, '')) LIKE '%video%' AND created_at < ?)
+            OR (LOWER(COALESCE(route_id, '')) NOT LIKE '%video%' AND created_at < ?)
+          )
+        ORDER BY created_at ASC
+        LIMIT 200
+        FOR UPDATE
+      `,
+      [videoCutoff, imageCutoff],
+    );
+
+    const nowDb = toDbDateTime();
+    let expired = 0;
+    for (const task of tasks || []) {
+      const refund = await refundChargeInTx(connection, task.account_id, task.charge_id, {
+        reason: "pending_task_timeout",
+        taskId: task.task_id,
+        routeId: task.route_id,
+      });
+
+      await connection.execute(
+        `
+          UPDATE billing_pending_tasks
+          SET status = 'FAILED', settled_at = ?, refund_id = ?, refunded_at = ?
+          WHERE task_id = ? AND settled_at IS NULL
+        `,
+        [
+          nowDb,
+          refund?.refundId || null,
+          refund?.account?.updatedAt ? toDbDateTime(refund.account.updatedAt) : null,
+          task.task_id,
+        ],
+      );
+      expired += 1;
+    }
+
+    return expired;
+  });
+};
+
 const createMetricBucket = (seed = {}) => ({
   totalCharges: 0,
   successfulCharges: 0,
@@ -770,6 +836,7 @@ const buildAdminBillingOverviewFromRows = ({
 
 const getAdminBillingOverview = async ({ recentWindowHours = 24 } = {}) => {
   await ensureBillingSchema();
+  await expireStalePendingTasks();
   await cleanupBillingArtifacts();
 
   const [accounts, chargeEntries, pendingTasks] = await Promise.all([
