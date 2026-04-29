@@ -762,10 +762,37 @@ const listAdminUsers = ({ search = "", page = 1, pageSize = 20, includeAdminNote
   const trimmedSearch = String(search || "").trim().toLowerCase();
   const safePage = Math.max(1, Number.parseInt(String(page || 1), 10) || 1);
   const safePageSize = Math.min(100, Math.max(1, Number.parseInt(String(pageSize || 20), 10) || 20));
+  const safeOnlineWindowMinutes = 5;
 
   const store = readStore();
+  cleanupStore(store);
+  const nowMs = Date.now();
+  const onlineCutoffMs = nowMs - safeOnlineWindowMinutes * 60 * 1000;
+  const onlineStateMap = new Map();
+  for (const session of Object.values(store.sessions || {})) {
+    const expiresAtMs = Date.parse(String(session?.expiresAt || ""));
+    if (!Number.isFinite(expiresAtMs) || expiresAtMs <= nowMs) continue;
+    const lastSeenAt = String(session?.lastSeenAt || "").trim();
+    const lastSeenAtMs = lastSeenAt ? Date.parse(lastSeenAt) : NaN;
+    if (!Number.isFinite(lastSeenAtMs) || lastSeenAtMs < onlineCutoffMs) continue;
+    const userId = String(session?.userId || "").trim();
+    if (!userId) continue;
+    const existing = onlineStateMap.get(userId);
+    if (!existing || Date.parse(existing) < lastSeenAtMs) {
+      onlineStateMap.set(userId, lastSeenAt);
+    }
+  }
+
   const users = Object.values(store.users)
-    .map((user) => toPublicUser(user, { includeAdminNote }))
+    .map((user) => {
+      const publicUser = toPublicUser(user, { includeAdminNote });
+      const lastSeenAt = onlineStateMap.get(publicUser.userId) || null;
+      return {
+        ...publicUser,
+        isOnline: Boolean(lastSeenAt),
+        lastSeenAt,
+      };
+    })
     .filter((user) => {
       if (!trimmedSearch) return true;
       return [user.email, user.displayName, user.userId]
@@ -782,11 +809,23 @@ const listAdminUsers = ({ search = "", page = 1, pageSize = 20, includeAdminNote
 
   const total = users.length;
   const offset = (safePage - 1) * safePageSize;
+  const onlineUsers = users
+    .filter((user) => user.isOnline)
+    .sort((left, right) => {
+      const leftSeen = Date.parse(String(left.lastSeenAt || ""));
+      const rightSeen = Date.parse(String(right.lastSeenAt || ""));
+      if (leftSeen !== rightSeen) return rightSeen - leftSeen;
+      return String(left.displayName || left.email).localeCompare(String(right.displayName || right.email));
+    })
+    .slice(0, 50);
   return {
     total,
     page: safePage,
     pageSize: safePageSize,
     totalPages: Math.max(1, Math.ceil(total / safePageSize)),
+    onlineTotal: onlineUsers.length,
+    onlineWindowMinutes: safeOnlineWindowMinutes,
+    onlineUsers,
     users: users.slice(offset, offset + safePageSize),
   };
 };

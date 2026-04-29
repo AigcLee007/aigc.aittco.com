@@ -537,7 +537,13 @@ const logAdminCatalogChange = async (req, change) => {
   }
 };
 const buildAdminUserListPayload = async (result) => {
-  const userIds = (result?.users || []).map((user) => user.userId);
+  const userIds = Array.from(
+    new Set(
+      [...(result?.users || []), ...(result?.onlineUsers || [])]
+        .map((user) => user.userId)
+        .filter(Boolean),
+    ),
+  );
   const accountMap = await getAccountsByUserIds(userIds);
   return {
     success: true,
@@ -545,6 +551,12 @@ const buildAdminUserListPayload = async (result) => {
     page: Number(result?.page || 1),
     pageSize: Number(result?.pageSize || userIds.length || 20),
     totalPages: Number(result?.totalPages || 1),
+    onlineTotal: Number(result?.onlineTotal || 0),
+    onlineWindowMinutes: Number(result?.onlineWindowMinutes || 5),
+    onlineUsers: (result?.onlineUsers || []).map((user) => ({
+      ...user,
+      account: accountMap[user.userId] || null,
+    })),
     users: (result?.users || []).map((user) => ({
       ...user,
       account: accountMap[user.userId] || null,

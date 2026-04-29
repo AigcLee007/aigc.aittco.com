@@ -27,6 +27,9 @@ export interface AdminUserListPayload {
   page: number;
   pageSize: number;
   totalPages: number;
+  onlineTotal: number;
+  onlineWindowMinutes: number;
+  onlineUsers: AdminManagedUser[];
   users: AdminManagedUser[];
 }
 

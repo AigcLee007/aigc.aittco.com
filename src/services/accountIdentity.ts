@@ -20,6 +20,8 @@ export interface AuthUserProfile {
   createdAt: string;
   updatedAt: string;
   lastLoginAt: string | null;
+  lastSeenAt?: string | null;
+  isOnline?: boolean;
 }
 
 export interface AuthSessionPayload {

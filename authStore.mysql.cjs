@@ -956,19 +956,43 @@ const listAdminUsers = async ({ search = "", page = 1, pageSize = 20, includeAdm
     pageSize,
   });
   const filters = [];
+  const aliasedFilters = [];
   const params = [];
+  const aliasedParams = [];
   if (trimmedSearch) {
     filters.push("(email LIKE ? OR display_name LIKE ? OR user_id LIKE ?)");
+    aliasedFilters.push("(u.email LIKE ? OR u.display_name LIKE ? OR u.user_id LIKE ?)");
     const pattern = `%${trimmedSearch}%`;
     params.push(pattern, pattern, pattern);
+    aliasedParams.push(pattern, pattern, pattern);
   }
   const whereClause = filters.length ? `WHERE ${filters.join(" AND ")}` : "";
+  const aliasedWhereClause = aliasedFilters.length ? `WHERE ${aliasedFilters.join(" AND ")}` : "";
+  const safeOnlineWindowMinutes = 5;
+  const now = new Date();
+  const onlineCutoff = new Date(now.getTime() - safeOnlineWindowMinutes * 60 * 1000);
 
   const countRows = await query(
     `SELECT COUNT(*) AS total FROM auth_users ${whereClause}`,
     params,
   );
   const total = Number(countRows?.[0]?.total || 0);
+
+  const onlineSessionRows = await query(
+    `
+      SELECT user_id, MAX(last_seen_at) AS last_seen_at
+      FROM auth_sessions
+      WHERE expires_at > ? AND last_seen_at >= ?
+      GROUP BY user_id
+    `,
+    [toDbDateTime(now), toDbDateTime(onlineCutoff)],
+  );
+  const onlineStateMap = new Map();
+  for (const row of onlineSessionRows || []) {
+    const userId = String(row?.user_id || "").trim();
+    if (!userId) continue;
+    onlineStateMap.set(userId, fromDbDateTime(row.last_seen_at));
+  }
 
   const rows = await query(
     `
@@ -981,12 +1005,44 @@ const listAdminUsers = async ({ search = "", page = 1, pageSize = 20, includeAdm
     params,
   );
 
+  const onlineRows = await query(
+    `
+      SELECT u.*, s.last_seen_at
+      FROM auth_users u
+      INNER JOIN (
+        SELECT user_id, MAX(last_seen_at) AS last_seen_at
+        FROM auth_sessions
+        WHERE expires_at > ? AND last_seen_at >= ?
+        GROUP BY user_id
+      ) s ON s.user_id = u.user_id
+      ${aliasedWhereClause}
+      ORDER BY s.last_seen_at DESC, u.created_at DESC, u.user_id DESC
+      LIMIT 50
+    `,
+    [toDbDateTime(now), toDbDateTime(onlineCutoff), ...aliasedParams],
+  );
+
   return {
     total,
     page: safePage,
     pageSize: safePageSize,
     totalPages: Math.max(1, Math.ceil(total / safePageSize)),
-    users: rows.map((row) => toPublicUser(row, { includeAdminNote })),
+    onlineTotal: onlineRows.length,
+    onlineWindowMinutes: safeOnlineWindowMinutes,
+    onlineUsers: onlineRows.map((row) => ({
+      ...toPublicUser(row, { includeAdminNote }),
+      isOnline: true,
+      lastSeenAt: fromDbDateTime(row.last_seen_at),
+    })),
+    users: rows.map((row) => {
+      const publicUser = toPublicUser(row, { includeAdminNote });
+      const lastSeenAt = onlineStateMap.get(publicUser.userId) || null;
+      return {
+        ...publicUser,
+        isOnline: Boolean(lastSeenAt),
+        lastSeenAt,
+      };
+    }),
   };
 };
 
