@@ -1609,6 +1609,7 @@ const executeGeminiNativeGenerate = async ({
   const finalImageSize = (
     requestBody.image_size ||
     requestBody.imageSize ||
+    requestBody.size ||
     requestBody.generationConfig?.imageConfig?.imageSize ||
     requestBody.generationConfig?.image_config?.image_size ||
     "1K"

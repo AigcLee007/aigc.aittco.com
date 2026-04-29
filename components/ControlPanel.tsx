@@ -927,10 +927,20 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
       imageLine,
       imageSize,
     });
-    const shouldUseGeminiNativeSync = isGeminiNativeImageRoute(selectedImageRoute);
+    const shouldUseGeminiNative = isGeminiNativeImageRoute(selectedImageRoute);
+    const shouldUseGeminiNativeSync =
+      shouldUseGeminiNative &&
+      String(selectedImageRoute.mode || '').trim().toLowerCase() === 'sync';
     if (shouldUseGeminiNativeSync) {
       effectiveRatio = normalizeLine2Ratio(effectiveRatio);
     }
+    const geminiNativePayloadFields = shouldUseGeminiNative
+      ? {
+          image_size: /^\d+K$/i.test(String(imageSize || '1K').trim())
+            ? String(imageSize || '1K').trim().toUpperCase()
+            : '1K',
+        }
+      : {};
 
     const isGptImage2RequestModel = (model: string) =>
       model === 'gpt-image-2' || model === 'gpt-image-2-all';
@@ -1060,7 +1070,7 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
       }
     } else {
 
-      // Gemini native sync path.
+      // Gemini native sync-only path.
       if (shouldUseGeminiNativeSync) {
         const placeholderIds = onInitGenerations(quantity, currentPrompt, effectiveRatio);
         const mapSize = (s: string) => {
@@ -1214,6 +1224,7 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
               modelId: selectedImageModelConfig.id,
               prompt: promptForModel,
               size: getEffectiveSize(),
+              ...geminiNativePayloadFields,
               aspect_ratio: effectiveRatio,
               n: 1,
               routeId: selectedImageRoute.id,
@@ -1376,6 +1387,7 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
                   modelId: selectedImageModelConfig.id,
                   prompt: promptForModel,
                   size: getEffectiveSize(),
+                  ...geminiNativePayloadFields,
                   aspect_ratio: effectiveRatio,
                   n: 1,
                   routeId: selectedImageRoute.id,
