@@ -1728,35 +1728,58 @@ const getUserKey = (req) => {
   // Use API key if available, otherwise fall back to IP (with IPv6 support)
   return apiKey && apiKey.length > 10 ? apiKey : ipKeyGenerator(req);
 };
+const readPositiveIntEnv = (name, fallback) => {
+  const value = Number.parseInt(String(process.env[name] || ""), 10);
+  return Number.isFinite(value) && value > 0 ? value : fallback;
+};
+const buildRateLimitHandler = (code, message) => (req, res) => {
+  logger.warn({
+    timestamp: new Date().toISOString(),
+    type: "Rate Limit",
+    code,
+    path: req.originalUrl,
+    key: getUserKey(req),
+    retryAfter: res.getHeader("Retry-After") || null,
+  });
+  res.status(429).json({
+    error: message,
+    code,
+    retryAfter: res.getHeader("Retry-After") || null,
+  });
+};
+
+const GLOBAL_RATE_LIMIT_MAX = readPositiveIntEnv("GLOBAL_RATE_LIMIT_MAX", 5000);
+const POLLING_RATE_LIMIT_MAX = readPositiveIntEnv("POLLING_RATE_LIMIT_MAX", 300);
+const GENERATE_RATE_LIMIT_MAX = readPositiveIntEnv("GENERATE_RATE_LIMIT_MAX", 80);
 
 // Global fallback limiter (per user)
 const globalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,  // 15 minutes
-  max: 1500,                  // 1500 requests per user per 15 minutes (increased for public service)
+  max: GLOBAL_RATE_LIMIT_MAX,
   keyGenerator: getUserKey,
   standardHeaders: true,
   legacyHeaders: false,
-  message: "Too many requests. Please try again later.",
+  handler: buildRateLimitHandler("GLOBAL_RATE_LIMITED", "请求过于频繁，请稍后再试。"),
 });
 
-// Polling endpoints - per user, high frequency
+// Polling endpoints - per user. Supports multi-image batches and restored pending tasks.
 const pollingLimiter = rateLimit({
   windowMs: 60 * 1000,       // 1 minute
-  max: 50,                    // 50 requests per user per minute (allows ~2-3 concurrent tasks per user)
+  max: POLLING_RATE_LIMIT_MAX,
   keyGenerator: getUserKey,
   standardHeaders: true,
   legacyHeaders: false,
-  message: "Polling requests are too frequent. Please try again later.",
+  handler: buildRateLimitHandler("POLLING_RATE_LIMITED", "任务查询过于频繁，请稍后再试。"),
 });
 
-// Generation endpoints - per user, moderate limits
+// Generation endpoints - per user. A single 16-image batch can submit 16 requests.
 const generateLimiter = rateLimit({
   windowMs: 60 * 1000,       // 1 minute
-  max: 10,                    // 10 generation requests per user per minute
+  max: GENERATE_RATE_LIMIT_MAX,
   keyGenerator: getUserKey,
   standardHeaders: true,
   legacyHeaders: false,
-  message: "Generation requests are too frequent. Please try again later.",
+  handler: buildRateLimitHandler("GENERATE_RATE_LIMITED", "提交过于频繁，请稍后再试。"),
 });
 
 // Announcement endpoint - per IP, very lenient (read-only)
