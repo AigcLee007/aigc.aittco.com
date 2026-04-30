@@ -78,18 +78,42 @@
       .replace(/>/g, "&gt;")
       .replace(/"/g, "&quot;")
       .replace(/'/g, "&#39;");
+  const isMeaningfulClassicErrorText = (value) => {
+    const text = String(value || "").trim();
+    if (!text) return false;
+    const normalized = text.toLowerCase();
+    return !["success", "succeeded", "ok", "completed"].includes(normalized);
+  };
   const extractClassicApiError = (payload, fallback = DEFAULT_CLASSIC_ERROR_MESSAGE) => {
     if (!payload) return fallback;
-    if (typeof payload === "string") return payload.trim() || fallback;
-    if (payload instanceof Error) return payload.message || fallback;
+    if (typeof payload === "string") {
+      return isMeaningfulClassicErrorText(payload) ? payload.trim() : fallback;
+    }
+    if (payload instanceof Error) {
+      return isMeaningfulClassicErrorText(payload.message) ? payload.message.trim() : fallback;
+    }
     if (typeof payload === "object") {
       const nested = payload.error;
-      if (nested && typeof nested === "object" && nested.message) {
-        return String(nested.message).trim() || fallback;
+      const candidates = [
+        payload.fail_reason,
+        payload.failReason,
+        payload.reason,
+        payload.msg,
+        payload.error_message,
+        payload.errorMessage,
+        nested?.fail_reason,
+        nested?.failReason,
+        nested?.reason,
+        nested?.message,
+        typeof nested === "string" ? nested : "",
+        payload.message,
+        payload.details,
+        payload.code,
+      ];
+      const matched = candidates.find((item) => isMeaningfulClassicErrorText(item));
+      if (matched) {
+        return String(matched).trim();
       }
-      if (typeof nested === "string" && nested.trim()) return nested.trim();
-      const direct = payload.message || payload.details || payload.code;
-      if (direct) return String(direct).trim() || fallback;
     }
     return fallback;
   };

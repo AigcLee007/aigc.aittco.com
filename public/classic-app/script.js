@@ -3243,6 +3243,36 @@ function logGrokResponseSnippet(taskId, model, rawJson, parsedUrls = [], rawUrls
   console.warn("[GROK_DUAL_RESPONSE]", snippet);
 }
 
+function isMeaningfulClassicFailureText(value) {
+  const text = String(value || "").trim();
+  if (!text) return false;
+  const normalized = text.toLowerCase();
+  return !["success", "succeeded", "ok", "completed"].includes(normalized);
+}
+
+function extractClassicTaskFailureMessage(rawJson, fallback = "生成失败") {
+  if (!rawJson || typeof rawJson !== "object") return fallback;
+  const candidates = [
+    rawJson.fail_reason,
+    rawJson.failReason,
+    rawJson.reason,
+    rawJson.msg,
+    rawJson.error_message,
+    rawJson.errorMessage,
+    rawJson.data?.fail_reason,
+    rawJson.data?.failReason,
+    rawJson.data?.reason,
+    rawJson.data?.msg,
+    rawJson.error?.message,
+    typeof rawJson.error === "string" ? rawJson.error : "",
+    rawJson.message,
+    rawJson.details,
+    rawJson.code,
+  ];
+  const matched = candidates.find((item) => isMeaningfulClassicFailureText(item));
+  return matched ? String(matched).trim() : fallback;
+}
+
 function markSlotFailed(slotNode, message, size) {
   if (!slotNode) {
     completedTasksCount++;
@@ -3458,10 +3488,11 @@ async function pollSingleTask(taskId, key, size, index, options = {}) {
           clearInterval(checkLoop);
           removePendingTask(taskId);
           removePendingTaskFromGallery(taskId);
+          const failureMessage = extractClassicTaskFailureMessage(rawJson, "生成失败");
           if (canUpdateMainUi(options.runToken, trackUi)) {
             const slots = options.slotNodes || [];
-            markSlotFailed(slots[0] || null, "生成失败", size);
-            markSlotFailed(slots[1] || null, "生成失败", size);
+            markSlotFailed(slots[0] || null, failureMessage, size);
+            markSlotFailed(slots[1] || null, failureMessage, size);
           }
           logGrokResponseSnippet(taskId, options.model || "", rawJson, imageUrls, rawUrls);
           return;
@@ -3509,8 +3540,9 @@ async function pollSingleTask(taskId, key, size, index, options = {}) {
         clearInterval(checkLoop);
         removePendingTask(taskId); // [Persistence] Remove
         removePendingTaskFromGallery(taskId); // 【新增】从画廊移除占位图
+        const failureMessage = extractClassicTaskFailureMessage(rawJson, `任务 ${index} 生成失败`);
         if (canUpdateMainUi(options.runToken, trackUi)) {
-          handleSingleError(`任务 ${index} 生成失败`, size);
+          handleSingleError(failureMessage, size);
         }
       }
     } catch (err) {
