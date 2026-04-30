@@ -5918,6 +5918,10 @@ app.get(['/create/classic', '/create/classic/'], (_req, res) => {
   res.sendFile(path.join(__dirname, 'dist', 'classic-app', 'index.html'));
 });
 
+app.get(['/vip', '/vip/'], (_req, res) => {
+  res.sendFile(path.join(__dirname, 'dist', 'classic-app', 'index.html'));
+});
+
 app.get(['/create/canvas', '/create/canvas/'], (_req, res) => {
   res.sendFile(path.join(__dirname, 'dist', 'index.html'));
 });

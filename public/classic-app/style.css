@@ -1579,6 +1579,60 @@ select option {
   gap: 14px;
 }
 
+html.classic-vip-mode #tab-create.tab-content,
+html.classic-vip-mode .classic-create-dashboard {
+  max-width: min(100%, 1100px) !important;
+}
+
+html.classic-vip-mode .classic-create-layout {
+  grid-template-columns: 1fr !important;
+  gap: 18px !important;
+}
+
+html.classic-vip-mode .classic-live-panel.result-module {
+  position: relative !important;
+  top: auto !important;
+  min-height: auto !important;
+  max-height: none !important;
+  overflow: visible !important;
+}
+
+html.classic-vip-mode .classic-live-panel .image-container,
+html.classic-vip-mode .classic-live-grid {
+  overflow: visible !important;
+}
+
+html.classic-vip-mode .classic-live-card {
+  border-radius: 18px;
+}
+
+html.classic-vip-mode .classic-live-media,
+html.classic-vip-mode .classic-live-card.is-primary .classic-live-media {
+  min-height: clamp(360px, 62vh, 720px) !important;
+  height: auto !important;
+}
+
+html.classic-vip-mode .classic-live-media img {
+  max-height: min(72vh, 760px);
+  object-fit: contain;
+}
+
+html.classic-vip-mode .classic-live-info {
+  padding: 14px 14px 16px;
+}
+
+html.classic-vip-mode .classic-live-prompt {
+  -webkit-line-clamp: 4;
+}
+
+html.classic-vip-mode .classic-live-actions {
+  flex-wrap: wrap;
+}
+
+html.classic-vip-mode .classic-live-empty {
+  min-height: 280px;
+}
+
 .classic-live-heading {
   display: flex;
   align-items: flex-start;

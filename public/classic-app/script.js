@@ -6,6 +6,7 @@ const CONFIG = {
   queryUrl: "/api/task/{id}",
   model: "nano-banana-2",
 };
+const CLASSIC_VIP_MODE = window.__CLASSIC_VIP_MODE__ === true;
 let refImages = [];
 let smartRatio = null;
 let progressInterval = null;
@@ -36,6 +37,13 @@ const AUTH_SESSION_STORAGE_KEY = "auth-session-v1";
 try {
   localStorage.setItem(CREATE_MODE_STORAGE_KEY, "classic");
 } catch (_) {}
+
+if (CLASSIC_VIP_MODE) {
+  window.addEventListener("DOMContentLoaded", () => {
+    document.body?.classList.add("classic-vip-mode");
+    document.title = "BananaPro 4K VIP";
+  });
+}
 
 let classicPricingCatalog = {
   models: [
@@ -432,7 +440,8 @@ function renderClassicLiveTasks() {
 
   const isDesktopLive =
     typeof window.matchMedia === "function" &&
-    window.matchMedia("(min-width: 769px)").matches;
+    window.matchMedia("(min-width: 769px)").matches &&
+    !CLASSIC_VIP_MODE;
 
   if (isDesktopLive) {
     const existingSelected = classicLiveSelectedId
