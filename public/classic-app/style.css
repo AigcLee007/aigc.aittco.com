@@ -2106,6 +2106,17 @@ html.classic-vip-mode .classic-live-empty {
   background: rgba(255, 214, 10, 0.13);
 }
 
+.classic-live-action-btn.danger {
+  border-color: rgba(255, 92, 92, 0.28);
+  color: #ffd0d0;
+}
+
+.classic-live-action-btn.danger:hover {
+  border-color: rgba(255, 92, 92, 0.5);
+  background: rgba(255, 92, 92, 0.16);
+  color: #fff0f0;
+}
+
 .classic-live-error {
   color: #ffb8b8;
   font-size: 12px;

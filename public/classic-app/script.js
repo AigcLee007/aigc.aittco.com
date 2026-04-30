@@ -474,17 +474,30 @@ function renderClassicLiveTasks() {
 
     const buildActionsHtml = (task, isPrimary = false) => {
       const fullUrl = getClassicLiveFullUrl(task);
-      if (String(task.status || "") !== "success" || !fullUrl) return "";
+      const status = String(task.status || "");
+      const canDelete = status === "success" || status === "failed";
+      if (status !== "success" && !canDelete) return "";
       const actionClass = isPrimary
         ? "classic-live-actions classic-live-primary-actions"
         : "classic-live-actions";
-      return `
-        <div class="${actionClass}">
+      const mainButtons =
+        status === "success" && fullUrl
+          ? `
           <button type="button" class="classic-live-action-btn" data-action="zoom" title="放大" aria-label="放大">放大</button>
           <button type="button" class="classic-live-action-btn" data-action="download" title="保存原图" aria-label="保存原图">下载</button>
           <button type="button" class="classic-live-action-btn" data-action="regen" title="重生" aria-label="重生">重生</button>
           <button type="button" class="classic-live-action-btn" data-action="ref" title="设为参考图" aria-label="设为参考图">参考</button>
           <button type="button" class="classic-live-action-btn" data-action="copy" title="复制原图链接" aria-label="复制原图链接">链接</button>
+        `
+          : "";
+      return `
+        <div class="${actionClass}">
+          ${mainButtons}
+          ${
+            canDelete
+              ? `<button type="button" class="classic-live-action-btn danger" data-action="delete" title="删除" aria-label="删除">删除</button>`
+              : ""
+          }
         </div>
       `;
     };
@@ -521,6 +534,11 @@ function renderClassicLiveTasks() {
       if (copyBtn) copyBtn.addEventListener("click", (event) => {
         event.stopPropagation();
         copyImgUrl(readFullUrl());
+      });
+      const deleteBtn = root.querySelector('[data-action="delete"]');
+      if (deleteBtn) deleteBtn.addEventListener("click", (event) => {
+        event.stopPropagation();
+        removeClassicLiveTask(task.id || task.taskId || "");
       });
     };
 
@@ -659,9 +677,16 @@ function renderClassicLiveTasks() {
           <button type="button" class="classic-live-action-btn" data-action="download" title="保存原图">💾</button>
           <button type="button" class="classic-live-action-btn" data-action="ref" title="设为参考图">🧩</button>
           <button type="button" class="classic-live-action-btn" data-action="copy" title="复制原图链接">🔗</button>
+          <button type="button" class="classic-live-action-btn danger" data-action="delete" title="删除">🗑️</button>
         </div>
       `
-      : "";
+      : isFailed
+        ? `
+        <div class="classic-live-actions">
+          <button type="button" class="classic-live-action-btn danger" data-action="delete" title="删除">🗑️</button>
+        </div>
+      `
+        : "";
 
     card.innerHTML = `
       <div class="classic-live-media">
@@ -706,6 +731,8 @@ function renderClassicLiveTasks() {
     if (refBtn) refBtn.addEventListener("click", () => useAsRef(readFullUrl(), refBtn));
     const copyBtn = card.querySelector('[data-action="copy"]');
     if (copyBtn) copyBtn.addEventListener("click", () => copyImgUrl(readFullUrl()));
+    const deleteBtn = card.querySelector('[data-action="delete"]');
+    if (deleteBtn) deleteBtn.addEventListener("click", () => removeClassicLiveTask(task.id || task.taskId || ""));
 
     grid.appendChild(card);
   });
@@ -763,6 +790,32 @@ function updateClassicLiveTask(idOrTaskId, updates = {}) {
   persistClassicLiveTasks();
   renderClassicLiveTasks();
   return classicLiveTasks[idx].id;
+}
+
+function removeClassicLiveTask(idOrTaskId) {
+  const normalizedId = String(idOrTaskId || "").trim();
+  if (!normalizedId) return false;
+
+  const removedTask = classicLiveTasks.find(
+    (task) => task.id === normalizedId || task.taskId === normalizedId,
+  );
+  const nextTasks = classicLiveTasks.filter(
+    (task) => task.id !== normalizedId && task.taskId !== normalizedId,
+  );
+  if (nextTasks.length === classicLiveTasks.length) return false;
+
+  classicLiveTasks = nextTasks;
+  if (
+    classicLiveSelectedId === normalizedId ||
+    (removedTask &&
+      (classicLiveSelectedId === removedTask.id ||
+        classicLiveSelectedId === removedTask.taskId))
+  ) {
+    classicLiveSelectedId = "";
+  }
+  persistClassicLiveTasks();
+  renderClassicLiveTasks();
+  return true;
 }
 
 function promoteClassicLiveTask(tempId, taskId, updates = {}) {
@@ -849,6 +902,7 @@ window.updateClassicLiveTask = updateClassicLiveTask;
 window.promoteClassicLiveTask = promoteClassicLiveTask;
 window.completeClassicLiveTask = completeClassicLiveTask;
 window.failClassicLiveTask = failClassicLiveTask;
+window.removeClassicLiveTask = removeClassicLiveTask;
 window.renderClassicLiveTasks = renderClassicLiveTasks;
 
 if (document.readyState === "loading") {
