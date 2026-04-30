@@ -1589,6 +1589,25 @@ html.classic-vip-mode .classic-create-layout {
   gap: 18px !important;
 }
 
+html.classic-vip-mode .right-column {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  align-items: start;
+}
+
+html.classic-vip-mode .right-column > .model-selector-module,
+html.classic-vip-mode .right-column > .line-selector-module {
+  margin: 0;
+}
+
+html.classic-vip-mode .right-column > .params-row,
+html.classic-vip-mode .right-column > .current-price-card,
+html.classic-vip-mode .right-column > .gpt-settings-row,
+html.classic-vip-mode .right-column > .grok-ref-mode-module {
+  grid-column: 1 / -1;
+}
+
 html.classic-vip-mode .classic-live-panel.result-module {
   position: relative !important;
   top: auto !important;
@@ -1631,6 +1650,12 @@ html.classic-vip-mode .classic-live-actions {
 
 html.classic-vip-mode .classic-live-empty {
   min-height: 280px;
+}
+
+@media (max-width: 768px) {
+  html.classic-vip-mode .right-column {
+    grid-template-columns: 1fr;
+  }
 }
 
 .classic-live-heading {
