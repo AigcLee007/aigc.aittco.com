@@ -8,16 +8,15 @@ import {
   getImageRouteById,
 } from '../src/config/imageRoutes';
 import {
-  DEFAULT_GENERATION_ERROR_MESSAGE,
-  toGenerationErrorMessage,
+  AppError,
+  DEFAULT_ERROR_MESSAGE,
+  extractErrorMessage,
 } from '../src/utils/errorDebug';
 
 const API_BASE_URL =
   typeof window !== 'undefined' && window.location.hostname === 'localhost'
     ? 'http://localhost:3355/api'
     : '/api';
-
-const USER_FACING_GENERATION_ERROR_MESSAGE = DEFAULT_GENERATION_ERROR_MESSAGE;
 
 const cleanUrl = (url: string) => url.replace(/\/$/, '');
 const sanitizeHeader = (value: string) => value.replace(/[^\x00-\x7F]/g, '').trim();
@@ -74,32 +73,6 @@ const parseErrorResponse = async (response: Response) => {
   return { rawText, errJson };
 };
 
-const buildDebugDetail = (
-  response: Response,
-  errJson: any,
-  rawText: string,
-) => {
-  const detailsFromServer = String(errJson?.details || '').trim();
-  if (detailsFromServer) {
-    return `status=${response.status}; details=${detailsFromServer}`;
-  }
-
-  const errorText = String(errJson?.error || '').trim();
-  const rawTrimmed = String(rawText || '').trim();
-  if (errorText && rawTrimmed && rawTrimmed === JSON.stringify({ error: errorText })) {
-    return `status=${response.status}; error=${errorText}`;
-  }
-
-  return [
-    `status=${response.status}`,
-    errJson?.code ? `code=${errJson.code}` : '',
-    errorText ? `error=${errorText}` : '',
-    rawTrimmed ? `raw=${rawTrimmed.slice(0, 300)}` : '',
-  ]
-    .filter(Boolean)
-    .join('; ');
-};
-
 const handleApiError = async (response: Response, fallbackMessage: string) => {
   const { rawText, errJson } = await parseErrorResponse(response);
 
@@ -111,16 +84,29 @@ const handleApiError = async (response: Response, fallbackMessage: string) => {
     code: errJson?.code || null,
   });
 
-  const detail = buildDebugDetail(response, errJson, rawText);
-
-  throw new Error(toGenerationErrorMessage(detail, USER_FACING_GENERATION_ERROR_MESSAGE));
+  throw new AppError(
+    extractErrorMessage(errJson) || rawText.trim() || fallbackMessage || DEFAULT_ERROR_MESSAGE,
+    {
+      code: String(errJson?.code || '').trim() || undefined,
+      status: Number(errJson?.status || response.status),
+      traceId: String(errJson?.traceId || '').trim() || undefined,
+      details: String(errJson?.details || '').trim() || undefined,
+    },
+  );
 };
 
 const throwPollingError = async (response: Response) => {
   const { rawText, errJson } = await parseErrorResponse(response);
-  const detail = buildDebugDetail(response, errJson, rawText);
 
-  throw new Error(toGenerationErrorMessage(detail, USER_FACING_GENERATION_ERROR_MESSAGE));
+  throw new AppError(
+    extractErrorMessage(errJson) || rawText.trim() || `任务查询失败 (${response.status})`,
+    {
+      code: String(errJson?.code || '').trim() || undefined,
+      status: Number(errJson?.status || response.status),
+      traceId: String(errJson?.traceId || '').trim() || undefined,
+      details: String(errJson?.details || '').trim() || undefined,
+    },
+  );
 };
 
 export const getModelBySize = (size: string): string => {
@@ -238,7 +224,7 @@ export const generateImageApi = async (
 
   const taskId = resJson.id || resJson.task_id || resJson.data?.task_id;
   if (!taskId && !resJson.url) {
-    throw new Error(USER_FACING_GENERATION_ERROR_MESSAGE);
+    throw new AppError('未返回任务 ID，且未返回图片结果');
   }
 
   return { taskId: taskId || '', ...resJson };
@@ -286,7 +272,7 @@ export const editImageApi = async (
 
   const taskId = resJson.id || resJson.task_id || resJson.data?.task_id;
   if (!taskId && directResultUrls.length === 0) {
-    throw new Error(USER_FACING_GENERATION_ERROR_MESSAGE);
+    throw new AppError('未返回任务 ID，且未返回图片结果');
   }
 
   return { taskId: taskId || '', ...resJson };

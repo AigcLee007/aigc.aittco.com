@@ -5,8 +5,7 @@
   const MODEL_STORAGE_KEY = "nb_image_model";
   const LINE_STORAGE_KEY = "nb_line";
   const KEY_STORAGE_KEY = "nb_key";
-  const USER_FACING_GENERATION_ERROR_MESSAGE =
-    "请检查提示词或参考图，可能触发了安全限制，请更换后重试";
+  const DEFAULT_CLASSIC_ERROR_MESSAGE = "生成失败，未返回错误详情";
   const SIZE_LABELS = {
     auto: "自动",
     "1k": "1K (标准)",
@@ -79,6 +78,21 @@
       .replace(/>/g, "&gt;")
       .replace(/"/g, "&quot;")
       .replace(/'/g, "&#39;");
+  const extractClassicApiError = (payload, fallback = DEFAULT_CLASSIC_ERROR_MESSAGE) => {
+    if (!payload) return fallback;
+    if (typeof payload === "string") return payload.trim() || fallback;
+    if (payload instanceof Error) return payload.message || fallback;
+    if (typeof payload === "object") {
+      const nested = payload.error;
+      if (nested && typeof nested === "object" && nested.message) {
+        return String(nested.message).trim() || fallback;
+      }
+      if (typeof nested === "string" && nested.trim()) return nested.trim();
+      const direct = payload.message || payload.details || payload.code;
+      if (direct) return String(direct).trim() || fallback;
+    }
+    return fallback;
+  };
   const sanitizeApiKey = (value) =>
     String(value || "")
       .replace(/[\u0000-\u001F\u007F]/g, "")
@@ -2391,7 +2405,7 @@
 
       const data = await response.json().catch(() => ({}));
       if (!response.ok) {
-        throw new Error(USER_FACING_GENERATION_ERROR_MESSAGE);
+        throw new Error(extractClassicApiError(data, `请求失败 (${response.status})`));
       }
       if (data.warning) {
         showSoftToast(String(data.warning));
@@ -2428,7 +2442,7 @@
         for (let missingIndex = 0; missingIndex < missingCount; missingIndex += 1) {
           const liveTaskId = liveTaskForSlot(directImageUrls.length + missingIndex);
           if (liveTaskId && typeof window.failClassicLiveTask === "function") {
-            window.failClassicLiveTask(liveTaskId, USER_FACING_GENERATION_ERROR_MESSAGE, {
+            window.failClassicLiveTask(liveTaskId, DEFAULT_CLASSIC_ERROR_MESSAGE, {
               prompt: promptText,
               size,
               modelLabel: options.modelLabel || "",
@@ -2436,7 +2450,7 @@
             });
           }
           if (!canUpdateMainUi(options.runToken, options.trackUi !== false)) break;
-          handleSingleError(USER_FACING_GENERATION_ERROR_MESSAGE, size);
+          handleSingleError(DEFAULT_CLASSIC_ERROR_MESSAGE, size);
         }
         return;
       }
@@ -2475,11 +2489,12 @@
       });
     } catch (error) {
       console.error("[Classic Bridge] submit task failed:", error);
-      failLiveTasks(USER_FACING_GENERATION_ERROR_MESSAGE);
+      const errorMessage = extractClassicApiError(error);
+      failLiveTasks(errorMessage);
       if (!canUpdateMainUi(options.runToken, options.trackUi !== false)) return;
       const expectedCount = Math.max(1, Number(options.expectedCount || 1));
       for (let failureIndex = 0; failureIndex < expectedCount; failureIndex += 1) {
-        handleSingleError(USER_FACING_GENERATION_ERROR_MESSAGE, size);
+        handleSingleError(errorMessage, size);
       }
     } finally {
       if (typeof options.onSubmitSettled === "function") {
@@ -2538,7 +2553,7 @@
           removePendingTaskFromGallery(taskId);
           failLiveTask("查询超时，任务状态未完成");
           if (canUpdateMainUi(options.runToken, trackUi)) {
-            handleSingleError(USER_FACING_GENERATION_ERROR_MESSAGE, size);
+            handleSingleError("查询超时，任务状态未完成", size);
           }
           return;
         }
@@ -2558,7 +2573,7 @@
           removePendingTaskFromGallery(taskId);
           failLiveTask("任务已失效或未找到");
           if (canUpdateMainUi(options.runToken, trackUi)) {
-            handleSingleError(USER_FACING_GENERATION_ERROR_MESSAGE, size);
+            handleSingleError("任务已失效或未找到", size);
           }
           return;
         }
@@ -2607,19 +2622,20 @@
             removePendingTaskFromGallery(taskId);
             failLiveTask("任务成功但未返回图片链接");
             if (canUpdateMainUi(options.runToken, trackUi)) {
-              handleSingleError(USER_FACING_GENERATION_ERROR_MESSAGE, size);
+              handleSingleError("任务成功但未返回图片链接", size);
             }
           }
           return;
         }
 
-        if (statusRaw === "FAILURE" || statusRaw === "FAILED") {
+        if (statusRaw === "FAILURE" || statusRaw === "FAILED" || statusRaw === "ERROR") {
+          const failureMessage = extractClassicApiError(rawJson, "生成失败");
           clearInterval(checkLoop);
           removePendingTask(taskId);
           removePendingTaskFromGallery(taskId);
-          failLiveTask("生成失败");
+          failLiveTask(failureMessage);
           if (canUpdateMainUi(options.runToken, trackUi)) {
-            handleSingleError(USER_FACING_GENERATION_ERROR_MESSAGE, size);
+            handleSingleError(failureMessage, size);
           }
         }
       } catch (error) {
@@ -2629,9 +2645,10 @@
           clearInterval(checkLoop);
           removePendingTask(taskId);
           removePendingTaskFromGallery(taskId);
-          failLiveTask("查询连接持续失败");
+          const errorMessage = extractClassicApiError(error, "查询连接持续失败");
+          failLiveTask(errorMessage);
           if (canUpdateMainUi(options.runToken, trackUi)) {
-            handleSingleError(USER_FACING_GENERATION_ERROR_MESSAGE, size);
+            handleSingleError(errorMessage, size);
           }
         }
       }

@@ -59,6 +59,7 @@ const UserAdminPanel: React.FC<UserAdminPanelProps> = ({ session }) => {
   const [searchKeyword, setSearchKeyword] = useState('');
   const [page, setPage] = useState(1);
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
+  const selectedUserIdRef = React.useRef<string | null>(null);
   const [ledgerPage, setLedgerPage] = useState(1);
 
   const [editDisplayName, setEditDisplayName] = useState('');
@@ -74,6 +75,10 @@ const UserAdminPanel: React.FC<UserAdminPanelProps> = ({ session }) => {
     setEditStatus((payload?.user?.status || 'active') as 'active' | 'disabled');
     setEditAdminNote(payload?.user?.adminNote || '');
   }, []);
+
+  useEffect(() => {
+    selectedUserIdRef.current = selectedUserId;
+  }, [selectedUserId]);
 
   const loadDetail = useCallback(
     async (userId: string, nextLedgerPage = 1) => {
@@ -129,13 +134,9 @@ const UserAdminPanel: React.FC<UserAdminPanelProps> = ({ session }) => {
         setPage(next.page);
 
         const nextSelectedUserId =
-          preferredUserId || selectedUserId || next.users[0]?.userId || null;
+          preferredUserId || selectedUserIdRef.current || next.users[0]?.userId || null;
         if (nextSelectedUserId) {
-          const existingUser =
-            next.users.find((item) => item.userId === nextSelectedUserId) || next.users[0];
-          if (existingUser?.userId) {
-            await loadDetail(existingUser.userId, 1);
-          }
+          await loadDetail(nextSelectedUserId, 1);
         } else {
           setDetail(null);
           setSelectedUserId(null);
@@ -146,7 +147,7 @@ const UserAdminPanel: React.FC<UserAdminPanelProps> = ({ session }) => {
         setLoading(false);
       }
     },
-    [isAdmin, loadDetail, page, searchKeyword, selectedUserId],
+    [isAdmin, loadDetail, page, searchKeyword],
   );
 
   useEffect(() => {
@@ -257,7 +258,7 @@ const UserAdminPanel: React.FC<UserAdminPanelProps> = ({ session }) => {
             {user.isOnline ? (
               <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] text-emerald-200">
                 <span className="h-1.5 w-1.5 rounded-full bg-emerald-300" />
-                鍦ㄧ嚎
+                在线
               </span>
             ) : null}
             {user.isSuperAdmin ? (
@@ -290,10 +291,11 @@ const UserAdminPanel: React.FC<UserAdminPanelProps> = ({ session }) => {
         <div>
           <div className="flex items-center gap-2 text-sm font-semibold text-fuchsia-100">
             <Users size={16} />
-            鐢ㄦ埛绠＄悊鍚庡彴
+            用户管理后台
           </div>
           <p className="mt-1 text-xs leading-5 text-fuchsia-100/70">
-            鏌ョ湅鐢ㄦ埛璧勬枡銆佽鑹层€佺姸鎬併€佽处鎴蜂綑棰濆拰消费流水銆傝秴绾х鐞嗗憳杩樺彲浠ョ洿鎺ヤ负鎸囧畾鐢ㄦ埛鍔犵偣鎴栧噺鐐广€?          </p>
+            查看用户资料、角色、状态、账户余额和消费流水。超级管理员还可以直接为指定用户加点或减点。
+          </p>
         </div>
 
         <button
@@ -303,7 +305,7 @@ const UserAdminPanel: React.FC<UserAdminPanelProps> = ({ session }) => {
           className="inline-flex h-10 items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-4 text-xs text-gray-200 hover:bg-white/10 disabled:opacity-50"
         >
           {loading ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />}
-          鍒锋柊
+          刷新
         </button>
       </div>
 
@@ -342,7 +344,7 @@ const UserAdminPanel: React.FC<UserAdminPanelProps> = ({ session }) => {
               }}
               className="h-10 rounded-xl border border-white/10 bg-white/5 px-4 text-xs text-gray-200 hover:bg-white/10"
             >
-              鎼滅储
+              搜索
             </button>
           </div>
 
@@ -421,7 +423,7 @@ const UserAdminPanel: React.FC<UserAdminPanelProps> = ({ session }) => {
             <div className="space-y-4">
               <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
                 <div className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3">
-                  <div className="text-[11px] uppercase tracking-wider text-gray-500">褰撳墠鐢ㄦ埛</div>
+                  <div className="text-[11px] uppercase tracking-wider text-gray-500">当前用户</div>
                   <div className="mt-2 text-sm font-semibold text-white">
                     {detail.user.displayName || detail.user.email}
                   </div>
@@ -429,13 +431,13 @@ const UserAdminPanel: React.FC<UserAdminPanelProps> = ({ session }) => {
                 </div>
 
                 <div className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3">
-                  <div className="text-[11px] uppercase tracking-wider text-gray-500">璐︽埛余额</div>
+                  <div className="text-[11px] uppercase tracking-wider text-gray-500">账户余额</div>
                   <div className="mt-2 flex items-center gap-2 text-xl font-bold text-white">
                     <Coins size={16} className="text-yellow-400" />
                     {formatPoint(detail.account?.points ?? 0)}
                   </div>
                   <div className="mt-1 text-[11px] text-gray-400">
-                    绱消费 {formatPoint(detail.account?.totalSpent ?? 0)}
+                    累计消费 {formatPoint(detail.account?.totalSpent ?? 0)}
                   </div>
                 </div>
 
@@ -447,14 +449,14 @@ const UserAdminPanel: React.FC<UserAdminPanelProps> = ({ session }) => {
                       : '尚未登录'}
                   </div>
                   <div className="mt-1 text-[11px] text-gray-400">
-                    鐢ㄦ埛 ID: {detail.user.userId}
+                    用户 ID: {detail.user.userId}
                   </div>
                 </div>
               </div>
 
               <div className="grid grid-cols-1 gap-4 xl:grid-cols-[320px_minmax(0,1fr)]">
                 <div className="min-w-0 space-y-3 rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-                  <div className="text-xs font-medium text-gray-300">鐢ㄦ埛璧勬枡</div>
+                  <div className="text-xs font-medium text-gray-300">用户资料</div>
 
                   <div>
                     <label className="mb-1 block text-[11px] uppercase tracking-wider text-gray-500">
@@ -471,7 +473,7 @@ const UserAdminPanel: React.FC<UserAdminPanelProps> = ({ session }) => {
                   <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                     <div>
                       <label className="mb-1 block text-[11px] uppercase tracking-wider text-gray-500">
-                        瑙掕壊
+                        角色
                       </label>
                       <select
                         value={editRole}
@@ -489,7 +491,8 @@ const UserAdminPanel: React.FC<UserAdminPanelProps> = ({ session }) => {
 
                     <div>
                       <label className="mb-1 block text-[11px] uppercase tracking-wider text-gray-500">
-                        璐︽埛鐘舵€?                      </label>
+                        账户状态
+                      </label>
                       <select
                         value={editStatus}
                         onChange={(event) =>
@@ -498,8 +501,8 @@ const UserAdminPanel: React.FC<UserAdminPanelProps> = ({ session }) => {
                         disabled={!isSuperAdmin}
                         className="h-10 w-full rounded-xl border border-white/10 bg-black/20 px-3 text-sm text-white focus:border-white/20 focus:outline-none disabled:opacity-60"
                       >
-                        <option value="active">鍚敤</option>
-                        <option value="disabled">鍋滅敤</option>
+                        <option value="active">启用</option>
+                        <option value="disabled">停用</option>
                       </select>
                     </div>
                   </div>
@@ -507,7 +510,7 @@ const UserAdminPanel: React.FC<UserAdminPanelProps> = ({ session }) => {
                   {isSuperAdmin && (
                     <div>
                       <label className="mb-1 block text-[11px] uppercase tracking-wider text-gray-500">
-                        绠＄悊澶囨敞
+                        管理备注
                       </label>
                       <textarea
                         value={editAdminNote}
@@ -521,7 +524,8 @@ const UserAdminPanel: React.FC<UserAdminPanelProps> = ({ session }) => {
 
                   <div className="space-y-1 text-[11px] text-gray-400">
                     <div>
-                      娉ㄥ唽鏃堕棿锛?                      {detail.user.createdAt ? new Date(detail.user.createdAt).toLocaleString() : '-'}
+                      注册时间：
+                      {detail.user.createdAt ? new Date(detail.user.createdAt).toLocaleString() : '-'}
                     </div>
                     <div>密码已设置：{detail.user.passwordConfigured ? '是' : '否'}</div>
                     <div>账户 ID：{detail.account?.accountId || '尚未创建'}</div>
@@ -543,7 +547,8 @@ const UserAdminPanel: React.FC<UserAdminPanelProps> = ({ session }) => {
                     <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/10 p-4">
                       <div className="mb-3 text-xs font-medium text-emerald-100">手动调整点数</div>
                       <p className="mb-3 text-[11px] leading-5 text-emerald-100/70">
-                        姝ｆ暟浠ｈ〃鍔犵偣锛岃礋鏁颁唬琛ㄥ噺鐐广€?                      </p>
+                        正数代表加点，负数代表减点。
+                      </p>
                       <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                         <input
                           value={adjustDelta}
@@ -565,7 +570,7 @@ const UserAdminPanel: React.FC<UserAdminPanelProps> = ({ session }) => {
                         className="mt-3 inline-flex h-10 items-center gap-2 rounded-xl bg-emerald-600 px-4 text-sm font-medium text-white transition-colors hover:bg-emerald-500 disabled:opacity-60"
                       >
                         {adjusting ? <Loader2 size={14} className="animate-spin" /> : <Coins size={14} />}
-                        绔嬪嵆璋冩暣
+                        立即调整
                       </button>
                     </div>
                   )}
@@ -618,7 +623,8 @@ const UserAdminPanel: React.FC<UserAdminPanelProps> = ({ session }) => {
                       ))
                     ) : (
                       <div className="rounded-xl border border-white/5 bg-black/20 px-3 py-8 text-center text-xs text-gray-500">
-                        杩欎釜鐢ㄦ埛杩樻病鏈夋秷璐规祦姘?                      </div>
+                        这个用户还没有消费流水
+                      </div>
                     )}
                   </div>
 
@@ -629,9 +635,11 @@ const UserAdminPanel: React.FC<UserAdminPanelProps> = ({ session }) => {
                       disabled={ledgerPage <= 1 || detailLoading}
                       className="rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 hover:bg-white/10 disabled:opacity-40"
                     >
-                      上一页                    </button>
+                      上一页
+                    </button>
                     <span>
-                      绗?{detail.ledger.page} / {detail.ledger.totalPages} 椤?                    </span>
+                      第 {detail.ledger.page} / {detail.ledger.totalPages} 页
+                    </span>
                     <button
                       type="button"
                       onClick={() =>

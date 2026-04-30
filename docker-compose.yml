@@ -3,6 +3,8 @@ services:
     image: mysql:8.4
     container_name: image-pro-mysql
     restart: always
+    command:
+      - --skip-log-bin
     environment:
       MYSQL_ROOT_PASSWORD: ${MYSQL_PASSWORD:-change_me}
       MYSQL_DATABASE: ${MYSQL_DATABASE:-nano_banana_pro}

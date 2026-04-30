@@ -349,12 +349,23 @@ const clearGenerationRecordsForUser = async (userId, options = {}) => {
   });
 };
 
+const cleanupExpiredGenerationRecords = async () => ({
+  removed: 0,
+  successRetentionDays: null,
+  failedRetentionDays: null,
+  pendingRetentionDays: null,
+});
+
+const startGenerationRecordMaintenance = () => null;
+
 module.exports = {
   attachTaskToGenerationRecord,
   clearGenerationRecordsForUser,
+  cleanupExpiredGenerationRecords,
   completeGenerationRecord,
   completeGenerationRecordByTaskId,
   createGenerationRecord,
   getGenerationRecordByTaskId,
   listGenerationRecordsForUser,
+  startGenerationRecordMaintenance,
 };

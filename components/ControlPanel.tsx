@@ -44,16 +44,16 @@ import { useVideoModelCatalog } from '../src/hooks/useVideoModelCatalog';
 import { useVideoRouteCatalog } from '../src/hooks/useVideoRouteCatalog';
 import ImageModelIcon from './ImageModelIcon';
 import {
-  DEFAULT_GENERATION_ERROR_MESSAGE,
   extractErrorMessage,
-  toGenerationErrorMessage,
 } from '../src/utils/errorDebug';
 
 // Branding Icons are now in Logos.tsx
 
 import logo from '../src/assets/logo.svg';
 
-const USER_FACING_GENERATION_ERROR_MESSAGE = DEFAULT_GENERATION_ERROR_MESSAGE;
+const GENERATION_FALLBACK_MESSAGE = '生成失败，未返回错误详情';
+const toDisplayGenerationError = (error: unknown) =>
+  extractErrorMessage(error) || GENERATION_FALLBACK_MESSAGE;
 
 interface ControlPanelProps {
   onInitGenerations: (
@@ -1056,14 +1056,14 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
                } else if (res.url) {
                  onUpdateGeneration(pid, res.url);
                } else {
-                 onUpdateGeneration(pid, null, USER_FACING_GENERATION_ERROR_MESSAGE);
+                 onUpdateGeneration(pid, null, GENERATION_FALLBACK_MESSAGE);
                }
             })
             .catch((err: any) => { 
               onUpdateGeneration(
                 pid,
                 null,
-                toGenerationErrorMessage(extractErrorMessage(err), USER_FACING_GENERATION_ERROR_MESSAGE),
+                toDisplayGenerationError(err),
               );
             });
         });
@@ -1191,18 +1191,15 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
               // Fail remaining placeholders if any
               if (generatedImages.length < quantity) {
                 for (let i = generatedImages.length; i < quantity; i++) {
-                   onUpdateGeneration(placeholderIds[i], null, USER_FACING_GENERATION_ERROR_MESSAGE);
+                   onUpdateGeneration(placeholderIds[i], null, GENERATION_FALLBACK_MESSAGE);
                 }
               }
             } else {
-              throw new Error(USER_FACING_GENERATION_ERROR_MESSAGE);
+              throw new Error(GENERATION_FALLBACK_MESSAGE);
             }
           } catch (err: any) {
             console.error("Gemini Native Call Error:", err);
-            const nextError = toGenerationErrorMessage(
-              extractErrorMessage(err),
-              USER_FACING_GENERATION_ERROR_MESSAGE,
-            );
+            const nextError = toDisplayGenerationError(err);
             placeholderIds.forEach(pid => onUpdateGeneration(pid, null, nextError));
           }
         };
@@ -1240,29 +1237,26 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
                     const item = res.data[res.data.length - 1];
                     if (item?.url) onUpdateGeneration(placeholderIds[0], item.url);
                     else if (item?.b64_json) onUpdateGeneration(placeholderIds[0], `data:image/png;base64,${item.b64_json}`);
-                    else onUpdateGeneration(placeholderIds[0], null, USER_FACING_GENERATION_ERROR_MESSAGE);
+                    else onUpdateGeneration(placeholderIds[0], null, GENERATION_FALLBACK_MESSAGE);
                   } else {
                     placeholderIds.forEach((pid, idx) => {
                       const item = res.data[idx];
                       if (item?.url) onUpdateGeneration(pid, item.url);
                       else if (item?.b64_json) onUpdateGeneration(pid, `data:image/png;base64,${item.b64_json}`);
-                      else onUpdateGeneration(pid, null, USER_FACING_GENERATION_ERROR_MESSAGE);
+                      else onUpdateGeneration(pid, null, GENERATION_FALLBACK_MESSAGE);
                     });
                   }
                 } else if (res.url) {
                   onUpdateGeneration(placeholderIds[0], res.url);
                   for (let i = 1; i < placeholderIds.length; i++) {
-                    onUpdateGeneration(placeholderIds[i], null, USER_FACING_GENERATION_ERROR_MESSAGE);
+                    onUpdateGeneration(placeholderIds[i], null, GENERATION_FALLBACK_MESSAGE);
                   }
                 } else {
-                  placeholderIds.forEach(pid => onUpdateGeneration(pid, null, USER_FACING_GENERATION_ERROR_MESSAGE));
+                  placeholderIds.forEach(pid => onUpdateGeneration(pid, null, GENERATION_FALLBACK_MESSAGE));
                 }
               })
               .catch((err: any) => {
-                const nextError = toGenerationErrorMessage(
-                  extractErrorMessage(err),
-                  USER_FACING_GENERATION_ERROR_MESSAGE,
-                );
+                const nextError = toDisplayGenerationError(err);
                 placeholderIds.forEach(pid => onUpdateGeneration(pid, null, nextError));
               });
           }
@@ -1285,19 +1279,16 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
                   placeholderIds.forEach((pid) => onUpdateGeneration(pid, res.url));
                 } else if (Array.isArray(res.images) && res.images.length > 0) {
                   placeholderIds.forEach((pid, idx) => {
-                    onUpdateGeneration(pid, res.images[idx] || res.images[0] || null, res.images[idx] || res.images[0] ? undefined : USER_FACING_GENERATION_ERROR_MESSAGE);
+                    onUpdateGeneration(pid, res.images[idx] || res.images[0] || null, res.images[idx] || res.images[0] ? undefined : GENERATION_FALLBACK_MESSAGE);
                   });
                 } else {
                   placeholderIds.forEach((pid) =>
-                    onUpdateGeneration(pid, null, USER_FACING_GENERATION_ERROR_MESSAGE),
+                    onUpdateGeneration(pid, null, GENERATION_FALLBACK_MESSAGE),
                   );
                 }
               })
               .catch((err: any) => {
-                const nextError = toGenerationErrorMessage(
-                  extractErrorMessage(err),
-                  USER_FACING_GENERATION_ERROR_MESSAGE,
-                );
+                const nextError = toDisplayGenerationError(err);
                 placeholderIds.forEach((pid) => onUpdateGeneration(pid, null, nextError));
               });
           }
@@ -1366,12 +1357,7 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
               images: [collageBase64.split(',')[1]]
             }, compositePrompt);
           }).catch((err: any) => {
-            setError(
-              toGenerationErrorMessage(
-                extractErrorMessage(err),
-                USER_FACING_GENERATION_ERROR_MESSAGE,
-              ),
-            );
+            setError(toDisplayGenerationError(err));
           });
       }
 	            } else {
@@ -1402,29 +1388,26 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
                   const item = res.data[res.data.length - 1];
                   if (item?.url) onUpdateGeneration(placeholderIds[0], item.url);
                   else if (item?.b64_json) onUpdateGeneration(placeholderIds[0], `data:image/png;base64,${item.b64_json}`);
-                  else onUpdateGeneration(placeholderIds[0], null, USER_FACING_GENERATION_ERROR_MESSAGE);
+                  else onUpdateGeneration(placeholderIds[0], null, GENERATION_FALLBACK_MESSAGE);
                 } else {
                   placeholderIds.forEach((pid, idx) => {
                     const item = res.data[idx];
                     if (item?.url) onUpdateGeneration(pid, item.url);
                     else if (item?.b64_json) onUpdateGeneration(pid, `data:image/png;base64,${item.b64_json}`);
-                    else onUpdateGeneration(pid, null, USER_FACING_GENERATION_ERROR_MESSAGE);
+                    else onUpdateGeneration(pid, null, GENERATION_FALLBACK_MESSAGE);
                   });
                 }
               } else if (res.url) {
                 onUpdateGeneration(placeholderIds[0], res.url);
                 for (let i = 1; i < placeholderIds.length; i++) {
-                  onUpdateGeneration(placeholderIds[i], null, USER_FACING_GENERATION_ERROR_MESSAGE);
+                  onUpdateGeneration(placeholderIds[i], null, GENERATION_FALLBACK_MESSAGE);
                 }
               } else {
-                placeholderIds.forEach(pid => onUpdateGeneration(pid, null, USER_FACING_GENERATION_ERROR_MESSAGE));
+                placeholderIds.forEach(pid => onUpdateGeneration(pid, null, GENERATION_FALLBACK_MESSAGE));
               }
             })
             .catch((err: any) => {
-              const nextError = toGenerationErrorMessage(
-                extractErrorMessage(err),
-                USER_FACING_GENERATION_ERROR_MESSAGE,
-              );
+              const nextError = toDisplayGenerationError(err);
               placeholderIds.forEach(pid => onUpdateGeneration(pid, null, nextError));
             });
         }
@@ -1587,7 +1570,7 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
       onUpdateGeneration(
         pid,
         null,
-        toGenerationErrorMessage(extractErrorMessage(err), USER_FACING_GENERATION_ERROR_MESSAGE),
+        toDisplayGenerationError(err),
       );
     }
   };

@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { getAuthorizedBillingHeaders } from '../src/services/accountIdentity';
+import { AppError, extractErrorMessage } from '../src/utils/errorDebug';
 
 const API_BASE_URL = '/api';
 
@@ -22,21 +23,31 @@ const buildVideoRequestHeaders = async (
   ...buildAuthHeaders(apiKey),
 });
 
-// Extracted polling function for reuse in recovery
+const toAppError = (error: any, fallback: string) =>
+  new AppError(
+    extractErrorMessage(error?.response?.data) || extractErrorMessage(error) || fallback,
+    {
+      code: String(error?.response?.data?.code || '').trim() || undefined,
+      status: Number(error?.response?.data?.status || error?.response?.status) || undefined,
+      traceId: String(error?.response?.data?.traceId || '').trim() || undefined,
+      details: String(error?.response?.data?.details || '').trim() || undefined,
+    },
+  );
+
+// Extracted polling function for reuse in recovery.
 export const pollVideoTask = async (
   apiKey: string | undefined,
   taskId: string,
-  onProgress?: (progress: number) => void
-): Promise<string> => {
-  return new Promise((resolve, reject) => {
+  onProgress?: (progress: number) => void,
+): Promise<string> =>
+  new Promise((resolve, reject) => {
     const startTime = Date.now();
     let errorCount = 0;
 
-    // Safety timeout: 15 minutes
+    // Safety timeout: 15 minutes.
     const maxDuration = 15 * 60 * 1000;
 
     const pollInterval = setInterval(async () => {
-      // Timeout check
       if (Date.now() - startTime > maxDuration) {
         clearInterval(pollInterval);
         reject(new Error('任务等待超时'));
@@ -76,46 +87,47 @@ export const pollVideoTask = async (
           } else {
             reject(new Error('任务已完成但未返回视频地址'));
           }
-        } else if (status === 'failed' || status === 'failure' || status === 'error') {
+          return;
+        }
+
+        if (status === 'failed' || status === 'failure' || status === 'error') {
           clearInterval(pollInterval);
-          reject(new Error(String(failReason || '生成失败')));
-        } else if (
-          // Some upstreams do not set status to FAILED but finish with 100% and no output.
-          progressStr === '100%' && !outputUrl
-        ) {
+          reject(new Error(String(failReason || '视频生成失败')));
+          return;
+        }
+
+        if (progressStr === '100%' && !outputUrl) {
           clearInterval(pollInterval);
-          reject(new Error(String(failReason || '生成失败')));
-        } else if (
+          reject(new Error(String(failReason || '视频生成失败')));
+          return;
+        }
+
+        if (
           status === 'processing' ||
           status === 'starting' ||
           status === 'pending' ||
           status === 'queued'
         ) {
-          // Continue polling
-          errorCount = 0; // Reset error count on successful status read
+          errorCount = 0;
         } else {
           console.warn(`[VideoPoll] Unknown status: ${status}`, task);
         }
       } catch (err: any) {
         console.warn('Poll error', err);
-        // Handle 404 specifically
         if (err.response && err.response.status === 404) {
           clearInterval(pollInterval);
           reject(new Error('任务不存在或已过期'));
           return;
         }
 
-        // Too many consecutive errors?
         errorCount++;
         if (errorCount > 20) {
-          // 1 minute of solid errors
           clearInterval(pollInterval);
-          reject(new Error('网络连接不稳定，无法获取任务状态'));
+          reject(toAppError(err, '查询任务失败，请稍后重试'));
         }
       }
     }, 3000);
   });
-};
 
 export const generateVideo = async (
   apiKey: string | undefined,
@@ -129,7 +141,7 @@ export const generateVideo = async (
     aspect_ratio?: string;
     hd?: boolean;
     duration?: string;
-  }
+  },
 ): Promise<string> => {
   try {
     const payload: any = { model, prompt };
@@ -180,12 +192,10 @@ export const generateVideo = async (
           payload.last_frame = images[1];
           payload.images = [images[0], images[1]];
         }
-      } else {
+      } else if (images && images.length > 0) {
         // Fallback: single reference image.
-        if (images && images.length > 0) {
-          payload.input_config.image = images[0];
-          payload.image = images[0];
-        }
+        payload.input_config.image = images[0];
+        payload.image = images[0];
       }
     } else if (model.startsWith('grok-video')) {
       Object.assign(payload, options);
@@ -217,14 +227,12 @@ export const generateVideo = async (
     });
 
     const taskId = response?.data?.id || response?.data?.task_id || response?.data?.data?.task_id;
-
     if (!taskId) {
-      throw new Error('未返回任务ID');
+      throw new Error('未返回任务 ID');
     }
 
-    // Use extracted poller
     return pollVideoTask(apiKey, taskId, onProgress);
   } catch (error: any) {
-    throw new Error(error.response?.data?.error || '视频生成请求失败');
+    throw toAppError(error, '视频生成请求失败');
   }
 };

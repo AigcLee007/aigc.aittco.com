@@ -4,12 +4,8 @@ import { checkTaskStatus, checkVideoTaskStatus, findAllUrlsInObject } from '../s
 import { useToast } from '../context/ToastContext';
 import { useCanvasStore } from '../store/canvasStore';
 import {
-  DEFAULT_GENERATION_ERROR_MESSAGE,
   extractErrorMessage,
-  toGenerationErrorMessage,
 } from '../utils/errorDebug';
-
-const USER_FACING_GENERATION_ERROR_MESSAGE = DEFAULT_GENERATION_ERROR_MESSAGE;
 
 export const useGlobalPolling = (
   apiKey: string | undefined,
@@ -108,10 +104,7 @@ export const useGlobalPolling = (
           };
           if (processedState.failed) return;
           processedTasksRef.current.set(processedKey, { ...processedState, failed: true });
-          const nextError = toGenerationErrorMessage(
-            extractErrorMessage(result.error),
-            USER_FACING_GENERATION_ERROR_MESSAGE,
-          );
+          const nextError = extractErrorMessage(result.error) || '任务查询失败，未返回错误详情';
           onUpdateGeneration(node.id, null, nextError);
           toastError(nextError);
         });
@@ -149,10 +142,7 @@ export const useGlobalPolling = (
         if (data.isFailed && !processedState.failed) {
           processedTasksRef.current.set(processedKey, { ...processedState, failed: true });
           const rawDetails = data.raw?.details || data.raw?.error || data.raw?.message || data.raw;
-          const nextError = toGenerationErrorMessage(
-            extractErrorMessage(rawDetails),
-            USER_FACING_GENERATION_ERROR_MESSAGE,
-          );
+          const nextError = extractErrorMessage(rawDetails) || '任务失败，未返回错误详情';
           onUpdateGeneration(node.id, null, nextError);
           toastError(nextError);
         }

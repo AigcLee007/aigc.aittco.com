@@ -3583,19 +3583,6 @@ function handleSingleError(msg, size) {
     msg = "你的密钥额度不足，需要充值了";
   }
 
-  // [Fix] Content Safety / Generic Failure Advice
-  // Checked: '生成失败' (via poll), '提交失败' (via submit), 'FAILURE' (status)
-  if (
-    msg.includes("失败") ||
-    msg.includes("FAILURE") ||
-    msg.includes("FAILED")
-  ) {
-    // Avoid duplicating the advice if it's already there (though unlikely)
-    if (!msg.includes("安全限制")) {
-      msg += " (请检查提示词或参考图，可能触发了安全限制，请更换后重试)";
-    }
-  }
-
   statusText.innerText = `Warning: ${msg}`;
   statusText.style.color = "#FFD60A";
 }

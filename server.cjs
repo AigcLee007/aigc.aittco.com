@@ -65,6 +65,7 @@ const {
   createGenerationRecord,
   getGenerationRecordByTaskId,
   listGenerationRecordsForUser,
+  startGenerationRecordMaintenance,
 } = require("./generationRecordStore.cjs");
 const {
   createManagedImageRoute,
@@ -902,11 +903,11 @@ const buildAdminDashboardPayload = async () => {
 };
 const sendBillingError = (res, error) => {
   if (error instanceof BillingError) {
-    const isAuthError =
-      error.code === "ACCOUNT_AUTH_REQUIRED" || error.code === "AUTH_LOGIN_REQUIRED";
-    return res.status(isAuthError ? 401 : 400).json({
-      error: error.message,
-      code: error.code,
+    const normalized = normalizeGenerationError(error, 400);
+    return res.status(normalized.status).json({
+      error: normalized.error,
+      code: normalized.code,
+      status: normalized.status,
       currentPoints: error.currentPoints,
       requiredPoints: error.requiredPoints,
     });
@@ -1212,11 +1213,7 @@ const sendAuthError = (res, error) => {
 };
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-const USER_FACING_GENERATION_ERROR_MESSAGE =
-  "请检查提示词或参考图，可能触发了安全限制，请更换后重试";
-const EXPOSE_ERROR_DETAILS =
-  String(process.env.EXPOSE_ERROR_DETAILS || "").trim().toLowerCase() === "true" ||
-  String(process.env.NODE_ENV || "").trim().toLowerCase() !== "production";
+const DEFAULT_GENERATION_ERROR_MESSAGE = "请求失败，未返回错误详情";
 const NON_IDEMPOTENT_UPSTREAM_ERROR_MESSAGE =
   "Upstream connection closed after the generation request was sent. Automatic retry is disabled to avoid duplicate billing. Please check the upstream dashboard before retrying manually.";
 const isRetryableNetworkError = (error) => {
@@ -1268,59 +1265,166 @@ const formatErrorValue = (value) => {
   }
 };
 
-const buildErrorDetails = (error) => {
-  if (!error) return "";
+const sanitizeErrorText = (value = "", { maxLength = 1000 } = {}) => {
+  const cleaned = String(value || "")
+    .replace(/Bearer\s+[A-Za-z0-9._~+/=-]+/gi, "Bearer [redacted]")
+    .replace(/\bsk[_-][A-Za-z0-9._-]{8,}\b/g, "sk_[redacted]")
+    .replace(/\bAIza[0-9A-Za-z_-]{20,}\b/g, "AIza[redacted]")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!maxLength || cleaned.length <= maxLength) return cleaned;
+  return `${cleaned.slice(0, maxLength)}...`;
+};
+
+const extractTraceId = (value = "") => {
+  const text = String(value || "");
+  const match = text.match(/(?:trace\s*id|traceid|trace_id|request[_\s-]*id)\s*[:：]?\s*([A-Za-z0-9._-]{6,})/i);
+  return match?.[1] || "";
+};
+
+const stripTraceId = (value = "") =>
+  String(value || "")
+    .replace(/[（(]\s*(?:trace\s*id|traceid|trace_id|request[_\s-]*id)\s*[:：]?\s*[A-Za-z0-9._-]{6,}\s*[）)]/gi, "")
+    .replace(/\s*(?:trace\s*id|traceid|trace_id|request[_\s-]*id)\s*[:：]\s*[A-Za-z0-9._-]{6,}\s*/gi, " ")
+    .trim();
+
+const parseJsonLikeErrorString = (value = "") => {
+  const text = String(value || "").trim();
+  if (!text) return null;
+  try {
+    return JSON.parse(text);
+  } catch (_error) {
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) return null;
+    try {
+      return JSON.parse(jsonMatch[0]);
+    } catch (_innerError) {
+      return null;
+    }
+  }
+};
+
+const getErrorData = (error) => {
+  const data = error?.response?.data;
+  if (typeof data === "string") {
+    return parseJsonLikeErrorString(data) || data;
+  }
+  return data;
+};
+
+const getNestedErrorValue = (data, key) => {
+  if (!data || typeof data !== "object") return "";
+  const nested = data.error && typeof data.error === "object" ? data.error : null;
+  return data[key] || nested?.[key] || "";
+};
+
+const buildGenerationErrorMeta = (error, data) => {
   const parts = [];
-  const message = String(error.message || "").trim();
-  const code = String(error.code || error.response?.data?.code || "").trim();
-  const upstream =
-    error.response?.data?.error ||
-    error.response?.data?.message ||
-    error.response?.statusText ||
-    "";
+  const status = error?.response?.status;
+  const geminiNative = error?.geminiNative || null;
+  const upstreamType = getNestedErrorValue(data, "type");
+  const upstreamParam = getNestedErrorValue(data, "param");
 
-  const upstreamStatus = error.response?.status;
-  const geminiNative = error.geminiNative || null;
-
-  if (code) parts.push(`code=${code}`);
-  if (upstreamStatus) parts.push(`upstream_status=${upstreamStatus}`);
-  if (message) parts.push(`message=${message}`);
+  if (status) parts.push(`upstream_status=${status}`);
   if (geminiNative?.routeId) parts.push(`route=${geminiNative.routeId}`);
   if (geminiNative?.model) parts.push(`model=${geminiNative.model}`);
   if (geminiNative?.imageSize) parts.push(`imageSize=${geminiNative.imageSize}`);
   if (geminiNative?.aspectRatio) parts.push(`aspectRatio=${geminiNative.aspectRatio}`);
-  if (upstream) parts.push(`upstream=${formatErrorValue(upstream)}`);
+  if (upstreamType) parts.push(`type=${upstreamType}`);
+  if (upstreamParam) parts.push(`param=${upstreamParam}`);
 
-  return parts.join("; ");
+  return sanitizeErrorText(parts.join("; "), { maxLength: 200 });
 };
 
-const sendUserFacingGenerationError = (res, status = 500, error = null) => {
-  const payload = {
-    error: USER_FACING_GENERATION_ERROR_MESSAGE,
-  };
-
-  if (EXPOSE_ERROR_DETAILS) {
-    const details = buildErrorDetails(error);
-    if (details) {
-      payload.details = details;
+const getGenerationErrorMessage = (error, data) => {
+  if (data && typeof data === "object") {
+    const nested = data.error;
+    if (nested && typeof nested === "object" && nested.message) {
+      return nested.message;
     }
+    if (typeof nested === "string") return nested;
+    if (data.message) return data.message;
+    if (data.details) return data.details;
   }
-
-  return res.status(toSafeHttpStatus(status, 500)).json(payload);
+  if (typeof data === "string" && data.trim()) return data;
+  if (error?.message) return error.message;
+  return DEFAULT_GENERATION_ERROR_MESSAGE;
 };
-const respondWithUserFacingGenerationError = (res, error, fallbackStatus = 500) => {
+
+const normalizeGenerationError = (error, fallbackStatus = 500) => {
+  const data = getErrorData(error);
+  const status = toSafeHttpStatus(error?.response?.status, fallbackStatus);
+
   if (error instanceof BillingError) {
-    const isAuthError =
-      error.code === "ACCOUNT_AUTH_REQUIRED" || error.code === "AUTH_LOGIN_REQUIRED";
-    return sendUserFacingGenerationError(res, isAuthError ? 401 : 400, error);
+    const billingStatus =
+      error.code === "ACCOUNT_AUTH_REQUIRED" || error.code === "AUTH_LOGIN_REQUIRED" ? 401 : 400;
+    const message =
+      error.code === "INSUFFICIENT_POINTS" &&
+      Number.isFinite(Number(error.currentPoints)) &&
+      Number.isFinite(Number(error.requiredPoints))
+        ? `金币不足，当前 ${toPointNumber(error.currentPoints, 0)}，需 ${toPointNumber(error.requiredPoints, 0)}`
+        : error.message || DEFAULT_GENERATION_ERROR_MESSAGE;
+    return {
+      error: sanitizeErrorText(message),
+      code: error.code || "",
+      status: billingStatus,
+      details: "",
+      traceId: "",
+    };
   }
 
   if (error instanceof AuthError) {
-    return sendUserFacingGenerationError(
-      res,
-      error.code === "AUTH_LOGIN_REQUIRED" ? 401 : 400,
-      error,
-    );
+    return {
+      error: sanitizeErrorText(error.message || DEFAULT_GENERATION_ERROR_MESSAGE),
+      code: error.code || "",
+      status: error.code === "AUTH_LOGIN_REQUIRED" ? 401 : 400,
+      details: "",
+      traceId: "",
+    };
+  }
+
+  let message = getGenerationErrorMessage(error, data);
+  const traceId =
+    extractTraceId(message) ||
+    extractTraceId(formatErrorValue(data)) ||
+    String(error?.response?.headers?.["x-request-id"] || error?.response?.headers?.["x-trace-id"] || "").trim();
+  message = stripTraceId(message);
+
+  return {
+    error: sanitizeErrorText(message || DEFAULT_GENERATION_ERROR_MESSAGE),
+    code: sanitizeErrorText(String(error?.code || getNestedErrorValue(data, "code") || ""), { maxLength: 80 }),
+    status,
+    details: buildGenerationErrorMeta(error, data),
+    traceId: sanitizeErrorText(traceId, { maxLength: 120 }),
+  };
+};
+
+const buildErrorDetails = (error) => {
+  const normalized = normalizeGenerationError(error);
+  return [normalized.details, normalized.traceId ? `traceId=${normalized.traceId}` : ""]
+    .filter(Boolean)
+    .join("; ");
+};
+
+const sendUserFacingGenerationError = (res, status = 500, error = null) => {
+  const normalized = normalizeGenerationError(error, status);
+  const responseStatus = toSafeHttpStatus(normalized.status || status, 500);
+  const payload = {
+    error: normalized.error,
+    status: responseStatus,
+  };
+  if (normalized.code) payload.code = normalized.code;
+  if (normalized.traceId) payload.traceId = normalized.traceId;
+  if (normalized.details) payload.details = normalized.details;
+  return res.status(responseStatus).json(payload);
+};
+const respondWithUserFacingGenerationError = (res, error, fallbackStatus = 500) => {
+  if (error instanceof BillingError) {
+    return sendUserFacingGenerationError(res, fallbackStatus, error);
+  }
+
+  if (error instanceof AuthError) {
+    return sendUserFacingGenerationError(res, fallbackStatus, error);
   }
 
   if (error?.response?.status) {
@@ -3098,7 +3202,7 @@ app.post("/api/generate", generateLimiter, async (req, res) => {
     );
     const shouldUseBilling = !useUserProvidedApiKey;
     if (!route) {
-      return sendUserFacingGenerationError(res, 400);
+      return sendUserFacingGenerationError(res, 400, new Error("图片线路不存在或已停用，请联系管理员"));
     }
 
     delete requestBody.uiMode;
@@ -3243,7 +3347,8 @@ app.post("/api/generate", generateLimiter, async (req, res) => {
               }, persistedResult),
             });
           } catch (error) {
-            const failureDetails = buildErrorDetails(error) || error.message;
+            const normalizedError = normalizeGenerationError(error);
+            const failureDetails = normalizedError.error;
             setLocalImageJob(localJobId, {
               status: "failed",
               progress: 100,
@@ -3252,6 +3357,10 @@ app.post("/api/generate", generateLimiter, async (req, res) => {
                 task_id: localTaskId,
                 status: "failed",
                 error: failureDetails,
+                code: normalizedError.code || undefined,
+                statusCode: normalizedError.status,
+                traceId: normalizedError.traceId || undefined,
+                details: normalizedError.details || undefined,
                 failure_reason: failureDetails,
                 upstream_status: error.response?.status || null,
                 upstream_error: error.response?.data || null,
@@ -3355,6 +3464,7 @@ app.post("/api/generate", generateLimiter, async (req, res) => {
             : persistedResult.payload,
         );
       } catch (error) {
+        const normalizedError = normalizeGenerationError(error);
         if (shouldUseBilling && billingCharge?.chargeId) {
           await refundPoints(billingAccount.accountId, billingCharge.chargeId, {
             reason: "request_failed",
@@ -3363,7 +3473,7 @@ app.post("/api/generate", generateLimiter, async (req, res) => {
         }
         await completeGenerationRecordFailureSafe({
           recordId: generationRecord?.id,
-          errorMessage: error.message,
+          errorMessage: normalizedError.error,
           outputSize: requestBody.image_size || requestBody.size || null,
           aspectRatio: requestBody.aspect_ratio || requestBody.aspectRatio || null,
           meta: {
@@ -3376,7 +3486,7 @@ app.post("/api/generate", generateLimiter, async (req, res) => {
     }
 
     if (!isOpenAiImageRoute(route)) {
-      return sendUserFacingGenerationError(res, 400);
+      return sendUserFacingGenerationError(res, 400, new Error(`图片线路 ${route.id || "unknown"} 不支持 OpenAI 图片请求，请联系管理员`));
     }
 
     const userKey = getRouteAuthorization(route, fallbackAuthorization, {
@@ -3765,6 +3875,7 @@ app.post("/api/generate", generateLimiter, async (req, res) => {
             }, persistedResult),
           });
         } catch (error) {
+          const normalizedError = normalizeGenerationError(error);
           setLocalImageJob(localJobId, {
             status: "failed",
             progress: 100,
@@ -3772,7 +3883,11 @@ app.post("/api/generate", generateLimiter, async (req, res) => {
               id: localTaskId,
               task_id: localTaskId,
               status: "failed",
-              error: error.message,
+              error: normalizedError.error,
+              code: normalizedError.code || undefined,
+              statusCode: normalizedError.status,
+              traceId: normalizedError.traceId || undefined,
+              details: normalizedError.details || undefined,
               results: [],
             },
           });
@@ -3786,12 +3901,12 @@ app.post("/api/generate", generateLimiter, async (req, res) => {
           await completeGenerationRecordFailureSafe({
             recordId: generationRecord?.id,
             taskId: localTaskId,
-            errorMessage: error.message,
+            errorMessage: normalizedError.error,
           });
           logger.error({
             timestamp: new Date().toISOString(),
             type: "Visionary Background Generate Error",
-            message: error.message,
+            message: normalizedError.error,
             stack: error.stack,
             response: error.response?.data,
           });
@@ -4132,6 +4247,7 @@ app.post("/api/generate", generateLimiter, async (req, res) => {
         : persistedResult.payload,
     );
   } catch (error) {
+    const normalizedError = normalizeGenerationError(error);
     if (billingCharge?.chargeId && billingAccount?.accountId && !localTaskId) {
       await refundPoints(billingAccount.accountId, billingCharge.chargeId, {
         reason: "request_failed",
@@ -4141,13 +4257,13 @@ app.post("/api/generate", generateLimiter, async (req, res) => {
     await completeGenerationRecordFailureSafe({
       recordId: generationRecord?.id,
       taskId: localTaskId || null,
-      errorMessage: error.message,
+      errorMessage: normalizedError.error,
     });
-    console.error("[Generate] Error:", error.message);
+    console.error("[Generate] Error:", normalizedError.error);
     logger.error({
       timestamp: new Date().toISOString(),
       type: "Generate Error",
-      message: error.message,
+      message: normalizedError.error,
       stack: error.stack,
       response: error.response?.data,
     });
@@ -4174,7 +4290,7 @@ app.post("/api/edit", generateLimiter, async (req, res) => {
     const shouldUseBilling = !useUserProvidedApiKey;
 
     if (!route) {
-      return sendUserFacingGenerationError(res, 400);
+      return sendUserFacingGenerationError(res, 400, new Error("图片编辑线路不存在或已停用，请联系管理员"));
     }
 
     const pointCost = shouldUseBilling ? getRoutePointCost(route, requestBody.n, requestBody) : 0;
@@ -4389,6 +4505,7 @@ app.post("/api/edit", generateLimiter, async (req, res) => {
         : persistedResult.payload,
     );
   } catch (error) {
+    const normalizedError = normalizeGenerationError(error);
     if (billingCharge?.chargeId && billingAccount?.accountId && !localTaskId) {
       await refundPoints(billingAccount.accountId, billingCharge.chargeId, {
         reason: "request_failed",
@@ -4736,7 +4853,7 @@ app.post("/api/gemini/generate", generateLimiter, async (req, res) => {
     const requestedImageModel = await resolveRequestedImageModel(requestBody);
 
     if (!route || !isGeminiNativeRoute(route)) {
-      return sendUserFacingGenerationError(res, 400);
+      return sendUserFacingGenerationError(res, 400, new Error("Gemini 图片线路不存在、已停用或不支持当前请求，请联系管理员"));
     }
 
     billingAccount = await requireBillingAccount(req);
@@ -4816,6 +4933,7 @@ app.post("/api/gemini/generate", generateLimiter, async (req, res) => {
       },
     });
   } catch (error) {
+    const normalizedError = normalizeGenerationError(error);
     if (billingCharge?.chargeId) {
       await refundPoints(billingAccount.accountId, billingCharge.chargeId, {
         reason: "request_failed",
@@ -4824,9 +4942,9 @@ app.post("/api/gemini/generate", generateLimiter, async (req, res) => {
     }
     await completeGenerationRecordFailureSafe({
       recordId: generationRecord?.id,
-      errorMessage: error.message,
+      errorMessage: normalizedError.error,
     });
-    console.error("[Gemini Generate] Error:", error.message);
+    console.error("[Gemini Generate] Error:", normalizedError.error);
     if (error.cause) {
       console.error("[Gemini Generate] Error Cause:", {
         message: error.cause.message,
@@ -4843,7 +4961,7 @@ app.post("/api/gemini/generate", generateLimiter, async (req, res) => {
     logger.error({
       timestamp: new Date().toISOString(),
       type: "Gemini Generate Error",
-      message: error.message,
+      message: normalizedError.error,
       status: error.response?.status,
       response: error.response?.data,
     });
@@ -4864,7 +4982,7 @@ app.post("/api/video/generate", generateLimiter, async (req, res) => {
     const route = await resolveVideoRoute(requestBody?.routeId);
     const requestedVideoModel = await resolveRequestedVideoModel(requestBody);
     if (!route) {
-      return sendUserFacingGenerationError(res, 400);
+      return sendUserFacingGenerationError(res, 400, new Error("视频线路不存在或已停用，请联系管理员"));
     }
 
     const pointCost = getRoutePointCost(route, 1, requestBody);
@@ -5051,9 +5169,9 @@ app.post("/api/video/generate", generateLimiter, async (req, res) => {
     await completeGenerationRecordFailureSafe({
       recordId: generationRecord?.id,
       taskId: localTaskId || null,
-      errorMessage: error.message,
+      errorMessage: normalizedError.error,
     });
-    console.error("[Video Generate] Error:", error.message);
+    console.error("[Video Generate] Error:", normalizedError.error);
     respondWithUserFacingGenerationError(res, error, 500);
   }
 });
@@ -5819,4 +5937,5 @@ app.listen(PORT, () => {
   console.log(`Backend server running on http://localhost:${PORT}`);
   console.log(`   Upstream API: ${UPSTREAM_URL}`);
   startBackgroundTaskSettlement();
+  startGenerationRecordMaintenance(logger);
 });

@@ -7,6 +7,57 @@ const {
 } = require("./db.cjs");
 
 let generationRecordSchemaPromise = null;
+let generationRecordMaintenanceTimer = null;
+
+const parseEnvInt = (value, fallback) => {
+  const parsed = Number.parseInt(String(value ?? fallback), 10);
+  return Number.isFinite(parsed) ? parsed : fallback;
+};
+
+const MAX_PROMPT_LENGTH = Math.max(
+  256,
+  parseEnvInt(process.env.GENERATION_RECORD_MAX_PROMPT_LENGTH, 4000),
+);
+const MAX_ERROR_LENGTH = Math.max(
+  256,
+  parseEnvInt(process.env.GENERATION_RECORD_MAX_ERROR_LENGTH, 2000),
+);
+const MAX_URL_LENGTH = Math.max(
+  256,
+  parseEnvInt(process.env.GENERATION_RECORD_MAX_URL_LENGTH, 2048),
+);
+const MAX_META_STRING_LENGTH = Math.max(
+  1024,
+  parseEnvInt(process.env.GENERATION_RECORD_MAX_META_STRING_LENGTH, 12000),
+);
+const MAX_META_DEPTH = Math.max(
+  1,
+  parseEnvInt(process.env.GENERATION_RECORD_MAX_META_DEPTH, 4),
+);
+const MAX_META_KEYS = Math.max(
+  5,
+  parseEnvInt(process.env.GENERATION_RECORD_MAX_META_KEYS, 40),
+);
+const MAX_META_ARRAY_ITEMS = Math.max(
+  5,
+  parseEnvInt(process.env.GENERATION_RECORD_MAX_META_ARRAY_ITEMS, 12),
+);
+const SUCCESS_RETENTION_DAYS = Math.max(
+  1,
+  parseEnvInt(process.env.GENERATION_RECORD_SUCCESS_RETENTION_DAYS, 30),
+);
+const FAILED_RETENTION_DAYS = Math.max(
+  1,
+  parseEnvInt(process.env.GENERATION_RECORD_FAILED_RETENTION_DAYS, 7),
+);
+const PENDING_RETENTION_DAYS = Math.max(
+  1,
+  parseEnvInt(process.env.GENERATION_RECORD_PENDING_RETENTION_DAYS, 3),
+);
+const CLEANUP_INTERVAL_MS = Math.max(
+  60 * 60 * 1000,
+  parseEnvInt(process.env.GENERATION_RECORD_CLEANUP_INTERVAL_MS, 6 * 60 * 60 * 1000),
+);
 
 const ensureGenerationRecordSchema = async () => {
   if (!generationRecordSchemaPromise) {
@@ -84,10 +135,60 @@ const uniqueUrls = (urls = []) =>
   Array.from(
     new Set(
       (Array.isArray(urls) ? urls : [])
-        .map((item) => String(item || "").trim())
+        .map((item) => clampText(item, MAX_URL_LENGTH))
         .filter(Boolean),
     ),
   );
+
+const clampText = (value, maxLength = 0) => {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  if (!Number.isFinite(maxLength) || maxLength <= 0 || text.length <= maxLength) {
+    return text;
+  }
+  return `${text.slice(0, Math.max(0, maxLength - 12))}[truncated]`;
+};
+
+const sanitizeJsonValue = (value, depth = 0) => {
+  if (value === null || value === undefined) return null;
+  if (typeof value === "string") return clampText(value, 512);
+  if (typeof value === "number" || typeof value === "boolean") return value;
+  if (value instanceof Date) return value.toISOString();
+
+  if (Array.isArray(value)) {
+    if (depth >= MAX_META_DEPTH) {
+      return `[array(${value.length}) truncated]`;
+    }
+    return value
+      .slice(0, MAX_META_ARRAY_ITEMS)
+      .map((item) => sanitizeJsonValue(item, depth + 1));
+  }
+
+  if (typeof value === "object") {
+    if (depth >= MAX_META_DEPTH) {
+      return "[object truncated]";
+    }
+    const entries = Object.entries(value).slice(0, MAX_META_KEYS);
+    return Object.fromEntries(
+      entries.map(([key, item]) => [clampText(key, 80) || "key", sanitizeJsonValue(item, depth + 1)]),
+    );
+  }
+
+  return clampText(String(value), 512);
+};
+
+const stringifyMeta = (value) => {
+  if (!value) return null;
+  const normalized = sanitizeJsonValue(value, 0);
+  const serialized = JSON.stringify(normalized);
+  if (!serialized) return null;
+  if (serialized.length <= MAX_META_STRING_LENGTH) return serialized;
+  return JSON.stringify({
+    truncated: true,
+    size: serialized.length,
+    preview: clampText(serialized, MAX_META_STRING_LENGTH - 64),
+  });
+};
 
 const parseJsonField = (value) => {
   if (!value) return null;
@@ -143,8 +244,8 @@ const createGenerationRecord = async (payload = {}) => {
     const nowDb = toDbDateTime(now);
     const resultUrls = uniqueUrls(payload.resultUrls);
     const previewUrl = String(payload.previewUrl || "").trim() || resultUrls[0] || null;
-    const status = normalizeStatus(payload.status);
-    const record = {
+  const status = normalizeStatus(payload.status);
+  const record = {
       id: `genrec_${randomBytes(8).toString("hex")}`,
       userId: String(payload.userId || "").trim(),
       accountId: String(payload.accountId || "").trim() || null,
@@ -152,7 +253,7 @@ const createGenerationRecord = async (payload = {}) => {
       uiMode: normalizeUiMode(payload.uiMode),
       mediaType: normalizeMediaType(payload.mediaType),
       actionName: String(payload.actionName || "").trim() || null,
-      prompt: String(payload.prompt || "").trim(),
+      prompt: clampText(payload.prompt, MAX_PROMPT_LENGTH),
       modelId: String(payload.modelId || "").trim() || null,
       modelName: String(payload.modelName || "").trim() || null,
       routeId: String(payload.routeId || "").trim() || null,
@@ -162,10 +263,10 @@ const createGenerationRecord = async (payload = {}) => {
       quantity: parsePositiveInt(payload.quantity, 1),
       aspectRatio: String(payload.aspectRatio || "").trim() || null,
       outputSize: String(payload.outputSize || "").trim() || null,
-      previewUrl,
+      previewUrl: previewUrl ? clampText(previewUrl, MAX_URL_LENGTH) : null,
       resultUrlsJson: JSON.stringify(resultUrls),
-      errorMessage: String(payload.errorMessage || "").trim() || null,
-      metaJson: payload.meta ? JSON.stringify(payload.meta) : null,
+      errorMessage: clampText(payload.errorMessage, MAX_ERROR_LENGTH) || null,
+      metaJson: stringifyMeta(payload.meta),
       createdAt: nowDb,
       updatedAt: nowDb,
       completedAt: status === "PENDING" ? null : nowDb,
@@ -268,30 +369,30 @@ const buildCompletionUpdate = (updates = {}) => {
   }
   if (updates.taskId !== undefined) {
     fields.push("task_id = ?");
-    params.push(String(updates.taskId || "").trim() || null);
+    params.push(clampText(updates.taskId, 255) || null);
   }
   if (updates.outputSize !== undefined) {
     fields.push("output_size = ?");
-    params.push(String(updates.outputSize || "").trim() || null);
+    params.push(clampText(updates.outputSize, 32) || null);
   }
   if (updates.aspectRatio !== undefined) {
     fields.push("aspect_ratio = ?");
-    params.push(String(updates.aspectRatio || "").trim() || null);
+    params.push(clampText(updates.aspectRatio, 20) || null);
   }
   if (updates.errorMessage !== undefined) {
     fields.push("error_message = ?");
-    params.push(String(updates.errorMessage || "").trim() || null);
+    params.push(clampText(updates.errorMessage, MAX_ERROR_LENGTH) || null);
   }
   if (updates.meta !== undefined) {
     fields.push("meta_json = ?");
-    params.push(updates.meta ? JSON.stringify(updates.meta) : null);
+    params.push(stringifyMeta(updates.meta));
   }
   if (updates.previewUrl !== undefined) {
     fields.push("preview_url = ?");
-    params.push(String(updates.previewUrl || "").trim() || null);
+    params.push(clampText(updates.previewUrl, MAX_URL_LENGTH) || null);
   } else if (resultUrls.length > 0) {
     fields.push("preview_url = ?");
-    params.push(resultUrls[0]);
+    params.push(clampText(resultUrls[0], MAX_URL_LENGTH) || null);
   }
   if (resultUrls.length > 0) {
     fields.push("result_urls_json = ?");
@@ -481,12 +582,65 @@ const clearGenerationRecordsForUser = async (userId, options = {}) => {
   };
 };
 
+const cleanupExpiredGenerationRecords = async () => {
+  await ensureGenerationRecordSchema();
+  const pool = await getPool();
+  const [result] = await pool.execute(
+    `
+      DELETE FROM generation_records
+      WHERE
+        (status = 'SUCCESS' AND created_at < UTC_TIMESTAMP() - INTERVAL ? DAY)
+        OR (status = 'FAILED' AND created_at < UTC_TIMESTAMP() - INTERVAL ? DAY)
+        OR (status = 'PENDING' AND created_at < UTC_TIMESTAMP() - INTERVAL ? DAY)
+    `,
+    [SUCCESS_RETENTION_DAYS, FAILED_RETENTION_DAYS, PENDING_RETENTION_DAYS],
+  );
+  return {
+    removed: Number(result?.affectedRows || 0),
+    successRetentionDays: SUCCESS_RETENTION_DAYS,
+    failedRetentionDays: FAILED_RETENTION_DAYS,
+    pendingRetentionDays: PENDING_RETENTION_DAYS,
+  };
+};
+
+const startGenerationRecordMaintenance = (logger = console) => {
+  if (generationRecordMaintenanceTimer) return generationRecordMaintenanceTimer;
+
+  const runCleanup = async () => {
+    try {
+      const result = await cleanupExpiredGenerationRecords();
+      if (result.removed > 0) {
+        logger.info?.(
+          `[Generation Records] Removed ${result.removed} expired rows (success=${result.successRetentionDays}d, failed=${result.failedRetentionDays}d, pending=${result.pendingRetentionDays}d)`,
+        );
+      }
+    } catch (error) {
+      logger.warn?.(`[Generation Records] Cleanup failed: ${error.message}`);
+    }
+  };
+
+  setTimeout(() => {
+    void runCleanup();
+  }, 10 * 1000);
+  generationRecordMaintenanceTimer = setInterval(() => {
+    void runCleanup();
+  }, CLEANUP_INTERVAL_MS);
+
+  logger.info?.(
+    `[Generation Records] Maintenance enabled: every ${CLEANUP_INTERVAL_MS}ms (success=${SUCCESS_RETENTION_DAYS}d, failed=${FAILED_RETENTION_DAYS}d, pending=${PENDING_RETENTION_DAYS}d)`,
+  );
+
+  return generationRecordMaintenanceTimer;
+};
+
 module.exports = {
   attachTaskToGenerationRecord,
   clearGenerationRecordsForUser,
+  cleanupExpiredGenerationRecords,
   completeGenerationRecord,
   completeGenerationRecordByTaskId,
   createGenerationRecord,
   getGenerationRecordByTaskId,
   listGenerationRecordsForUser,
+  startGenerationRecordMaintenance,
 };

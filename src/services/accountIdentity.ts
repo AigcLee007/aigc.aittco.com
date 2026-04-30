@@ -206,7 +206,7 @@ export const loginWithEmailCode = async (
 
   const data = await parseResponse<LoginResponse>(response);
   if (!data.sessionToken) {
-    throw new Error('鐧诲綍杩斿洖缂哄皯 session token');
+    throw new Error('登录返回缺少 session token');
   }
 
   setStoredAuthSessionToken(data.sessionToken);
@@ -241,7 +241,7 @@ export const registerWithPassword = async ({
 
   const data = await parseResponse<LoginResponse>(response);
   if (!data.sessionToken) {
-    throw new Error('娉ㄥ唽杩斿洖缂哄皯 session token');
+    throw new Error('注册返回缺少 session token');
   }
 
   setStoredAuthSessionToken(data.sessionToken);
@@ -271,7 +271,7 @@ export const loginWithPassword = async ({
 
   const data = await parseResponse<LoginResponse>(response);
   if (!data.sessionToken) {
-    throw new Error('鐧诲綍杩斿洖缂哄皯 session token');
+    throw new Error('登录返回缺少 session token');
   }
 
   setStoredAuthSessionToken(data.sessionToken);
@@ -319,7 +319,7 @@ export const resetPasswordWithEmailCode = async ({
 
   const data = await parseResponse<LoginResponse>(response);
   if (!data.sessionToken) {
-    throw new Error('瀵嗙爜閲嶇疆杩斿洖缂哄皯 session token');
+    throw new Error('密码重置返回缺少 session token');
   }
 
   setStoredAuthSessionToken(data.sessionToken);
@@ -334,7 +334,7 @@ export const resetPasswordWithEmailCode = async ({
 export const setCurrentUserPassword = async (password: string): Promise<AuthUserProfile> => {
   const sessionToken = getStoredAuthSessionToken();
   if (!sessionToken) {
-    throw new Error('璇峰厛鐧诲綍鍚庡啀璁剧疆瀵嗙爜');
+    throw new Error('请先登录后再设置密码');
   }
 
   const response = await fetch(`${cleanUrl(API_BASE_URL)}/auth/password`, {
