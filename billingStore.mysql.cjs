@@ -47,7 +47,15 @@ const parsePositiveInteger = (value, fallback = 0) => {
 const DEFAULT_SIGNUP_POINTS = () => toPositivePoint(process.env.DEFAULT_SIGNUP_POINTS, 0);
 const BILLING_LOCK_TIMEOUT_SECONDS = parsePositiveInteger(
   process.env.BILLING_LOCK_TIMEOUT_SECONDS,
-  5,
+  15,
+);
+const BILLING_MAINTENANCE_INTERVAL_MS = Math.max(
+  5 * 60 * 1000,
+  Number.parseInt(String(process.env.BILLING_MAINTENANCE_INTERVAL_MS || "900000"), 10) || 900000,
+);
+const BILLING_TX_RETRY_LIMIT = Math.max(
+  0,
+  Number.parseInt(String(process.env.BILLING_TX_RETRY_LIMIT || "2"), 10) || 2,
 );
 
 const normalizeRedeemCode = (value = "") =>
@@ -93,6 +101,39 @@ const withNamedLock = async (connection, lockName, runner) => {
     return await runner();
   } finally {
     await connection.execute("SELECT RELEASE_LOCK(?)", [lockName]).catch(() => null);
+  }
+};
+
+let billingMaintenanceTimer = null;
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const isRetryableTransactionError = (error) => {
+  const code = String(error?.code || "").trim().toUpperCase();
+  const errno = Number(error?.errno || 0);
+  const message = String(error?.message || "").toLowerCase();
+  return (
+    code === "ER_LOCK_WAIT_TIMEOUT" ||
+    code === "ER_LOCK_DEADLOCK" ||
+    errno === 1205 ||
+    errno === 1213 ||
+    message.includes("lock wait timeout exceeded") ||
+    message.includes("deadlock found")
+  );
+};
+
+const runSerializedTransaction = async (runner) => {
+  let attempt = 0;
+  while (true) {
+    try {
+      return await withTransaction(runner);
+    } catch (error) {
+      if (!isRetryableTransactionError(error) || attempt >= BILLING_TX_RETRY_LIMIT) {
+        throw error;
+      }
+      attempt += 1;
+      await sleep(120 * attempt);
+    }
   }
 };
 
@@ -248,8 +289,7 @@ const withAccountSerializedTransaction = async (accountId, runner) => {
   }
 
   await ensureBillingSchema();
-  return withTransaction(async (connection) => {
-    await cleanupBillingArtifacts(connection);
+  return runSerializedTransaction(async (connection) => {
     return withNamedLock(
       connection,
       buildNamedLock("billing:account", targetAccountId),
@@ -265,8 +305,7 @@ const withUserSerializedTransaction = async (userId, runner) => {
   }
 
   await ensureBillingSchema();
-  return withTransaction(async (connection) => {
-    await cleanupBillingArtifacts(connection);
+  return runSerializedTransaction(async (connection) => {
     return withNamedLock(
       connection,
       buildNamedLock("billing:user", targetUserId),
@@ -445,7 +484,6 @@ const requireBillingAccount = async (req) => {
 
 const getAccountSummary = async (accountId) => {
   await ensureBillingSchema();
-  await cleanupBillingArtifacts();
   const rows = await query("SELECT * FROM billing_accounts WHERE account_id = ? LIMIT 1", [accountId]);
   const account = rows[0];
   if (!account) {
@@ -497,7 +535,6 @@ const getAccountsByUserIds = async (userIds = []) => {
 
 const getAccountLedger = async (accountId, { page = 1, pageSize = 20 } = {}) => {
   await ensureBillingSchema();
-  await cleanupBillingArtifacts();
 
   const targetAccountId = String(accountId || "").trim();
   if (!targetAccountId) {
@@ -547,7 +584,6 @@ const getAccountLedgerReport = async (
   } = {},
 ) => {
   await ensureBillingSchema();
-  await cleanupBillingArtifacts();
 
   const targetAccountId = String(accountId || "").trim();
   if (!targetAccountId) {
@@ -828,8 +864,6 @@ const buildAdminBillingOverviewFromRows = ({
 
 const getAdminBillingOverview = async ({ recentWindowHours = 24 } = {}) => {
   await ensureBillingSchema();
-  await expireStalePendingTasks();
-  await cleanupBillingArtifacts();
 
   const [accounts, chargeEntries, pendingTasks] = await Promise.all([
     query(
@@ -866,8 +900,6 @@ const listPendingTasks = async ({
   limit = 50,
 } = {}) => {
   await ensureBillingSchema();
-  await expireStalePendingTasks();
-  await cleanupBillingArtifacts();
 
   const normalizedStatus = String(status || "PENDING").trim().toUpperCase();
   const safeLimit = Math.min(200, Math.max(1, Number.parseInt(String(limit || 50), 10) || 50));
@@ -1090,7 +1122,6 @@ const registerPendingTask = async (taskId, taskInfo) => {
 const settlePendingTask = async (taskId, status) => {
   await ensureBillingSchema();
   return withTransaction(async (connection) => {
-    await cleanupBillingArtifacts(connection);
     const [rows] = await connection.execute(
       "SELECT * FROM billing_pending_tasks WHERE task_id = ? LIMIT 1 FOR UPDATE",
       [taskId],
@@ -1140,6 +1171,36 @@ const settlePendingTask = async (taskId, status) => {
       },
     );
   });
+};
+
+const runBillingMaintenance = async (logger = console) => {
+  try {
+    const expiredCount = await expireStalePendingTasks();
+    await cleanupBillingArtifacts();
+    if (expiredCount > 0) {
+      logger.info?.(`[Billing Maintenance] Expired ${expiredCount} stale pending tasks`);
+    }
+  } catch (error) {
+    logger.warn?.(`[Billing Maintenance] Failed: ${error.message}`);
+  }
+};
+
+const startBillingMaintenance = (logger = console) => {
+  if (billingMaintenanceTimer) return billingMaintenanceTimer;
+
+  setTimeout(() => {
+    void runBillingMaintenance(logger);
+  }, 15 * 1000);
+
+  billingMaintenanceTimer = setInterval(() => {
+    void runBillingMaintenance(logger);
+  }, BILLING_MAINTENANCE_INTERVAL_MS);
+
+  logger.info?.(
+    `[Billing Maintenance] Enabled: every ${BILLING_MAINTENANCE_INTERVAL_MS}ms`,
+  );
+
+  return billingMaintenanceTimer;
 };
 
 const rechargeAccount = async (accountId, points, note = "") => {
@@ -1537,4 +1598,5 @@ module.exports = {
   createRedeemCodes,
   listRedeemCodes,
   redeemCode,
+  startBillingMaintenance,
 };

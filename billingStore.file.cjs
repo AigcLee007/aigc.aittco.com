@@ -965,4 +965,5 @@ module.exports = {
   createRedeemCodes,
   listRedeemCodes,
   redeemCode,
+  startBillingMaintenance: () => null,
 };

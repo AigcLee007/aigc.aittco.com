@@ -690,6 +690,14 @@ function renderClassicLiveTasks() {
     }
 
     const readFullUrl = () => card.dataset.fullUrl || card.dataset.previewUrl || "";
+    const media = card.querySelector(".classic-live-media");
+    if (media) {
+      media.addEventListener("dblclick", (event) => {
+        event.preventDefault();
+        const full = readFullUrl();
+        if (full) openLightbox(full);
+      });
+    }
     const zoomBtn = card.querySelector('[data-action="zoom"]');
     if (zoomBtn) zoomBtn.addEventListener("click", () => openLightbox(readFullUrl()));
     const downBtn = card.querySelector('[data-action="download"]');
