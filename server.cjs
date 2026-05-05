@@ -1004,6 +1004,17 @@ const extractResultStatus = (payload) =>
   )
     .trim()
     .toUpperCase();
+const hasExplicitImageTaskId = (payload) =>
+  Boolean(
+    payload?.task_id ||
+      payload?.taskId ||
+      payload?.data?.task_id ||
+      payload?.data?.taskId,
+  );
+const isImmediateImageResultPayload = (payload, resultUrls = extractResultUrlsFromPayload(payload)) =>
+  resultUrls.length > 0 &&
+  (isTaskSuccessStatus(extractResultStatus(payload)) ||
+    (!extractResultStatus(payload) && !hasExplicitImageTaskId(payload)));
 const buildGenerationRecordPayload = async ({
   req,
   billingAccount = null,
@@ -3953,10 +3964,7 @@ app.post("/api/generate", generateLimiter, async (req, res) => {
     if (isSyncLine) {
       const syncImmediateResultUrls = extractResultUrlsFromPayload(response.data);
       const syncUpstreamStatus = extractResultStatus(response.data);
-      if (
-        syncImmediateResultUrls.length > 0 &&
-        ["SUCCEEDED", "SUCCESS", "COMPLETED"].includes(syncUpstreamStatus)
-      ) {
+      if (isImmediateImageResultPayload(response.data, syncImmediateResultUrls)) {
         const immediatePayload = {
           ...response.data,
           url:
@@ -4115,7 +4123,7 @@ app.post("/api/generate", generateLimiter, async (req, res) => {
       immediateResultUrls.length > 0 &&
       (
         isVisionaryImageRoute(route) ||
-        ["SUCCEEDED", "SUCCESS", "COMPLETED"].includes(upstreamStatus)
+        isImmediateImageResultPayload(response.data, immediateResultUrls)
       );
     if (shouldTreatAsImmediateResult) {
       const immediatePayload = {
@@ -4442,6 +4450,34 @@ app.post("/api/edit", generateLimiter, async (req, res) => {
     );
 
     console.log("[Edit] Upstream response:", response.data);
+    const editResultUrls = extractResultUrlsFromPayload(response.data);
+    const shouldTreatEditAsImmediateResult =
+      String(route?.mode || "").trim().toLowerCase() === "sync" &&
+      isImmediateImageResultPayload(response.data, editResultUrls);
+    if (shouldTreatEditAsImmediateResult) {
+      const immediatePayload = toImmediateImagePayload(response.data);
+      const persistedResult = await persistImageResultPayloadSafe({
+        payload: immediatePayload,
+        resultUrls: editResultUrls,
+        req,
+        billingAccount,
+        route,
+        modelId: requestedImageModel?.id || null,
+        taskId: localTaskId,
+      });
+      return res.json(
+        shouldUseBilling
+          ? {
+              ...persistedResult.payload,
+              billing: {
+                deductedPoints: pointCost,
+                remainingPoints: billingCharge?.account?.points,
+              },
+            }
+          : persistedResult.payload,
+      );
+    }
+
     const upstreamTaskId =
       response.data?.id ||
       response.data?.task_id ||
@@ -4484,7 +4520,6 @@ app.post("/api/edit", generateLimiter, async (req, res) => {
       return res.json(normalizedResponse);
     }
 
-    const editResultUrls = extractResultUrlsFromPayload(response.data);
     const persistedResult = await persistImageResultPayloadSafe({
       payload: response.data,
       resultUrls: editResultUrls,

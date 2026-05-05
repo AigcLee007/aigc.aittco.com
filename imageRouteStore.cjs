@@ -295,12 +295,32 @@ const ensureImageRouteSchema = async () => {
         const [countRows] = await connection.execute(
           "SELECT COUNT(*) AS total FROM image_routes",
         );
-        if (Number(countRows?.[0]?.total || 0) > 0) {
-          return;
-        }
+        const hasExistingRoutes = Number(countRows?.[0]?.total || 0) > 0;
+        const [existingRows] = hasExistingRoutes
+          ? await connection.execute(
+              "SELECT route_id, model_family, line_value FROM image_routes",
+            )
+          : [[]];
+        const existingRouteIds = new Set(
+          (Array.isArray(existingRows) ? existingRows : []).map((row) =>
+            trimToString(row.route_id),
+          ),
+        );
+        const existingFamilyLines = new Set(
+          (Array.isArray(existingRows) ? existingRows : []).map(
+            (row) => `${trimToString(row.model_family)}\u0000${trimToString(row.line_value)}`,
+          ),
+        );
 
         const nowDb = toDbDateTime();
-        const rows = buildStaticRows();
+        const rows = buildStaticRows().filter(
+          (row) =>
+            !hasExistingRoutes ||
+            (!existingRouteIds.has(trimToString(row.route_id)) &&
+              !existingFamilyLines.has(
+                `${trimToString(row.model_family)}\u0000${trimToString(row.line_value)}`,
+              )),
+        );
         for (const row of rows) {
           await connection.execute(
             `

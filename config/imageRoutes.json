@@ -125,6 +125,38 @@
           "pointCost": 4
         }
       }
+    },
+    {
+      "id": "gpt-image-2-line2",
+      "label": "Line 2",
+      "description": "GPT-image-2 PixelleLabs sync image generation route",
+      "modelFamily": "gpt-image-2",
+      "line": "line2",
+      "transport": "openai-image",
+      "mode": "sync",
+      "baseUrl": "https://api.pixellelabs.com",
+      "generatePath": "/v1/images/generations",
+      "taskPath": "",
+      "editPath": "/v1/images/edits",
+      "useRequestModel": true,
+      "allowUserApiKeyWithoutLogin": true,
+      "apiKeyEnv": "IMAGE_ROUTE_GPT_IMAGE_2_LINE2_KEY",
+      "pointCost": 1,
+      "sizeOverrides": {
+        "1k": {
+          "upstreamModel": "gpt-image-2-all",
+          "pointCost": 1
+        },
+        "2k": {
+          "upstreamModel": "gpt-image-2",
+          "pointCost": 2
+        },
+        "4k": {
+          "upstreamModel": "gpt-image-2",
+          "pointCost": 4
+        }
+      },
+      "sortOrder": 110
     }
   ]
 }
