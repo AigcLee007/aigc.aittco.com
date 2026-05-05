@@ -404,6 +404,21 @@ export const getImageRoutePointCost = (
   return roundNonNegativePoint(route?.pointCost || 0, 0);
 };
 
+export const getImageRouteSizeOptions = (
+  route?: ImageRouteConfig | null,
+  modelSizeOptions: string[] = [],
+): string[] => {
+  const options = modelSizeOptions.length > 0 ? modelSizeOptions : ['1k'];
+  const routeSizeKeys = Object.keys(route?.sizeOverrides || {}).filter((value) =>
+    normalizeSizeKey(value),
+  );
+  if (!route || routeSizeKeys.length === 0) return options;
+
+  const allowed = new Set([...routeSizeKeys, 'auto']);
+  const filtered = options.filter((value) => allowed.has(String(value || '').trim().toLowerCase()));
+  return filtered.length > 0 ? filtered : options;
+};
+
 export const getImageModelNameForRoute = ({
   imageModel,
   imageLine,

@@ -19,6 +19,7 @@ import {
   getLowestCostImageRouteForModel,
   getImageRoutePointCost,
   getImageRouteOptions,
+  getImageRouteSizeOptions,
   getImageRoutesByModelFamily,
   getSelectedImageRoute,
 } from '../src/config/imageRoutes';
@@ -108,7 +109,7 @@ export const ImageFormConfig: React.FC<ImageFormConfigProps> = ({
   );
 
   const rawSizeOptions = getImageModelSizeOptions(currentModel.id);
-  const sizeOptions =
+  const baseSizeOptions =
     currentModel.id === 'gpt-image-2' && !rawSizeOptions.includes('auto')
       ? ['auto', ...rawSizeOptions]
       : rawSizeOptions;
@@ -117,6 +118,7 @@ export const ImageFormConfig: React.FC<ImageFormConfigProps> = ({
   const showSizeSelector = shouldShowImageSizeSelector(currentModel.id);
   const isGptImage2 = currentModel.id === 'gpt-image-2';
   const selectedRoute = getSelectedImageRoute(currentModel.id, imageLine);
+  const sizeOptions = getImageRouteSizeOptions(selectedRoute, baseSizeOptions);
   const currentUnitCost = getImageRoutePointCost(selectedRoute, normalizedSize);
   const currentTotalCost = currentUnitCost * Math.max(1, Number(quantity || 1));
 
@@ -141,6 +143,11 @@ export const ImageFormConfig: React.FC<ImageFormConfigProps> = ({
     if (normalizedSize === imageSize) return;
     setImageSize(normalizedSize || getDefaultImageSizeForModel(currentModel.id));
   }, [currentModel.id, imageSize, normalizedSize, setImageSize]);
+
+  useEffect(() => {
+    if (sizeOptions.includes(normalizedSize)) return;
+    setImageSize(sizeOptions[0] || getDefaultImageSizeForModel(currentModel.id));
+  }, [currentModel.id, normalizedSize, setImageSize, sizeOptions]);
 
   useEffect(() => {
     if (availableRoutes.length === 0) return;

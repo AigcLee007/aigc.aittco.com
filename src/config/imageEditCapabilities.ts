@@ -9,6 +9,7 @@ import {
 } from './imageModels';
 import {
   getImageRoutePointCost,
+  getImageRouteSizeOptions,
   getImageRoutesByModelFamily,
   type ImageRouteConfig,
 } from './imageRoutes';
@@ -111,8 +112,11 @@ const getRouteDescription = (route: ImageRouteConfig, group: ImageEditModelGroup
   return `${modeText} · ${accessText} · 适合高质量精修和扩图`;
 };
 
-const normalizeSizeOptions = (modelId: string) => {
-  const sizeOptions = getImageModelSizeOptions(modelId).filter((value) => value !== 'auto');
+const normalizeSizeOptions = (modelId: string, route?: ImageRouteConfig | null) => {
+  const sizeOptions = getImageRouteSizeOptions(
+    route,
+    getImageModelSizeOptions(modelId),
+  ).filter((value) => value !== 'auto');
   return sizeOptions.length > 0 ? sizeOptions : ['1k'];
 };
 
@@ -145,12 +149,6 @@ export const getEditableRoutesForModel = (
   const group = getImageEditModelGroup(model);
   if (!group) return [];
 
-  const sizeOptions = normalizeSizeOptions(model.id);
-  const defaultSize =
-    sizeOptions.find((value) => value === getDefaultImageSizeForModel(model.id)) ||
-    sizeOptions[0] ||
-    '1k';
-
   return getImageRoutesByModelFamily(model.routeFamily)
     .filter((route) => {
       if (route.isActive === false) return false;
@@ -158,6 +156,11 @@ export const getEditableRoutesForModel = (
       return directKeyOnly ? route.allowUserApiKeyWithoutLogin === true : true;
     })
     .map((route) => {
+      const sizeOptions = normalizeSizeOptions(model.id, route);
+      const defaultSize =
+        sizeOptions.find((value) => value === getDefaultImageSizeForModel(model.id)) ||
+        sizeOptions[0] ||
+        '1k';
       const pointCost = getImageRoutePointCost(route, defaultSize);
       return {
         modelId: model.id,

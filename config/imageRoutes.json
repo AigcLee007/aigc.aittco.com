@@ -97,10 +97,10 @@
     },
     {
       "id": "gpt-image-2-default",
-      "label": "Default Route",
-      "description": "GPT-image-2 async image generation route",
+      "label": "Line 1",
+      "description": "GPT-image-2 BLTCY async image generation route",
       "modelFamily": "gpt-image-2",
-      "line": "default",
+      "line": "line1",
       "transport": "openai-image",
       "mode": "async",
       "baseUrl": "https://api.bltcy.ai",
@@ -124,7 +124,8 @@
           "upstreamModel": "gpt-image-2",
           "pointCost": 4
         }
-      }
+      },
+      "sortOrder": 100
     },
     {
       "id": "gpt-image-2-line2",
@@ -141,15 +142,11 @@
       "useRequestModel": true,
       "allowUserApiKeyWithoutLogin": true,
       "apiKeyEnv": "IMAGE_ROUTE_GPT_IMAGE_2_LINE2_KEY",
-      "pointCost": 1,
+      "pointCost": 3,
       "sizeOverrides": {
-        "1k": {
-          "upstreamModel": "gpt-image-2-all",
-          "pointCost": 1
-        },
         "2k": {
           "upstreamModel": "gpt-image-2",
-          "pointCost": 2
+          "pointCost": 3
         },
         "4k": {
           "upstreamModel": "gpt-image-2",

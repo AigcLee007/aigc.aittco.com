@@ -102,6 +102,8 @@ const buildStaticRows = () =>
   Array.isArray(staticCatalog.models)
     ? staticCatalog.models.map((model, index) => normalizeStaticModel(model, index))
     : [];
+const getStaticModelDefaults = (modelId) =>
+  buildStaticRows().find((row) => trimToString(row.model_id) === trimToString(modelId)) || null;
 
 const mapRowToModel = (row) => ({
   id: trimToString(row.model_id),
@@ -195,6 +197,25 @@ const ensureImageModelSchema = async () => {
           ALTER TABLE image_models
           MODIFY COLUMN selector_cost DECIMAL(10,1) NOT NULL DEFAULT 0
         `);
+      }
+
+      const gptImage2StaticModel = getStaticModelDefaults("gpt-image-2");
+      if (gptImage2StaticModel) {
+        await pool.execute(
+          `
+            UPDATE image_models
+            SET default_size = ?,
+                size_options_json = ?,
+                updated_at = ?
+            WHERE model_id = ?
+          `,
+          [
+            gptImage2StaticModel.default_size,
+            gptImage2StaticModel.size_options_json,
+            toDbDateTime(),
+            gptImage2StaticModel.model_id,
+          ],
+        );
       }
 
       await withTransaction(async (connection) => {

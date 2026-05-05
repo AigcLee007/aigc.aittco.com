@@ -290,6 +290,53 @@ const ensureImageRouteSchema = async () => {
             AND LOWER(base_url) LIKE '%api.bltcy.ai%'
         `,
       );
+      const nowDb = toDbDateTime();
+      const line1StaticRoute = getStaticRouteDefaults("gpt-image-2-default");
+      if (line1StaticRoute) {
+        await pool.execute(
+          `
+            UPDATE image_routes
+            SET label = ?,
+                description = ?,
+                line_value = ?,
+                point_cost = ?,
+                size_overrides = ?,
+                sort_order = ?,
+                is_active = 1,
+                is_default_route = 0,
+                updated_at = ?
+            WHERE route_id = ?
+          `,
+          [
+            line1StaticRoute.label,
+            line1StaticRoute.description,
+            line1StaticRoute.line_value,
+            line1StaticRoute.point_cost,
+            line1StaticRoute.size_overrides,
+            line1StaticRoute.sort_order,
+            nowDb,
+            line1StaticRoute.route_id,
+          ],
+        );
+      }
+      const line2StaticRoute = getStaticRouteDefaults("gpt-image-2-line2");
+      if (line2StaticRoute) {
+        await pool.execute(
+          `
+            UPDATE image_routes
+            SET point_cost = ?,
+                size_overrides = ?,
+                updated_at = ?
+            WHERE route_id = ?
+          `,
+          [
+            line2StaticRoute.point_cost,
+            line2StaticRoute.size_overrides,
+            nowDb,
+            line2StaticRoute.route_id,
+          ],
+        );
+      }
 
       await withTransaction(async (connection) => {
         const [countRows] = await connection.execute(
@@ -312,7 +359,6 @@ const ensureImageRouteSchema = async () => {
           ),
         );
 
-        const nowDb = toDbDateTime();
         const rows = buildStaticRows().filter(
           (row) =>
             !hasExistingRoutes ||
