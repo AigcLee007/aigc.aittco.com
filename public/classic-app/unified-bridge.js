@@ -2702,6 +2702,27 @@
     const manualBtn = document.getElementById("manualLinkBtn");
     const errPlaceholder = document.getElementById("errorPlaceholder");
     const resultGrid = document.getElementById("resultGrid");
+    let submitUnlockTimer = null;
+    const releaseSubmitButton = (message = "任务已提交，可继续创作下一组") => {
+      if (submitUnlockTimer) {
+        clearTimeout(submitUnlockTimer);
+        submitUnlockTimer = null;
+      }
+      if (btn) {
+        btn.disabled = false;
+        btn.innerHTML = "INITIATE // 开始生产";
+      }
+      if (statusText && message) {
+        statusText.innerText = message;
+        statusText.style.color = "var(--banana)";
+      }
+    };
+    const armSubmitUnlockFailsafe = () => {
+      if (submitUnlockTimer) clearTimeout(submitUnlockTimer);
+      submitUnlockTimer = setTimeout(() => {
+        releaseSubmitButton("任务提交状态超时，已恢复按钮，可继续提交新任务");
+      }, 45000);
+    };
 
     const selectedModel = getCurrentModel();
     const selectedRoute = getCurrentRoute();
@@ -2750,6 +2771,7 @@
 
     btn.disabled = true;
     btn.innerHTML = "提交中...";
+    armSubmitUnlockFailsafe();
     imgContainer.style.display = "flex";
     manualBtn.style.display = "none";
     errPlaceholder.style.display = "none";
@@ -2801,16 +2823,6 @@
       typeof getClassicLineLabel === "function"
         ? getClassicLineLabel(selectedRoute.line, selectedRoute.label)
         : selectedRoute.label || selectedRoute.name || selectedRoute.id || "";
-    const releaseSubmitButton = () => {
-      if (btn) {
-        btn.disabled = false;
-        btn.innerHTML = "INITIATE // 开始生产";
-      }
-      if (statusText && activeTasksCount > 0) {
-        statusText.innerText = "任务已提交，可继续创作下一组";
-        statusText.style.color = "var(--banana)";
-      }
-    };
     const createSubmitSettledTracker = (total) => {
       const expectedTotal = Math.max(1, Number(total || 1));
       let settledCount = 0;

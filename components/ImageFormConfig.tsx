@@ -109,17 +109,17 @@ export const ImageFormConfig: React.FC<ImageFormConfigProps> = ({
   );
 
   const rawSizeOptions = getImageModelSizeOptions(currentModel.id);
-  const baseSizeOptions =
-    currentModel.id === 'gpt-image-2' && !rawSizeOptions.includes('auto')
-      ? ['auto', ...rawSizeOptions]
-      : rawSizeOptions;
+  const baseSizeOptions = rawSizeOptions;
   const normalizedSize = getNormalizedImageSizeForModel(currentModel.id, imageSize);
   const showLineSelector = availableRoutes.length > 1;
   const showSizeSelector = shouldShowImageSizeSelector(currentModel.id);
   const isGptImage2 = currentModel.id === 'gpt-image-2';
   const selectedRoute = getSelectedImageRoute(currentModel.id, imageLine);
   const sizeOptions = getImageRouteSizeOptions(selectedRoute, baseSizeOptions);
-  const currentUnitCost = getImageRoutePointCost(selectedRoute, normalizedSize);
+  const effectiveSize = sizeOptions.includes(normalizedSize)
+    ? normalizedSize
+    : sizeOptions[0] || getDefaultImageSizeForModel(currentModel.id);
+  const currentUnitCost = getImageRoutePointCost(selectedRoute, effectiveSize);
   const currentTotalCost = currentUnitCost * Math.max(1, Number(quantity || 1));
 
   const commitGptCompression = (value: string) => {
@@ -146,8 +146,8 @@ export const ImageFormConfig: React.FC<ImageFormConfigProps> = ({
 
   useEffect(() => {
     if (sizeOptions.includes(normalizedSize)) return;
-    setImageSize(sizeOptions[0] || getDefaultImageSizeForModel(currentModel.id));
-  }, [currentModel.id, normalizedSize, setImageSize, sizeOptions]);
+    setImageSize(effectiveSize);
+  }, [effectiveSize, normalizedSize, setImageSize, sizeOptions]);
 
   useEffect(() => {
     if (availableRoutes.length === 0) return;
@@ -286,11 +286,11 @@ export const ImageFormConfig: React.FC<ImageFormConfigProps> = ({
           <div>
             <label className="mb-1 block text-[10px] text-gray-500">画质尺寸</label>
             <DropUpSelect
-              value={normalizedSize}
+              value={effectiveSize}
               onChange={(value) => setImageSize(value)}
               options={sizeOptions.map((value) => ({
                 value,
-                label: value.toLowerCase() === 'auto' ? '自动' : value.toUpperCase(),
+                label: value.toUpperCase(),
               }))}
             />
           </div>
@@ -398,7 +398,7 @@ export const ImageFormConfig: React.FC<ImageFormConfigProps> = ({
           <div className="min-w-0">
             <div className="text-[10px] text-gray-400">当前配置消耗</div>
             <div className="mt-0.5 truncate text-[11px] text-gray-500">
-              {currentModel.label} / {selectedRoute.label} / {normalizedSize.toUpperCase()} / {quantity} 张
+              {currentModel.label} / {selectedRoute.label} / {effectiveSize.toUpperCase()} / {quantity} 张
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-1.5 rounded-lg border border-yellow-400/20 bg-black/20 px-2.5 py-1.5 text-sm font-semibold text-yellow-300">
