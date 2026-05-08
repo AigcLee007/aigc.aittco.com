@@ -62,6 +62,7 @@
   const HISTORY_INITIAL_PAGE_SIZE = 15;
   const HISTORY_REFRESH_DEBOUNCE_MS = 2000;
   const HISTORY_REFRESH_MIN_INTERVAL_MS = 10000;
+  const REMOTE_PENDING_STALE_MS = 30 * 60 * 1000;
   let remoteHistoryRecordsCache = [];
   let remoteHistoryCursor = {
     sinceCreatedAt: "",
@@ -723,11 +724,9 @@
       .trim()
       .toLowerCase();
     const model = getCurrentModel();
-    const options =
-      Array.isArray(model?.sizeOptions) && model.sizeOptions.length > 0
-        ? model.sizeOptions
-        : [model?.defaultSize || "1k"];
-    return options.includes(selectedValue) ? selectedValue : options[0];
+    const route = getCurrentRoute();
+    const options = getRouteSizeOptions(model, route);
+    return options.includes(selectedValue) ? selectedValue : options[0] || "1k";
   };
   const getRoutePointCost = (route, size) => {
     const normalizedSize = normalizeSizeKey(size);
@@ -744,6 +743,26 @@
     const normalizedSize = normalizeSizeKey(size);
     if (!normalizedSize) return null;
     return route?.sizeOverrides?.[normalizedSize] || null;
+  };
+  const getRouteSizeOptions = (model, route) => {
+    const rawOptions =
+      Array.isArray(model?.sizeOptions) && model.sizeOptions.length > 0
+        ? model.sizeOptions
+        : [model?.defaultSize || "1k"];
+    const modelOptions = Array.from(
+      new Set(
+        rawOptions
+          .map((size) => String(size || "").trim().toLowerCase())
+          .filter(Boolean),
+      ),
+    );
+    const overrideKeys =
+      route?.sizeOverrides && typeof route.sizeOverrides === "object"
+        ? Object.keys(route.sizeOverrides).map((size) => normalizeSizeKey(size)).filter(Boolean)
+        : [];
+    if (!overrideKeys.length) return modelOptions;
+    const filtered = modelOptions.filter((size) => overrideKeys.includes(size));
+    return filtered.length ? filtered : overrideKeys;
   };
   const getClassicRequestModelForSize = (selectedModel, selectedRoute, size) => {
     const sizeOverride = getRouteSizeOverride(selectedRoute, size);
@@ -1082,7 +1101,11 @@
     const selected = getCurrentModel();
     menu.innerHTML = models
       .map((model) => {
-        const displayRoute = getLowestCostRouteForModel(model.id, selectedSize);
+        const displayRoute =
+          selected?.id === model.id
+            ? getCurrentRoute()
+            : getDisplayRouteForModel(model.id, localStorage.getItem(LINE_STORAGE_KEY) || "") ||
+              getLowestCostRouteForModel(model.id, selectedSize);
         const costLabel = formatCoinLabel(
           displayRoute ? getRoutePointCost(displayRoute, selectedSize) : model.selectorCost,
         );
@@ -1105,7 +1128,7 @@
       triggerLabel.innerText = selected ? `${icon ? `${icon} ` : ""}${selected.label}` : "暂无可用模型";
     }
     if (triggerVal) {
-      const selectedRoute = selected ? getLowestCostRouteForModel(selected.id, selectedSize) : null;
+      const selectedRoute = selected ? getCurrentRoute() : null;
       const selectedCost = formatCoinLabel(
         selectedRoute ? getRoutePointCost(selectedRoute, selectedSize) : selected?.selectorCost || 0,
       );
@@ -1157,10 +1180,8 @@
     if (!menu || !module) return;
 
     const model = getCurrentModel();
-    const options =
-      Array.isArray(model?.sizeOptions) && model.sizeOptions.length > 0
-        ? model.sizeOptions
-        : [model?.defaultSize || "1k"];
+    const route = getCurrentRoute();
+    const options = getRouteSizeOptions(model, route);
     const currentValue = getCurrentSelectedSize();
     const shouldShow = model?.showSizeSelector !== false && options.length > 1;
 
@@ -2369,6 +2390,22 @@
       records
         .filter((record) => record?.taskId)
         .forEach((record, index) => {
+          const createdAtMs = record.createdAt ? new Date(record.createdAt).getTime() : Date.now();
+          const isStalePending =
+            Number.isFinite(createdAtMs) && Date.now() - createdAtMs > REMOTE_PENDING_STALE_MS;
+          if (isStalePending) {
+            if (typeof window.failClassicLiveTask === "function") {
+              window.failClassicLiveTask(record.taskId, "任务长时间未返回结果，已自动标记为失败", {
+                taskId: record.taskId,
+                prompt: record.prompt || "",
+                size: String(record.outputSize || "1K"),
+                modelLabel: record.modelId || record.model || "",
+                routeLabel: record.routeId || record.route || "",
+                index: index + 1,
+              });
+            }
+            return;
+          }
           if (typeof window.ensureClassicLiveTaskForPending === "function") {
             window.ensureClassicLiveTaskForPending({
               taskId: record.taskId,
@@ -2378,7 +2415,7 @@
               routeLabel: record.routeId || record.route || "",
               index: index + 1,
               status: "running",
-              createdAt: record.createdAt ? new Date(record.createdAt).getTime() : Date.now(),
+              createdAt: createdAtMs,
             });
           }
           if (remotePendingPollRegistry.has(record.taskId)) return;

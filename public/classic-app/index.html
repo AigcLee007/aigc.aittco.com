@@ -511,12 +511,22 @@
           <div class="classic-live-heading">
             <div>
               <div class="classic-live-kicker">实时生成区</div>
-              <div class="classic-live-title">创作页直接看大图</div>
             </div>
-            <div class="classic-live-stats" aria-label="任务状态">
-              <span id="classicLiveRunning">进行中 0</span>
-              <span id="classicLiveDone">已完成 0</span>
-              <span id="classicLiveFailed">失败 0</span>
+            <div class="classic-live-heading-right">
+              <div class="classic-live-stats" aria-label="任务状态">
+                <span id="classicLiveRunning">进行中 0</span>
+                <span id="classicLiveDone">已完成 0</span>
+                <span id="classicLiveFailed">失败 0</span>
+              </div>
+              <button
+                type="button"
+                class="classic-live-clear-btn"
+                id="classicLiveClearBtn"
+                onclick="clearClassicLiveTasks()"
+                title="清空创作页列表"
+              >
+                清空列表
+              </button>
             </div>
           </div>
 

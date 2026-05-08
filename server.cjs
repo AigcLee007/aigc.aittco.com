@@ -377,6 +377,16 @@ const toImmediateImagePayload = (payload) => {
     images: Array.isArray(payload?.images) ? payload.images : resultUrls,
   };
 };
+const shouldRunGptImage2SyncRouteInBackground = (route, requestBody = {}) => {
+  const routeMode = String(route?.mode || "").trim().toLowerCase();
+  const routeId = String(route?.id || "").trim();
+  return (
+    routeMode === "sync" &&
+    routeId === "gpt-image-2-line2" &&
+    isOpenAiImageRoute(route) &&
+    isGptImage2RequestModel(requestBody.model)
+  );
+};
 const createGeminiDataItems = (images = []) =>
   images.map((value) => {
     if (typeof value === "string" && value.startsWith("data:")) {
@@ -3948,6 +3958,171 @@ app.post("/api/generate", generateLimiter, async (req, res) => {
       );
     }
 
+    if (shouldRunGptImage2SyncRouteInBackground(route, requestBody) && !shouldUseChatSyncEndpoint) {
+      const localJobId = createLocalImageJobId();
+      localTaskId = buildImageTaskToken(route.id, localJobId);
+      setLocalImageJob(localJobId, {
+        localTaskId,
+        routeId: route.id,
+        status: "processing",
+        progress: 0,
+        results: [],
+      });
+      scheduleLocalImageJobCleanup(localJobId);
+
+      if (shouldUseBilling) {
+        await registerPendingTask(localTaskId, {
+          accountId: billingAccount.accountId,
+          chargeId: billingCharge?.chargeId || null,
+          points: pointCost,
+          routeId: route.id,
+          action: "generate",
+        });
+      }
+      if (generationRecord?.id) {
+        await attachTaskToGenerationRecord(generationRecord.id, localTaskId);
+      }
+
+      (async () => {
+        try {
+          const response = await requestWithRetry(
+            () =>
+              axios.post(upstreamUrl, finalRequestBody, {
+                headers: {
+                  Authorization: userKey,
+                  "Content-Type": "application/json",
+                },
+                timeout: 600000,
+                httpsAgent: SHARED_HTTPS_AGENT,
+              }),
+            { retries: 1, delayMs: 700, label: `generate-bg-${route.id}` },
+          );
+
+          const resultUrls = extractResultUrlsFromPayload(response.data);
+          const upstreamStatus = extractResultStatus(response.data);
+          if (
+            resultUrls.length === 0 ||
+            isTaskFailureStatus(upstreamStatus) ||
+            ["ERROR", "CANCELLED", "CANCELED"].includes(upstreamStatus)
+          ) {
+            throw new Error(
+              response.data?.error ||
+                response.data?.message ||
+                `GPT-image-2 sync route did not return an image (status: ${upstreamStatus || "UNKNOWN"})`,
+            );
+          }
+
+          let successPayload = {
+            ...toImmediateImagePayload(response.data),
+            id: localTaskId,
+            task_id: localTaskId,
+            status: "succeeded",
+          };
+          const persistedResult = await persistImageResultPayloadSafe({
+            payload: successPayload,
+            resultUrls,
+            req,
+            billingAccount,
+            generationRecord,
+            route,
+            modelId: requestedImageModel?.id || null,
+            taskId: localTaskId,
+          });
+          successPayload = {
+            ...persistedResult.payload,
+            id: localTaskId,
+            task_id: localTaskId,
+            status: "succeeded",
+          };
+          setLocalImageJob(localJobId, {
+            status: "succeeded",
+            progress: 100,
+            responseData: successPayload,
+          });
+          await settlePendingTask(localTaskId, "SUCCESS");
+          await completeGenerationRecordSuccessSafe({
+            recordId: generationRecord?.id,
+            taskId: localTaskId,
+            resultUrls: persistedResult.resultUrls,
+            previewUrl: persistedResult.previewUrl,
+            outputSize: requestBody.size || requestBody.image_size || null,
+            aspectRatio: requestBody.aspect_ratio || null,
+            meta: mergeGeneratedAssetMeta({
+              transport: route.transport,
+              routeMode: "sync",
+              upstreamStatus,
+              settled: "gpt_image_2_sync_background_job",
+            }, persistedResult),
+          });
+        } catch (error) {
+          const normalizedError = normalizeGenerationError(error);
+          setLocalImageJob(localJobId, {
+            status: "failed",
+            progress: 100,
+            responseData: {
+              id: localTaskId,
+              task_id: localTaskId,
+              status: "failed",
+              error: normalizedError.error,
+              code: normalizedError.code || undefined,
+              statusCode: normalizedError.status,
+              traceId: normalizedError.traceId || undefined,
+              details: normalizedError.details || undefined,
+              results: [],
+            },
+          });
+          await settlePendingTask(localTaskId, "FAILED");
+          if (shouldUseBilling && billingCharge?.chargeId && billingAccount?.accountId) {
+            await refundPoints(billingAccount.accountId, billingCharge.chargeId, {
+              reason: "request_failed",
+              routeId: route.id,
+            });
+          }
+          await completeGenerationRecordFailureSafe({
+            recordId: generationRecord?.id,
+            taskId: localTaskId,
+            errorMessage: normalizedError.error,
+            outputSize: requestBody.size || requestBody.image_size || null,
+            aspectRatio: requestBody.aspect_ratio || null,
+            meta: {
+              transport: route.transport,
+              routeMode: "sync",
+              settled: "gpt_image_2_sync_background_job",
+            },
+          });
+          logger.error({
+            timestamp: new Date().toISOString(),
+            type: "GPT-image-2 Sync Background Generate Error",
+            message: normalizedError.error,
+            stack: error.stack,
+            response: error.response?.data,
+          });
+        }
+      })();
+
+      return res.json(
+        shouldUseBilling
+          ? {
+              id: localTaskId,
+              task_id: localTaskId,
+              status: "processing",
+              progress: 0,
+              results: [],
+              billing: {
+                deductedPoints: pointCost,
+                remainingPoints: billingCharge?.account?.points,
+              },
+            }
+          : {
+              id: localTaskId,
+              task_id: localTaskId,
+              status: "processing",
+              progress: 0,
+              results: [],
+            },
+      );
+    }
+
     const response = await requestWithRetry(
       () =>
         axios.post(upstreamUrl, finalRequestBody, {
@@ -4432,6 +4607,146 @@ app.post("/api/edit", generateLimiter, async (req, res) => {
         modelId: requestedImageModel?.id || null,
       });
     }
+
+    if (shouldRunGptImage2SyncRouteInBackground(route, requestBody)) {
+      const localJobId = createLocalImageJobId();
+      localTaskId = buildImageTaskToken(route.id, localJobId);
+      setLocalImageJob(localJobId, {
+        localTaskId,
+        routeId: route.id,
+        status: "processing",
+        progress: 0,
+        results: [],
+      });
+      scheduleLocalImageJobCleanup(localJobId);
+
+      if (shouldUseBilling) {
+        await registerPendingTask(localTaskId, {
+          accountId: billingAccount.accountId,
+          chargeId: billingCharge?.chargeId || null,
+          points: pointCost,
+          routeId: route.id,
+          action: "edit",
+        });
+      }
+
+      (async () => {
+        try {
+          const response = await requestWithRetry(
+            () =>
+              axios.post(
+                buildRouteUrl(route, route.editPath || "/v1/images/edits"),
+                formData,
+                {
+                  headers: {
+                    Authorization: authorization,
+                    ...formData.getHeaders(),
+                  },
+                  timeout: 600000,
+                  httpsAgent: SHARED_HTTPS_AGENT,
+                },
+              ),
+            { retries: 1, delayMs: 700, label: `edit-bg-${route.id}` },
+          );
+
+          const resultUrls = extractResultUrlsFromPayload(response.data);
+          const upstreamStatus = extractResultStatus(response.data);
+          if (
+            resultUrls.length === 0 ||
+            isTaskFailureStatus(upstreamStatus) ||
+            ["ERROR", "CANCELLED", "CANCELED"].includes(upstreamStatus)
+          ) {
+            throw new Error(
+              response.data?.error ||
+                response.data?.message ||
+                `GPT-image-2 edit route did not return an image (status: ${upstreamStatus || "UNKNOWN"})`,
+            );
+          }
+
+          let successPayload = {
+            ...toImmediateImagePayload(response.data),
+            id: localTaskId,
+            task_id: localTaskId,
+            status: "succeeded",
+          };
+          const persistedResult = await persistImageResultPayloadSafe({
+            payload: successPayload,
+            resultUrls,
+            req,
+            billingAccount,
+            route,
+            modelId: requestedImageModel?.id || null,
+            taskId: localTaskId,
+          });
+          successPayload = {
+            ...persistedResult.payload,
+            id: localTaskId,
+            task_id: localTaskId,
+            status: "succeeded",
+          };
+          setLocalImageJob(localJobId, {
+            status: "succeeded",
+            progress: 100,
+            responseData: successPayload,
+          });
+          await settlePendingTask(localTaskId, "SUCCESS");
+        } catch (error) {
+          const normalizedError = normalizeGenerationError(error);
+          setLocalImageJob(localJobId, {
+            status: "failed",
+            progress: 100,
+            responseData: {
+              id: localTaskId,
+              task_id: localTaskId,
+              status: "failed",
+              error: normalizedError.error,
+              code: normalizedError.code || undefined,
+              statusCode: normalizedError.status,
+              traceId: normalizedError.traceId || undefined,
+              details: normalizedError.details || undefined,
+              results: [],
+            },
+          });
+          await settlePendingTask(localTaskId, "FAILED");
+          if (shouldUseBilling && billingCharge?.chargeId && billingAccount?.accountId) {
+            await refundPoints(billingAccount.accountId, billingCharge.chargeId, {
+              reason: "request_failed",
+              routeId: route.id,
+            });
+          }
+          logger.error({
+            timestamp: new Date().toISOString(),
+            type: "GPT-image-2 Sync Background Edit Error",
+            message: normalizedError.error,
+            stack: error.stack,
+            response: error.response?.data,
+          });
+        }
+      })();
+
+      return res.json(
+        shouldUseBilling
+          ? {
+              id: localTaskId,
+              task_id: localTaskId,
+              status: "processing",
+              progress: 0,
+              results: [],
+              billing: {
+                deductedPoints: pointCost,
+                remainingPoints: billingCharge?.account?.points,
+              },
+            }
+          : {
+              id: localTaskId,
+              task_id: localTaskId,
+              status: "processing",
+              progress: 0,
+              results: [],
+            },
+      );
+    }
+
     const response = await requestWithRetry(
       () =>
         axios.post(
@@ -4683,11 +4998,34 @@ const pollImageTaskAndSettle = async ({
   }
 
   const generationRecord = await getGenerationRecordByTaskId(normalizedTaskId).catch(() => null);
-  if (
-    generationRecord &&
-    (String(upstreamTaskId).startsWith("local-") || isGeminiNativeRoute(route))
-  ) {
-    return buildImageTaskResponseFromGenerationRecord(generationRecord, normalizedTaskId);
+  if (generationRecord && (String(upstreamTaskId).startsWith("local-") || isGeminiNativeRoute(route))) {
+    const generationStatus = String(generationRecord.status || "").trim().toUpperCase();
+    if (generationStatus === "SUCCESS" || generationStatus === "FAILED") {
+      return buildImageTaskResponseFromGenerationRecord(generationRecord, normalizedTaskId);
+    }
+  }
+
+  if (String(upstreamTaskId).startsWith("local-")) {
+    const message = "本地后台任务已失效，请重新提交";
+    await settlePendingTask(normalizedTaskId, "FAILED").catch(() => null);
+    await completeGenerationRecordFailureSafe({
+      taskId: normalizedTaskId,
+      errorMessage: message,
+      meta: {
+        polledAt: new Date().toISOString(),
+        source,
+        reason: "missing_local_background_job",
+      },
+    });
+    return {
+      id: normalizedTaskId,
+      task_id: normalizedTaskId,
+      status: "failed",
+      progress: 100,
+      results: [],
+      error: message,
+      failure_reason: message,
+    };
   }
 
   const authorization = getRouteAuthorization(route, fallbackAuthorization, {

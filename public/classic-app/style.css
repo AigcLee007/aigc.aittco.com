@@ -1660,17 +1660,17 @@ html.classic-vip-mode .classic-live-empty {
 
 .classic-live-heading {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 14px;
 }
 
 .classic-live-kicker {
   color: var(--banana);
-  font-size: 11px;
+  font-size: 18px;
   font-weight: 900;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  line-height: 1.15;
 }
 
 .classic-live-title {
@@ -1679,6 +1679,14 @@ html.classic-vip-mode .classic-live-empty {
   font-size: 20px;
   font-weight: 900;
   line-height: 1.25;
+}
+
+.classic-live-heading-right {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  min-width: 0;
 }
 
 .classic-live-stats {
@@ -1701,6 +1709,34 @@ html.classic-vip-mode .classic-live-empty {
   font-size: 11px;
   font-weight: 800;
   white-space: nowrap;
+}
+
+.classic-live-clear-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 74px;
+  height: 30px;
+  padding: 0 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 214, 10, 0.35);
+  background: rgba(255, 214, 10, 0.1);
+  color: var(--banana);
+  font-size: 12px;
+  font-weight: 900;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.18s ease, border-color 0.18s ease, opacity 0.18s ease;
+}
+
+.classic-live-clear-btn:hover {
+  border-color: rgba(255, 214, 10, 0.7);
+  background: rgba(255, 214, 10, 0.18);
+}
+
+.classic-live-clear-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.38;
 }
 
 .classic-live-status-row {
@@ -5385,7 +5421,15 @@ html.classic-vip-mode .classic-live-empty {
 
   .classic-live-heading {
     flex-direction: column !important;
+    align-items: flex-start !important;
     gap: 10px !important;
+  }
+
+  .classic-live-heading-right {
+    width: 100% !important;
+    justify-content: space-between !important;
+    align-items: flex-start !important;
+    gap: 8px !important;
   }
 
   .classic-live-stats {
@@ -5393,8 +5437,13 @@ html.classic-vip-mode .classic-live-empty {
     min-width: 0 !important;
   }
 
-  .classic-live-title {
-    font-size: 18px !important;
+  .classic-live-kicker {
+    font-size: 17px !important;
+  }
+
+  .classic-live-clear-btn {
+    height: 28px !important;
+    padding: 0 10px !important;
   }
 
   .classic-live-empty {

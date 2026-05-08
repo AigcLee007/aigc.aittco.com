@@ -67,8 +67,8 @@ let classicPricingCatalog = {
       id: "gpt-image-2",
       label: "GPT-image-2",
       routeFamily: "gpt-image-2",
-      sizeOptions: ["auto", "1k", "2k", "4k"],
-      defaultSize: "auto",
+      sizeOptions: ["1k", "2k", "4k"],
+      defaultSize: "2k",
       selectorCost: 1,
     },
   ],
@@ -91,13 +91,24 @@ let classicPricingCatalog = {
     { id: "openai-image-default", label: "Default Route", modelFamily: "default", line: "default", pointCost: 12 },
     {
       id: "gpt-image-2-default",
-      label: "Default Route",
+      label: "Line 1",
       modelFamily: "gpt-image-2",
-      line: "default",
+      line: "line1",
       pointCost: 1,
       sizeOverrides: {
         "1k": { upstreamModel: "gpt-image-2-all", pointCost: 1 },
         "2k": { upstreamModel: "gpt-image-2", pointCost: 2 },
+        "4k": { upstreamModel: "gpt-image-2", pointCost: 4 },
+      },
+    },
+    {
+      id: "gpt-image-2-line2",
+      label: "Line 2",
+      modelFamily: "gpt-image-2",
+      line: "line2",
+      pointCost: 3,
+      sizeOverrides: {
+        "2k": { upstreamModel: "gpt-image-2", pointCost: 3 },
         "4k": { upstreamModel: "gpt-image-2", pointCost: 4 },
       },
     },
@@ -228,6 +239,7 @@ function getHistoryDisplayUrl(item) {
 const CLASSIC_LIVE_TASKS_KEY = "nb_classic_live_tasks_v1";
 const CLASSIC_LIVE_MAX_TASKS = 30;
 const CLASSIC_LIVE_TTL_MS = 72 * 60 * 60 * 1000;
+const CLASSIC_LIVE_STALE_RUNNING_MS = 30 * 60 * 1000;
 let classicLiveTasks = [];
 let classicLiveSelectedId = "";
 let classicLiveResizeTimer = null;
@@ -267,6 +279,23 @@ function readClassicLiveTasks() {
     classicLiveTasks = (Array.isArray(raw) ? raw : [])
       .map(normalizeClassicLiveTask)
       .filter((task) => now - Number(task.createdAt || now) < CLASSIC_LIVE_TTL_MS)
+      .map((task) => {
+        const status = String(task.status || "");
+        const lastTouchedAt = Number(task.updatedAt || task.createdAt || now);
+        if (
+          ["submitting", "running"].includes(status) &&
+          now - lastTouchedAt > CLASSIC_LIVE_STALE_RUNNING_MS
+        ) {
+          return {
+            ...task,
+            status: "failed",
+            errorMessage: task.errorMessage || "任务长时间未返回结果，已自动标记为失败",
+            completedAt: task.completedAt || now,
+            updatedAt: now,
+          };
+        }
+        return task;
+      })
       .slice(0, CLASSIC_LIVE_MAX_TASKS);
   } catch (_) {
     classicLiveTasks = [];
@@ -423,6 +452,8 @@ function renderClassicLiveTasks() {
   if (runningEl) runningEl.textContent = `进行中 ${runningCount}`;
   if (doneEl) doneEl.textContent = `已完成 ${doneCount}`;
   if (failedEl) failedEl.textContent = `失败 ${failedCount}`;
+  const clearBtn = document.getElementById("classicLiveClearBtn");
+  if (clearBtn) clearBtn.disabled = classicLiveTasks.length === 0;
 
   grid.innerHTML = "";
   if (classicLiveTasks.length === 0) {
@@ -475,8 +506,7 @@ function renderClassicLiveTasks() {
     const buildActionsHtml = (task, isPrimary = false) => {
       const fullUrl = getClassicLiveFullUrl(task);
       const status = String(task.status || "");
-      const canDelete = status === "success" || status === "failed";
-      if (status !== "success" && !canDelete) return "";
+      const canDelete = true;
       const actionClass = isPrimary
         ? "classic-live-actions classic-live-primary-actions"
         : "classic-live-actions";
@@ -686,7 +716,11 @@ function renderClassicLiveTasks() {
           <button type="button" class="classic-live-action-btn danger" data-action="delete" title="删除">🗑️</button>
         </div>
       `
-        : "";
+        : `
+        <div class="classic-live-actions">
+          <button type="button" class="classic-live-action-btn danger" data-action="delete" title="移除">🗑️</button>
+        </div>
+      `;
 
     card.innerHTML = `
       <div class="classic-live-media">
@@ -757,6 +791,13 @@ function ensureClassicLiveTaskForPending(snapshot = {}) {
   const taskId = String(snapshot.taskId || snapshot.id || "").trim();
   if (!taskId) return "";
   const existingIndex = findClassicLiveTaskIndex(taskId);
+  const existingTask = existingIndex >= 0 ? classicLiveTasks[existingIndex] : null;
+  if (
+    existingTask?.status === "success" &&
+    ["running", "submitting"].includes(String(snapshot.status || "running"))
+  ) {
+    return existingTask.id;
+  }
   const nextTask = normalizeClassicLiveTask({
     ...snapshot,
     id: existingIndex >= 0 ? classicLiveTasks[existingIndex].id : taskId,
@@ -815,6 +856,18 @@ function removeClassicLiveTask(idOrTaskId) {
   }
   persistClassicLiveTasks();
   renderClassicLiveTasks();
+  return true;
+}
+
+function clearClassicLiveTasks() {
+  if (!classicLiveTasks.length) return false;
+  classicLiveTasks = [];
+  classicLiveSelectedId = "";
+  persistClassicLiveTasks();
+  renderClassicLiveTasks();
+  if (typeof showSoftToast === "function") {
+    showSoftToast("创作页列表已清空");
+  }
   return true;
 }
 
@@ -903,6 +956,7 @@ window.promoteClassicLiveTask = promoteClassicLiveTask;
 window.completeClassicLiveTask = completeClassicLiveTask;
 window.failClassicLiveTask = failClassicLiveTask;
 window.removeClassicLiveTask = removeClassicLiveTask;
+window.clearClassicLiveTasks = clearClassicLiveTasks;
 window.renderClassicLiveTasks = renderClassicLiveTasks;
 
 if (document.readyState === "loading") {
@@ -1667,13 +1721,12 @@ function getClassicRoutesForModel(model) {
 function getClassicSelectedRoute(model = getClassicModelConfig()) {
   const routes = getClassicRoutesForModel(model);
   if (!routes.length) return null;
-  const selectedLine = imageModel === "nano-banana"
-    ? normalizeClassicLine(
+  const selectedLine =
+    normalizeClassicLine(
       localStorage.getItem("nb_line") ||
       document.getElementById("linePill")?.getAttribute("data-selected-value") ||
-      "1",
-    )
-    : "default";
+      "",
+    );
   return (
     routes.find((route) => normalizeClassicLine(route.line) === selectedLine) ||
     routes.find((route) => route.isDefaultRoute) ||
@@ -1733,16 +1786,23 @@ function selectClassicLineSilently(route) {
   localStorage.setItem("nb_line", storedLineValue);
 }
 
-function getClassicSizeOptions(model) {
+function getClassicSizeOptions(model, route = null) {
   const raw = Array.isArray(model?.sizeOptions) && model.sizeOptions.length
     ? model.sizeOptions
     : [model?.defaultSize || "1k"];
-  return Array.from(new Set(raw.map((size) => normalizeClassicSize(size)).filter(Boolean)));
+  const modelOptions = Array.from(new Set(raw.map((size) => normalizeClassicSize(size)).filter(Boolean)));
+  const overrideKeys = route?.sizeOverrides && typeof route.sizeOverrides === "object"
+    ? Object.keys(route.sizeOverrides).map((size) => normalizeClassicSize(size)).filter(Boolean)
+    : [];
+  if (!overrideKeys.length) return modelOptions;
+  const filtered = modelOptions.filter((size) => overrideKeys.includes(size));
+  return filtered.length ? filtered : overrideKeys;
 }
 
 function getClassicCurrentSize(model = getClassicModelConfig()) {
   const selected = normalizeClassicSize(document.getElementById("sizePill")?.getAttribute("data-selected-value") || "1K");
-  const options = getClassicSizeOptions(model);
+  const route = getClassicSelectedRoute(model);
+  const options = getClassicSizeOptions(model, route);
   return options.includes(selected) ? selected : normalizeClassicSize(model?.defaultSize || options[0] || selected);
 }
 
