@@ -44,7 +44,7 @@ const MAX_META_ARRAY_ITEMS = Math.max(
 );
 const SUCCESS_RETENTION_DAYS = Math.max(
   1,
-  parseEnvInt(process.env.GENERATION_RECORD_SUCCESS_RETENTION_DAYS, 30),
+  parseEnvInt(process.env.GENERATION_RECORD_SUCCESS_RETENTION_DAYS, 5),
 );
 const FAILED_RETENTION_DAYS = Math.max(
   1,

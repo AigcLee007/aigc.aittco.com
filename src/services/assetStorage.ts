@@ -30,6 +30,32 @@ export const assetStorage = {
     await del(key);
   },
 
+  async cleanupUnusedAssets(activeAssetIds: Iterable<string>): Promise<{ removed: number; kept: number }> {
+    const active = new Set(
+      Array.from(activeAssetIds || [])
+        .map((item) => String(item || '').trim())
+        .filter(Boolean)
+    );
+    const allKeys = await keys();
+    let removed = 0;
+    let kept = 0;
+
+    await Promise.all(
+      allKeys.map(async (key) => {
+        if (typeof key !== 'string' || !key.startsWith(ASSET_STORE_PREFIX)) return;
+        const assetId = key.slice(ASSET_STORE_PREFIX.length);
+        if (active.has(assetId)) {
+          kept += 1;
+          return;
+        }
+        await del(key);
+        removed += 1;
+      })
+    );
+
+    return { removed, kept };
+  },
+
   /**
    * Creates an Object URL for the given asset ID.
    * This handles fetching the blob and creating the URL.

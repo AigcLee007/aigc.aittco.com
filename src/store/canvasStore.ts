@@ -8,6 +8,63 @@ import { AddNodeCommand, DeleteNodeCommand, UpdateNodeCommand, SetNodesCommand, 
 
 // Simple UUID generator
 const generateId = () => Math.random().toString(36).substring(2, 11);
+const MAX_PERSISTED_CANVAS_NODES = 80;
+
+const isInlineDataUrl = (value?: string | null): boolean =>
+  typeof value === 'string' && value.trim().toLowerCase().startsWith('data:');
+
+const isRuntimeObjectUrl = (value?: string | null): boolean =>
+  typeof value === 'string' && value.trim().toLowerCase().startsWith('blob:');
+
+const cleanPersistedUrl = (value?: string | null): string | undefined => {
+  const url = String(value || '').trim();
+  if (!url || isInlineDataUrl(url) || isRuntimeObjectUrl(url)) return undefined;
+  return url.length > 2048 ? undefined : url;
+};
+
+const sanitizePersistedNode = (node: NodeData): NodeData => {
+  const cleanSrc = cleanPersistedUrl(node.src);
+  const cleanThumbnail = cleanPersistedUrl(node.thumbnailSrc);
+  const sanitized: NodeData = {
+    id: String(node.id || generateId()),
+    type: node.type === 'VIDEO' ? 'VIDEO' : 'IMAGE',
+    x: Number.isFinite(node.x) ? node.x : 0,
+    y: Number.isFinite(node.y) ? node.y : 0,
+    width: Number.isFinite(node.width) && node.width > 0 ? node.width : 320,
+    height: Number.isFinite(node.height) && node.height > 0 ? node.height : 240,
+  };
+
+  if (node.name) sanitized.name = String(node.name);
+  if (typeof node.opacity === 'number') sanitized.opacity = node.opacity;
+  if (typeof node.locked === 'boolean') sanitized.locked = node.locked;
+  if (cleanSrc) sanitized.src = cleanSrc;
+  if (cleanThumbnail) sanitized.thumbnailSrc = cleanThumbnail;
+  if (node.assetId) sanitized.assetId = String(node.assetId);
+  if (node.prompt) sanitized.prompt = String(node.prompt);
+  if (node.createdAt) sanitized.createdAt = String(node.createdAt);
+  if (node.videoModel) sanitized.videoModel = String(node.videoModel);
+  if (node.videoAspectRatio) sanitized.videoAspectRatio = String(node.videoAspectRatio);
+  if (typeof node.videoHd === 'boolean') sanitized.videoHd = node.videoHd;
+  if (node.videoDuration) sanitized.videoDuration = String(node.videoDuration);
+  if (node.taskId) sanitized.taskId = String(node.taskId);
+  if (typeof node.loading === 'boolean') sanitized.loading = node.loading;
+  if (node.groupId) sanitized.groupId = String(node.groupId);
+  if (node.sourceNodeId) sanitized.sourceNodeId = String(node.sourceNodeId);
+  return sanitized;
+};
+
+const sanitizePersistedNodes = (nodes: NodeData[] = []): NodeData[] =>
+  (Array.isArray(nodes) ? nodes : [])
+    .map((node) => sanitizePersistedNode(node))
+    .slice(-MAX_PERSISTED_CANVAS_NODES);
+
+const sanitizePersistedCanvasState = (canvasState?: Partial<CanvasState>): CanvasState => ({
+  offset: {
+    x: Number.isFinite(canvasState?.offset?.x) ? Number(canvasState?.offset?.x) : (typeof window !== 'undefined' ? window.innerWidth / 2 : 500),
+    y: Number.isFinite(canvasState?.offset?.y) ? Number(canvasState?.offset?.y) : (typeof window !== 'undefined' ? window.innerHeight / 2 : 400),
+  },
+  scale: Number.isFinite(canvasState?.scale) && Number(canvasState?.scale) > 0 ? Number(canvasState?.scale) : 1,
+});
 
 interface CanvasStore {
   // State
@@ -234,9 +291,18 @@ export const useCanvasStore = create<CanvasStore>()(
       name: 'infinitemuse-storage',
       storage: canvasPersistStorage,
       partialize: (state) => ({
-        nodes: state.nodes,
-        canvasState: state.canvasState
+        nodes: sanitizePersistedNodes(state.nodes),
+        canvasState: sanitizePersistedCanvasState(state.canvasState)
       }),
+      merge: (persistedState, currentState) => {
+        const persisted = persistedState as Partial<CanvasStore> | null;
+        return {
+          ...currentState,
+          ...persisted,
+          nodes: sanitizePersistedNodes(persisted?.nodes || []),
+          canvasState: sanitizePersistedCanvasState(persisted?.canvasState),
+        };
+      },
     }
   )
 );

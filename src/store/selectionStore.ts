@@ -141,6 +141,34 @@ const parsePersistedSelectionValue = (rawValue: string | null, storageKey: strin
   }
 };
 
+const isInlineDataUrl = (value?: string | null): boolean =>
+  typeof value === 'string' && value.trim().toLowerCase().startsWith('data:');
+
+const isRuntimeObjectUrl = (value?: string | null): boolean =>
+  typeof value === 'string' && value.trim().toLowerCase().startsWith('blob:');
+
+const cleanPersistedReferenceUrl = (value?: string | null): string => {
+  const url = String(value || '').trim();
+  if (!url || isInlineDataUrl(url) || isRuntimeObjectUrl(url)) return '';
+  return url.length > 2048 ? '' : url;
+};
+
+const sanitizePersistedReferenceImages = (images: ReferenceImage[] = []): ReferenceImage[] =>
+  (Array.isArray(images) ? images : [])
+    .map((image) => {
+      const assetId = String(image?.assetId || '').trim();
+      const src = cleanPersistedReferenceUrl(image?.src);
+      if (!assetId && !src) return null;
+      return {
+        id: String(image?.id || uuidv4()),
+        src,
+        ...(assetId ? { assetId } : {}),
+        type: image?.type === 'url' ? 'url' : 'blob',
+      };
+    })
+    .filter((image): image is ReferenceImage => Boolean(image))
+    .slice(0, 16);
+
 const selectionPersistStorage: PersistStorage<any> = {
   getItem: (name) => {
     if (typeof window === 'undefined' || typeof window.localStorage === 'undefined') {
@@ -565,7 +593,7 @@ export const useSelectionStore = create<SelectionStore>()(
         // Whitelist fields to persist
         apiKey: state.apiKey,
         prompt: state.prompt,
-        referenceImages: state.referenceImages,
+        referenceImages: sanitizePersistedReferenceImages(state.referenceImages),
         videoModel: state.videoModel,
         videoLine: state.videoLine,
         imageModel: state.imageModel,
@@ -589,6 +617,14 @@ export const useSelectionStore = create<SelectionStore>()(
         grokReferenceMode: state.grokReferenceMode,
         autoDownloadOnSuccess: state.autoDownloadOnSuccess
       }),
+      merge: (persistedState, currentState) => {
+        const persisted = persistedState as Partial<SelectionStore> | null;
+        return {
+          ...currentState,
+          ...persisted,
+          referenceImages: sanitizePersistedReferenceImages(persisted?.referenceImages || []),
+        };
+      },
     }
   )
 );

@@ -59,10 +59,12 @@
     passwordPanelOpen: false,
   };
   const remotePendingPollRegistry = new Set();
+  const activeTaskPollers = new Map();
   const HISTORY_INITIAL_PAGE_SIZE = 15;
   const HISTORY_REFRESH_DEBOUNCE_MS = 2000;
   const HISTORY_REFRESH_MIN_INTERVAL_MS = 10000;
   const REMOTE_PENDING_STALE_MS = 30 * 60 * 1000;
+  const TASK_POLL_MAX_MS = 30 * 60 * 1000;
   let remoteHistoryRecordsCache = [];
   let remoteHistoryCursor = {
     sinceCreatedAt: "",
@@ -138,6 +140,12 @@
     const numeric = toPointNumber(value, 0);
     if (!Number.isFinite(numeric) || numeric <= 0) return "";
     return `${formatPointValue(numeric)} 🪙`;
+  };
+  const getTaskPollDelayMs = (elapsedMs) => {
+    if (elapsedMs < 60 * 1000) return 5000;
+    if (elapsedMs < 5 * 60 * 1000) return 10000;
+    if (elapsedMs < 15 * 60 * 1000) return 20000;
+    return 30000;
   };
   const getStoredSessionToken = () => {
     try {
@@ -2266,8 +2274,8 @@
   if (legacySwitchTab) {
     switchTab = function (tabName) {
       legacySwitchTab(tabName);
-      if (isSessionAuthenticated() && String(tabName || "").trim().toLowerCase() === "gallery") {
-        void loadHistory({ incremental: false, force: true });
+      if (String(tabName || "").trim().toLowerCase() === "gallery") {
+        void loadHistory();
       }
     };
   }
@@ -2276,85 +2284,20 @@
     if (legacySaveToHistory) {
       legacySaveToHistory(url, promptText, previewUrl);
     }
-    if (!isSessionAuthenticated()) {
-      return undefined;
-    }
-    scheduleRemoteHistoryRefresh();
     return undefined;
   };
 
   clearHistory = function () {
-    if (!isSessionAuthenticated()) {
-      return legacyClearHistory ? legacyClearHistory() : undefined;
-    }
-
-    showApiGuideModal({
-      title: "清空云端历史记录？",
-      desc: "该操作会清空当前账号在经典版和画布版共用的历史记录，且不可撤销。",
-      primaryText: "确认清空",
-      secondaryText: "取消",
-      action: "custom",
-      onPrimary: async () => {
-        try {
-          await deleteGenerationRecords({ mediaType: "image" });
-          if (typeof clearCachedHistoryImages === "function") {
-            await clearCachedHistoryImages();
-          }
-          if (typeof clearHistoryObjectUrlRefs === "function") {
-            clearHistoryObjectUrlRefs();
-          }
-          await loadHistory();
-          closeApiGuideModal();
-          showSoftToast("云端历史已清空");
-        } catch (error) {
-          showApiGuideModal({
-            title: "清空失败",
-            desc: error?.message || "清空云端历史失败，请稍后重试",
-            primaryText: "我知道了",
-            showSecondary: false,
-            action: "close",
-          });
-        }
-      },
-    });
+    return legacyClearHistory ? legacyClearHistory() : undefined;
   };
 
-  loadHistory = async function ({ incremental = false, force = true } = {}) {
-    if (!isSessionAuthenticated()) {
-      remoteHistoryRecordsCache = [];
-      remoteHistoryCursor = {
-        sinceCreatedAt: "",
-        sinceId: "",
-      };
-      return legacyLoadHistory ? legacyLoadHistory() : undefined;
-    }
-
-    try {
-      const useIncremental =
-        incremental &&
-        Boolean(remoteHistoryCursor.sinceCreatedAt) &&
-        (!force || isHistoryTabVisible());
-      const result = await fetchGenerationRecords({
-        mediaType: "image",
-        status: "success",
-        page: 1,
-        pageSize: HISTORY_INITIAL_PAGE_SIZE,
-        sinceCreatedAt: useIncremental ? remoteHistoryCursor.sinceCreatedAt : "",
-        sinceId: useIncremental ? remoteHistoryCursor.sinceId : "",
-      });
-      const incoming = Array.isArray(result?.records) ? result.records : [];
-      remoteHistoryRecordsCache = useIncremental
-        ? dedupeHistoryRecords([...incoming, ...remoteHistoryRecordsCache]).slice(0, 200)
-        : dedupeHistoryRecords(incoming);
-      remoteHistoryCursor = getHistoryCursorFromRecords(remoteHistoryRecordsCache);
-      lastHistoryRefreshAt = Date.now();
-      await renderRemoteHistoryGrid(remoteHistoryRecordsCache);
-    } catch (error) {
-      console.warn("[Classic Bridge] load remote history failed:", error);
-      if (legacyLoadHistory) {
-        legacyLoadHistory();
-      }
-    }
+  loadHistory = async function () {
+    remoteHistoryRecordsCache = [];
+    remoteHistoryCursor = {
+      sinceCreatedAt: "",
+      sinceId: "",
+    };
+    return legacyLoadHistory ? legacyLoadHistory() : undefined;
   };
 
   savePendingTask = function (taskId, key, size, index, mode = "single", model = "") {
@@ -2566,12 +2509,19 @@
     }
   };
   pollSingleTask = async function (taskId, key, size, index, options = {}) {
+    const normalizedTaskId = String(taskId || "").trim();
+    if (!normalizedTaskId) return;
+    if (activeTaskPollers.has(normalizedTaskId)) {
+      return;
+    }
     let errorCount = 0;
     const maxErrors = 5;
     let successNoUrlCount = 0;
     const maxSuccessNoUrlCount = 3;
     const startedAt = Date.now();
-    const maxPollMs = 10 * 60 * 1000;
+    const maxPollMs = TASK_POLL_MAX_MS;
+    let pollTimer = null;
+    let stopped = false;
     const trackUi = options.trackUi !== false;
     const liveTaskIds = Array.isArray(options.liveTaskIds)
       ? options.liveTaskIds.filter(Boolean)
@@ -2606,20 +2556,37 @@
       });
     };
 
-    const checkLoop = setInterval(async () => {
+    const stopPolling = () => {
+      stopped = true;
+      if (pollTimer) {
+        clearTimeout(pollTimer);
+        pollTimer = null;
+      }
+      activeTaskPollers.delete(normalizedTaskId);
+      remotePendingPollRegistry.delete(normalizedTaskId);
+    };
+    const settleAsFailed = (message) => {
+      stopPolling();
+      removePendingTask(normalizedTaskId);
+      removePendingTaskFromGallery(normalizedTaskId);
+      failLiveTask(message);
+      if (canUpdateMainUi(options.runToken, trackUi)) {
+        handleSingleError(message, size);
+      }
+    };
+    const scheduleNextPoll = () => {
+      if (stopped) return;
+      const elapsedMs = Date.now() - startedAt;
+      pollTimer = setTimeout(runPoll, getTaskPollDelayMs(elapsedMs));
+    };
+    const runPoll = async () => {
       try {
         if (Date.now() - startedAt > maxPollMs) {
-          clearInterval(checkLoop);
-          removePendingTask(taskId);
-          removePendingTaskFromGallery(taskId);
-          failLiveTask("查询超时，任务状态未完成");
-          if (canUpdateMainUi(options.runToken, trackUi)) {
-            handleSingleError("查询超时，任务状态未完成", size);
-          }
+          settleAsFailed("查询超时，任务状态未完成");
           return;
         }
 
-        const queryUrl = CONFIG.queryUrl.replace("{id}", taskId) + `?_t=${Date.now()}`;
+        const queryUrl = CONFIG.queryUrl.replace("{id}", normalizedTaskId) + `?_t=${Date.now()}`;
         const response = await fetch(queryUrl, {
           method: "GET",
           headers: {
@@ -2629,13 +2596,7 @@
         });
 
         if (response.status === 404) {
-          clearInterval(checkLoop);
-          removePendingTask(taskId);
-          removePendingTaskFromGallery(taskId);
-          failLiveTask("任务已失效或未找到");
-          if (canUpdateMainUi(options.runToken, trackUi)) {
-            handleSingleError("任务已失效或未找到", size);
-          }
+          settleAsFailed("任务已失效或未找到");
           return;
         }
 
@@ -2644,6 +2605,7 @@
           if (errorCount >= maxErrors) {
             throw new Error("多次查询失败，任务可能已丢失");
           }
+          scheduleNextPoll();
           return;
         }
 
@@ -2655,16 +2617,16 @@
 
         const imageUrls = extractImmediateImageUrls(rawJson);
         if (imageUrls.length > 0) {
-          clearInterval(checkLoop);
-          removePendingTask(taskId);
-          removePendingTaskFromGallery(taskId);
+          stopPolling();
+          removePendingTask(normalizedTaskId);
+          removePendingTaskFromGallery(normalizedTaskId);
           completeLiveTask(imageUrls[0], 0);
           if (canUpdateMainUi(options.runToken, trackUi)) {
             appendImageToGrid(imageUrls[0], size, null, {
               runToken: options.runToken,
               trackUi,
               liveTaskId: liveTaskForSlot(0),
-              taskId,
+              taskId: normalizedTaskId,
               promptSnapshot,
               modelLabel: options.modelLabel || "",
               routeLabel: options.routeLabel || "",
@@ -2678,42 +2640,35 @@
         if (statusRaw === "SUCCESS" || statusRaw === "SUCCEEDED" || statusRaw === "COMPLETED") {
           successNoUrlCount += 1;
           if (successNoUrlCount >= maxSuccessNoUrlCount) {
-            clearInterval(checkLoop);
-            removePendingTask(taskId);
-            removePendingTaskFromGallery(taskId);
-            failLiveTask("任务成功但未返回图片链接");
-            if (canUpdateMainUi(options.runToken, trackUi)) {
-              handleSingleError("任务成功但未返回图片链接", size);
-            }
+            settleAsFailed("任务成功但未返回图片链接");
+            return;
           }
+          scheduleNextPoll();
           return;
         }
 
-        if (statusRaw === "FAILURE" || statusRaw === "FAILED" || statusRaw === "ERROR") {
+        if (statusRaw === "FAILURE" || statusRaw === "FAILED" || statusRaw === "ERROR" || statusRaw === "CANCELLED" || statusRaw === "CANCELED") {
           const failureMessage = extractClassicApiError(rawJson, "生成失败");
-          clearInterval(checkLoop);
-          removePendingTask(taskId);
-          removePendingTaskFromGallery(taskId);
-          failLiveTask(failureMessage);
-          if (canUpdateMainUi(options.runToken, trackUi)) {
-            handleSingleError(failureMessage, size);
-          }
+          settleAsFailed(failureMessage);
+          return;
         }
+        scheduleNextPoll();
       } catch (error) {
         console.warn(`[Classic Bridge] Poll task ${index} warning:`, error);
         errorCount += 1;
         if (errorCount >= maxErrors) {
-          clearInterval(checkLoop);
-          removePendingTask(taskId);
-          removePendingTaskFromGallery(taskId);
           const errorMessage = extractClassicApiError(error, "查询连接持续失败");
-          failLiveTask(errorMessage);
-          if (canUpdateMainUi(options.runToken, trackUi)) {
-            handleSingleError(errorMessage, size);
-          }
+          settleAsFailed(errorMessage);
+          return;
         }
+        scheduleNextPoll();
       }
-    }, 5000);
+    };
+    activeTaskPollers.set(normalizedTaskId, {
+      startedAt,
+      stop: stopPolling,
+    });
+    scheduleNextPoll();
   };
   runGen = async function () {
     const key = getStoredApiKey();

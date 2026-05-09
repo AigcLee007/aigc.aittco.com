@@ -15,8 +15,7 @@ import {
   AuthSessionPayload,
   fetchCurrentAuthSession,
 } from '../src/services/accountIdentity';
-import { clearGenerationRecords, fetchGenerationRecords } from '../src/services/generationRecordService';
-import type { GenerationLog } from '../src/store/historyStore';
+import { runLocalCacheMaintenance } from '../src/services/localCacheMaintenance';
 import {
   getPreferredImageDisplayUrl,
   isLocalLine4StoredImage,
@@ -59,7 +58,7 @@ const ResolvedHistoryItem = ({
   const [hasError, setHasError] = useState(false);
   const touchStartRef = useRef<{ x: number; y: number } | null>(null);
   const touchMovedRef = useRef(false);
-  const originalUrl = log.imageUrl;
+  const originalUrl = log.imageUrl || resolvedUrl;
   const extractRawFromProxy = (url: string): string | null => {
     if (!url?.startsWith('/api/proxy/image?url=')) return null;
     try {
@@ -86,7 +85,7 @@ const ResolvedHistoryItem = ({
   useEffect(() => {
     let active = true;
     const resolveAsset = async () => {
-      if (log.assetId && (log.imageUrl.startsWith('blob:') || hasError)) {
+      if (log.assetId && (!log.imageUrl || log.imageUrl.startsWith('blob:') || hasError)) {
         try {
           const freshUrl = await import('../src/services/assetStorage').then(m => m.assetStorage.getAssetUrl(log.assetId!));
           if (freshUrl && active) {
@@ -327,35 +326,12 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
   const [balanceData, setBalanceData] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
   const [isConfirmingClear, setIsConfirmingClear] = useState(false);
+  const [isCleaningLocalCache, setIsCleaningLocalCache] = useState(false);
+  const [localCacheMessage, setLocalCacheMessage] = useState<string | null>(null);
   const { logs = [], clearLogs } = useHistoryStore();
   const safeLogs = Array.isArray(logs) ? logs : [];
-  const [remoteLogs, setRemoteLogs] = useState<GenerationLog[]>([]);
-  const [isLoadingRemoteHistory, setIsLoadingRemoteHistory] = useState(false);
 
   const [authSession, setAuthSession] = useState<AuthSessionPayload | null>(null);
-  const isRemoteHistoryEnabled = authSession?.authenticated === true;
-
-  const mapGenerationRecordToLog = useCallback((record: {
-    id: string;
-    prompt: string;
-    mediaType: 'IMAGE' | 'VIDEO';
-    previewUrl: string | null;
-    resultUrls: string[];
-    completedAt: string | null;
-    createdAt: string | null;
-  }): GenerationLog | null => {
-    const originalUrl = record.resultUrls?.[0] || record.previewUrl || '';
-    const primaryUrl = record.previewUrl || originalUrl || '';
-    if (!primaryUrl) return null;
-    return {
-      id: record.id,
-      time: record.completedAt || record.createdAt || new Date().toISOString(),
-      prompt: String(record.prompt || ''),
-      imageUrl: originalUrl,
-      thumbnailUrl: primaryUrl !== originalUrl ? primaryUrl : undefined,
-      type: record.mediaType === 'VIDEO' ? 'VIDEO' : 'IMAGE',
-    };
-  }, []);
 
   const refreshAuthSession = useCallback(async () => {
     try {
@@ -365,32 +341,6 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
       setAuthSession(null);
     }
   }, []);
-
-  const refreshRemoteHistory = useCallback(async () => {
-    if (!authSession?.authenticated) {
-      setRemoteLogs([]);
-      return;
-    }
-
-    try {
-      setIsLoadingRemoteHistory(true);
-      const result = await fetchGenerationRecords({
-        mediaType: 'all',
-        status: 'success',
-        page: 1,
-        pageSize: 15,
-      });
-      const mappedLogs = (Array.isArray(result.records) ? result.records : [])
-        .map(mapGenerationRecordToLog)
-        .filter((item): item is GenerationLog => Boolean(item));
-      setRemoteLogs(mappedLogs);
-    } catch (historyError: any) {
-      setError(historyError?.message || '加载云端历史失败');
-      setRemoteLogs([]);
-    } finally {
-      setIsLoadingRemoteHistory(false);
-    }
-  }, [authSession?.authenticated, mapGenerationRecordToLog]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -410,15 +360,6 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
     };
   }, [refreshAuthSession]);
 
-  useEffect(() => {
-    if (!isOpen || activeTab !== 'history') return;
-    if (!authSession?.authenticated) {
-      setRemoteLogs([]);
-      return;
-    }
-    void refreshRemoteHistory();
-  }, [activeTab, authSession?.authenticated, isOpen, refreshRemoteHistory]);
-
   const [historyMediaType, setHistoryMediaType] = useState<'image' | 'video'>('image');
   const [isMobile, setIsMobile] = useState(() => window.innerWidth < 640);
   const historyListRef = useRef<HTMLDivElement | null>(null);
@@ -433,7 +374,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
     return () => window.removeEventListener('resize', checkMobile);
   }, []);
 
-  const effectiveLogs = isRemoteHistoryEnabled ? remoteLogs : safeLogs;
+  const effectiveLogs = safeLogs;
 
   const filteredLogs = useMemo(() => effectiveLogs.filter(log => {
       const isVideo = log.type === 'VIDEO';
@@ -549,16 +490,6 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
     }
     const executeClear = async () => {
       try {
-        if (isRemoteHistoryEnabled) {
-          await clearGenerationRecords({
-            mediaType: historyMediaType === 'video' ? 'video' : 'image',
-          });
-          setRemoteLogs((prev) =>
-            prev.filter((log) =>
-              historyMediaType === 'video' ? log.type !== 'VIDEO' : log.type === 'VIDEO',
-            ),
-          );
-        }
         clearLogs();
       } catch (historyError: any) {
         setError(historyError?.message || '清空历史失败');
@@ -570,6 +501,19 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
     void executeClear();
   };
 
+  const handleCleanLocalCache = async () => {
+    setIsCleaningLocalCache(true);
+    setLocalCacheMessage(null);
+    try {
+      const result = await runLocalCacheMaintenance({ force: true });
+      setLocalCacheMessage(`已清理 ${result.removed} 个未引用缓存，保留 ${result.kept} 个正在使用的缓存。`);
+    } catch (cacheError: any) {
+      setLocalCacheMessage(cacheError?.message || '本地缓存清理失败');
+    } finally {
+      setIsCleaningLocalCache(false);
+    }
+  };
+
   const handleDownloadAll = async () => {
     if (effectiveLogs.length === 0) return;
     setIsDownloadingAll(true);
@@ -578,8 +522,13 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
 
       const downloadPromises = effectiveLogs.map(async (log, index) => {
         try {
+          let downloadUrl = log.imageUrl;
+          if (!downloadUrl && log.assetId) {
+            downloadUrl = await import('../src/services/assetStorage').then(m => m.assetStorage.getAssetUrl(log.assetId!)) || '';
+          }
+          if (!downloadUrl) return;
           // fetch works for both URL and DataURL
-          const response = await fetch(log.imageUrl);
+          const response = await fetch(downloadUrl);
           const blob = await response.blob();
 
           const cleanPrompt = (log.prompt || 'image').slice(0, 30).replace(/[^a-z0-9]/gi, '_').trim();
@@ -737,6 +686,27 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
                 </label>
               </div>
 
+              <div className="bg-white/5 border border-white/10 rounded-xl p-3.5">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="text-sm text-gray-200 font-medium">本地缓存清理</div>
+                    <div className="text-xs text-gray-500 mt-1">清理未被画布、历史记录、参考图使用的浏览器图片缓存。</div>
+                    {localCacheMessage && (
+                      <div className="mt-2 text-xs text-emerald-300/80">{localCacheMessage}</div>
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleCleanLocalCache}
+                    disabled={isCleaningLocalCache}
+                    className="inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/10 px-4 text-xs font-medium text-gray-200 transition-colors hover:bg-white/15 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {isCleaningLocalCache ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
+                    清理缓存
+                  </button>
+                </div>
+              </div>
+
               {/* Balance Display */}
               {balanceData && (
                 <div className="bg-white/5 p-5 rounded-2xl border border-white/10 space-y-4">
@@ -828,13 +798,6 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
                   视频历史
                 </button>
               </div>
-
-              {isRemoteHistoryEnabled && (
-                <div className="flex items-center justify-between rounded-xl border border-cyan-500/15 bg-cyan-500/5 px-3 py-2 text-[11px] text-cyan-100/80">
-                  <span>{isLoadingRemoteHistory ? '正在同步云端历史...' : '当前显示的是云端共享历史'}</span>
-                  {isLoadingRemoteHistory && <Loader2 size={12} className="animate-spin" />}
-                </div>
-              )}
 
               {filteredLogs.length > 0 && (
                 <div className="flex justify-between items-center px-1">

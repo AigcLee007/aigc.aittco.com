@@ -17,6 +17,7 @@ import { useCanvasOperations } from "./src/hooks/useCanvasOperations";
 import { MainLayout } from "./src/layouts/MainLayout";
 import { ModalsContainer } from "./src/layouts/ModalsContainer";
 import { assetStorage } from "./src/services/assetStorage";
+import { runLocalCacheMaintenance } from "./src/services/localCacheMaintenance";
 import { isLowEndDevice } from "./src/utils/performance";
 import {
   AUTH_SESSION_CHANGE_EVENT,
@@ -131,6 +132,13 @@ const App: React.FC = () => {
     };
     hydrate();
   }, [hydrated]); // Removed nodes from dep array to avoid infinite loop. Runs once on hydration.
+
+  useEffect(() => {
+    if (!hydrated) return;
+    void runLocalCacheMaintenance().catch((error) => {
+      console.warn("[LocalCache] Maintenance failed", error);
+    });
+  }, [hydrated]);
 
   useEffect(() => {
     let active = true;
