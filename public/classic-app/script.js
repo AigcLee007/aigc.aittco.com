@@ -1866,6 +1866,8 @@ function updateModelUI() {
     const currentModel = getClassicModelConfig(imageModel);
     const routeCount = getClassicRoutesForModel(currentModel).length;
     if (routeCount > 1) {
+      lineModule.hidden = false;
+      lineModule.removeAttribute('hidden');
       lineModule.style.setProperty('display', 'flex', 'important');
     } else {
       lineModule.style.display = 'none';

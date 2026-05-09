@@ -1157,17 +1157,16 @@
     const menu = pill.querySelector(".dropdown-menu");
     if (!menu) return;
 
-    const routes = getVisibleRoutesForCurrentModel();
-    if (routes.length <= 1) {
+    const currentModel = getCurrentModel();
+    const routes = currentModel ? getRoutesForModel(currentModel.id) : [];
+    if (!routes.length) {
       lineModule.style.display = "none";
-      if (routes[0]) {
-        localStorage.setItem(LINE_STORAGE_KEY, routes[0].line);
-        pill.setAttribute("data-selected-value", routes[0].line);
-      }
       return;
     }
 
     const selected = getCurrentRoute();
+    lineModule.hidden = false;
+    lineModule.removeAttribute("hidden");
     lineModule.style.setProperty("display", "flex", "important");
     menu.innerHTML = routes
       .map((route) => {
