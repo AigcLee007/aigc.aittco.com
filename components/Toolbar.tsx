@@ -185,7 +185,7 @@ const Toolbar: React.FC<ToolbarProps> = ({
         <button
             onClick={onOpenClassicMode}
             className={dockItemClass}
-            title="VIP 创作页"
+            title="切换到经典版"
         >
             <Layers size={20} strokeWidth={1.5} />
         </button>

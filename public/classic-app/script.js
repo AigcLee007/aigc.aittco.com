@@ -58,7 +58,7 @@ let classicPricingCatalog = {
     {
       id: "gemini-flash",
       label: "Nano Banana 2",
-      routeFamily: "gemini-flash",
+      routeFamily: "default",
       sizeOptions: ["1k", "2k", "4k"],
       defaultSize: "2k",
       selectorCost: 2.5,
@@ -89,8 +89,6 @@ let classicPricingCatalog = {
       },
     },
     { id: "openai-image-default", label: "Default Route", modelFamily: "default", line: "default", pointCost: 12 },
-    { id: "nano-banana-2-line1", label: "Line 1", modelFamily: "gemini-flash", line: "line1", pointCost: 2.5 },
-    { id: "nano-banana-2-line2", label: "Line 2", modelFamily: "gemini-flash", line: "line2", pointCost: 2.5 },
     {
       id: "gpt-image-2-default",
       label: "Line 1",
@@ -119,25 +117,14 @@ let classicPricingCatalog = {
 
 const HISTORY_CACHE_DB = "nb_history_cache_db";
 const HISTORY_CACHE_STORE = "images";
-const HISTORY_RECORD_STORE = "records";
-const HISTORY_META_STORE = "meta";
-const HISTORY_DB_VERSION = 2;
-const HISTORY_MAX_RECORDS = 200;
-const HISTORY_MIGRATION_KEY = "localStorageMigrationV1";
 
 function openHistoryCacheDB() {
   return new Promise((resolve, reject) => {
-    const req = indexedDB.open(HISTORY_CACHE_DB, HISTORY_DB_VERSION);
+    const req = indexedDB.open(HISTORY_CACHE_DB, 1);
     req.onupgradeneeded = () => {
       const db = req.result;
       if (!db.objectStoreNames.contains(HISTORY_CACHE_STORE)) {
         db.createObjectStore(HISTORY_CACHE_STORE, { keyPath: "id" });
-      }
-      if (!db.objectStoreNames.contains(HISTORY_RECORD_STORE)) {
-        db.createObjectStore(HISTORY_RECORD_STORE, { keyPath: "id" });
-      }
-      if (!db.objectStoreNames.contains(HISTORY_META_STORE)) {
-        db.createObjectStore(HISTORY_META_STORE, { keyPath: "id" });
       }
     };
     req.onsuccess = () => resolve(req.result);
@@ -313,131 +300,6 @@ function readClassicLiveTasks() {
   } catch (_) {
     classicLiveTasks = [];
   }
-}
-
-function normalizeHistoryRecord(item = {}) {
-  const now = new Date();
-  const fullUrl = getHistoryFullUrl(item);
-  if (!fullUrl) return null;
-  const createdAt = String(item.createdAt || item.completedAt || now.toISOString());
-  const completedAt = String(item.completedAt || createdAt);
-  const date = new Date(completedAt);
-  const time =
-    String(item.time || "").trim() ||
-    (Number.isNaN(date.getTime())
-      ? ""
-      : `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`);
-  return {
-    id: String(item.id || genHistoryId()),
-    url: fullUrl,
-    fullUrl,
-    previewUrl: String(item.previewUrl || item.displayUrl || "").trim() || getClassicLine4ThumbUrl(fullUrl) || fullUrl,
-    time,
-    createdAt,
-    completedAt,
-    prompt: String(item.prompt || "").trim(),
-  };
-}
-
-async function getHistoryMeta(id) {
-  try {
-    const db = await openHistoryCacheDB();
-    const data = await new Promise((resolve, reject) => {
-      const tx = db.transaction(HISTORY_META_STORE, "readonly");
-      const req = tx.objectStore(HISTORY_META_STORE).get(id);
-      req.onsuccess = () => resolve(req.result || null);
-      req.onerror = () => reject(req.error);
-    });
-    db.close();
-    return data;
-  } catch (_) {
-    return null;
-  }
-}
-
-async function setHistoryMeta(id, value = {}) {
-  try {
-    const db = await openHistoryCacheDB();
-    await new Promise((resolve, reject) => {
-      const tx = db.transaction(HISTORY_META_STORE, "readwrite");
-      tx.objectStore(HISTORY_META_STORE).put({ id, ...value, updatedAt: Date.now() });
-      tx.oncomplete = resolve;
-      tx.onerror = () => reject(tx.error);
-    });
-    db.close();
-  } catch (e) {
-    console.warn("setHistoryMeta failed:", e);
-  }
-}
-
-async function readHistoryRecordsFromDB() {
-  const db = await openHistoryCacheDB();
-  const records = await new Promise((resolve, reject) => {
-    const tx = db.transaction(HISTORY_RECORD_STORE, "readonly");
-    const req = tx.objectStore(HISTORY_RECORD_STORE).getAll();
-    req.onsuccess = () => resolve(Array.isArray(req.result) ? req.result : []);
-    req.onerror = () => reject(req.error);
-  });
-  db.close();
-  return records
-    .map(normalizeHistoryRecord)
-    .filter(Boolean)
-    .sort((a, b) => String(b.completedAt || b.createdAt).localeCompare(String(a.completedAt || a.createdAt)));
-}
-
-async function writeHistoryRecordsToDB(records = []) {
-  const normalized = (Array.isArray(records) ? records : [])
-    .map(normalizeHistoryRecord)
-    .filter(Boolean)
-    .sort((a, b) => String(b.completedAt || b.createdAt).localeCompare(String(a.completedAt || a.createdAt)))
-    .slice(0, HISTORY_MAX_RECORDS);
-  const keepIds = new Set(normalized.map((record) => record.id));
-  const existingRecords = await readHistoryRecordsFromDB().catch(() => []);
-  const removed = existingRecords.filter((record) => !keepIds.has(record.id));
-  const db = await openHistoryCacheDB();
-  await new Promise((resolve, reject) => {
-    const tx = db.transaction(HISTORY_RECORD_STORE, "readwrite");
-    const store = tx.objectStore(HISTORY_RECORD_STORE);
-    removed.forEach((record) => store.delete(record.id));
-    normalized.forEach((record) => store.put(record));
-    tx.oncomplete = resolve;
-    tx.onerror = () => reject(tx.error);
-  });
-  db.close();
-  removed.forEach((record) => removeCachedHistoryImage(record.id));
-  return normalized;
-}
-
-async function migrateLocalStorageHistoryToIndexedDB() {
-  const meta = await getHistoryMeta(HISTORY_MIGRATION_KEY);
-  if (meta?.done) return;
-  let legacy = [];
-  try {
-    legacy = JSON.parse(localStorage.getItem("nb_history") || "[]");
-  } catch (_) {
-    legacy = [];
-  }
-  const migrated = (Array.isArray(legacy) ? legacy : [])
-    .map((item) => {
-      if (typeof item === "string") {
-        return normalizeHistoryRecord({
-          id: genHistoryId(),
-          fullUrl: item,
-          previewUrl: getClassicLine4ThumbUrl(item) || item,
-          createdAt: new Date().toISOString(),
-          completedAt: new Date().toISOString(),
-        });
-      }
-      return normalizeHistoryRecord(item);
-    })
-    .filter(Boolean);
-  if (migrated.length > 0) {
-    const existing = await readHistoryRecordsFromDB().catch(() => []);
-    const byUrl = new Set(existing.map((record) => getHistoryFullUrl(record)));
-    const nextRecords = [...existing, ...migrated.filter((record) => !byUrl.has(getHistoryFullUrl(record)))];
-    await writeHistoryRecordsToDB(nextRecords);
-  }
-  await setHistoryMeta(HISTORY_MIGRATION_KEY, { done: true });
 }
 
 function persistClassicLiveTasks() {
@@ -997,13 +859,13 @@ function removeClassicLiveTask(idOrTaskId) {
   return true;
 }
 
-function clearClassicLiveTasks(options = {}) {
+function clearClassicLiveTasks() {
   if (!classicLiveTasks.length) return false;
   classicLiveTasks = [];
   classicLiveSelectedId = "";
   persistClassicLiveTasks();
   renderClassicLiveTasks();
-  if (!options.silent && typeof showSoftToast === "function") {
+  if (typeof showSoftToast === "function") {
     showSoftToast("创作页列表已清空");
   }
   return true;
@@ -1096,108 +958,6 @@ window.failClassicLiveTask = failClassicLiveTask;
 window.removeClassicLiveTask = removeClassicLiveTask;
 window.clearClassicLiveTasks = clearClassicLiveTasks;
 window.renderClassicLiveTasks = renderClassicLiveTasks;
-
-function getGenerationRecordPrimaryUrl(record = {}) {
-  return String(record?.resultUrls?.[0] || record?.previewUrl || record?.url || "").trim();
-}
-
-function getGenerationRecordClientLiveIds(record = {}) {
-  const meta = record?.meta && typeof record.meta === "object" ? record.meta : {};
-  return new Set(
-    [
-      meta.clientLiveTaskId,
-      ...(Array.isArray(meta.clientLiveTaskIds) ? meta.clientLiveTaskIds : []),
-      ...(Array.isArray(meta.liveTaskIds) ? meta.liveTaskIds : []),
-    ]
-      .map((item) => String(item || "").trim())
-      .filter(Boolean),
-  );
-}
-
-function isLooseLiveRecordMatch(task = {}, record = {}) {
-  const taskPrompt = String(task.prompt || "").trim();
-  const recordPrompt = String(record.prompt || "").trim();
-  if (!taskPrompt || !recordPrompt || taskPrompt !== recordPrompt) return false;
-
-  const taskCreatedAt = Number(task.createdAt || 0);
-  const recordCreatedAt = record.createdAt ? new Date(record.createdAt).getTime() : 0;
-  if (
-    Number.isFinite(taskCreatedAt) &&
-    Number.isFinite(recordCreatedAt) &&
-    taskCreatedAt > 0 &&
-    recordCreatedAt > 0 &&
-    Math.abs(taskCreatedAt - recordCreatedAt) > 6 * 60 * 60 * 1000
-  ) {
-    return false;
-  }
-
-  const taskRoute = String(task.routeLabel || "").toLowerCase();
-  const recordRoute = `${record.routeId || ""} ${record.routeLabel || ""}`.toLowerCase();
-  if (taskRoute && recordRoute) {
-    const normalizedTaskRoute = taskRoute.replace(/\s+/g, "");
-    const normalizedRecordRoute = recordRoute.replace(/\s+/g, "");
-    if (
-      normalizedTaskRoute.includes("3") &&
-      !normalizedRecordRoute.includes("line3") &&
-      !normalizedRecordRoute.includes("线路3")
-    ) {
-      return false;
-    }
-  }
-
-  return true;
-}
-
-function reconcileClassicLiveTasksWithGenerationRecords(records = []) {
-  if (!Array.isArray(records) || records.length === 0 || classicLiveTasks.length === 0) return false;
-  let changed = false;
-  classicLiveTasks = classicLiveTasks.map((task) => {
-    if (String(task.status || "") === "success" && getClassicLiveFullUrl(task)) return task;
-    const matched = records.find((record) => {
-      const status = String(record?.status || "").trim().toUpperCase();
-      if (!["SUCCESS", "FAILED"].includes(status)) return false;
-      const liveIds = getGenerationRecordClientLiveIds(record);
-      const idMatched =
-        liveIds.size > 0 &&
-        [task.id, task.tempId, task.taskId].some((id) => liveIds.has(String(id || "").trim()));
-      return idMatched || isLooseLiveRecordMatch(task, record);
-    });
-    if (!matched) return task;
-
-    const status = String(matched.status || "").trim().toUpperCase();
-    const primaryUrl = getGenerationRecordPrimaryUrl(matched);
-    const completedAt = matched.completedAt ? new Date(matched.completedAt).getTime() : Date.now();
-    changed = true;
-    if (status === "SUCCESS" && primaryUrl) {
-      return normalizeClassicLiveTask({
-        ...task,
-        status: "success",
-        originalUrl: primaryUrl,
-        previewUrl: String(matched.previewUrl || getClassicLine4ThumbUrl(primaryUrl) || "").trim(),
-        errorMessage: "",
-        completedAt,
-        updatedAt: Date.now(),
-      });
-    }
-    if (status === "FAILED") {
-      return normalizeClassicLiveTask({
-        ...task,
-        status: "failed",
-        errorMessage: matched.errorMessage || task.errorMessage || "生成失败",
-        completedAt,
-        updatedAt: Date.now(),
-      });
-    }
-    return task;
-  });
-  if (changed) {
-    persistClassicLiveTasks();
-    renderClassicLiveTasks();
-  }
-  return changed;
-}
-
-window.reconcileClassicLiveTasksWithGenerationRecords = reconcileClassicLiveTasksWithGenerationRecords;
 
 if (document.readyState === "loading") {
   document.addEventListener("DOMContentLoaded", () => {
@@ -3186,9 +2946,6 @@ async function runGen() {
   }
 
   // UI 初始化
-  if (typeof window.clearClassicLiveTasks === "function") {
-    window.clearClassicLiveTasks({ silent: true });
-  }
   btn.disabled = true;
   imgContainer.style.display = "none";
   manualBtn.style.display = "none";
@@ -4289,34 +4046,38 @@ function escapeHtml(str = "") {
 }
 
 function saveToHistory(url, promptText = "", previewUrl = "") {
-  const fullUrl = String(url || "").trim();
-  if (!fullUrl) return;
-  if (fullUrl.length > 5000 && !fullUrl.startsWith("data:image/")) return;
-  void (async () => {
-    try {
-      await migrateLocalStorageHistoryToIndexedDB();
-      const history = await readHistoryRecordsFromDB();
-      if (history.length > 0 && getHistoryFullUrl(history[0]) === fullUrl) return;
-      const now = new Date();
-      const newRecord = normalizeHistoryRecord({
-        id: genHistoryId(),
-        url: fullUrl,
-        fullUrl,
-        previewUrl: String(previewUrl || "").trim() || getClassicLine4ThumbUrl(fullUrl) || fullUrl,
-        createdAt: now.toISOString(),
-        completedAt: now.toISOString(),
-        prompt: promptText,
-      });
-      if (!newRecord) return;
-      const deduped = history.filter((item) => getHistoryFullUrl(item) !== fullUrl);
-      await writeHistoryRecordsToDB([newRecord, ...deduped]);
-      await loadHistory();
-      const ok = await cacheHistoryImage(newRecord.id, fullUrl);
-      if (ok) await loadHistory();
-    } catch (e) {
-      console.warn("saveToHistory failed:", e);
-    }
-  })();
+  if (url.length > 5000) return;
+  try {
+    let history = JSON.parse(localStorage.getItem("nb_history") || "[]");
+    if (history.length > 0 && typeof history[0] === "string") history = [];
+    const now = new Date();
+    const timeStr = `${now.getHours().toString().padStart(2, "0")}:${now.getMinutes().toString().padStart(2, "0")}`;
+    const cleanPrompt = String(promptText || "").trim();
+    const fullUrl = String(url || "").trim();
+    const displayUrl =
+      String(previewUrl || "").trim() || getClassicLine4ThumbUrl(fullUrl) || fullUrl;
+    const newRecord = {
+      id: genHistoryId(),
+      url: fullUrl,
+      fullUrl,
+      previewUrl: displayUrl,
+      time: timeStr,
+      createdAt: now.toISOString(),
+      completedAt: now.toISOString(),
+      prompt: cleanPrompt,
+    };
+    if (history.length > 0 && getHistoryFullUrl(history[0]) === fullUrl) return;
+    history.unshift(newRecord);
+    // [Mod] Increased History Limit to 20
+    const removed = history.length > 20 ? history.slice(20) : [];
+    if (history.length > 20) history = history.slice(0, 20);
+    localStorage.setItem("nb_history", JSON.stringify(history));
+    loadHistory();
+    cacheHistoryImage(newRecord.id, fullUrl).then((ok) => {
+      if (ok) loadHistory();
+    });
+    removed.forEach((item) => removeCachedHistoryImage(item?.id));
+  } catch (e) {}
 }
 
 function clearHistory() {
@@ -4326,29 +4087,22 @@ function clearHistory() {
     primaryText: "确认清空",
     secondaryText: "取消",
     action: "custom",
-    onPrimary: async () => {
-      try {
-        localStorage.removeItem("nb_history");
-        await writeHistoryRecordsToDB([]);
-        await clearCachedHistoryImages();
-      } catch (e) {
-        console.warn("clearHistory failed:", e);
-      }
+    onPrimary: () => {
+      localStorage.removeItem("nb_history");
+      clearCachedHistoryImages();
       clearHistoryObjectUrlRefs();
-      await loadHistory();
+      loadHistory();
       closeApiGuideModal();
     },
   });
 }
 
-async function loadHistory() {
+function loadHistory() {
   clearHistoryObjectUrlRefs();
   let history = [];
   try {
-    await migrateLocalStorageHistoryToIndexedDB();
-    history = await readHistoryRecordsFromDB();
+    history = JSON.parse(localStorage.getItem("nb_history") || "[]");
   } catch (e) {
-    console.warn("loadHistory failed:", e);
     return;
   }
   let migrated = false;
@@ -4378,10 +4132,9 @@ async function loadHistory() {
     return item;
   });
   if (migrated) {
-    await writeHistoryRecordsToDB(history);
+    localStorage.setItem("nb_history", JSON.stringify(history));
   }
   const grid = document.getElementById("historyGrid");
-  if (!grid) return;
   grid.innerHTML = "";
 
   const applyReorder = async (targetIdx) => {
@@ -4444,24 +4197,12 @@ async function loadHistory() {
       getCachedHistoryImage(recordId).then((blob) => {
         if (!blob) {
           setHistoryCacheBadge(div, "cloud");
-          cacheHistoryImage(recordId, fullUrl).then(async (ok) => {
-            if (!ok) return;
-            const cachedBlob = await getCachedHistoryImage(recordId);
-            if (!cachedBlob) return;
-            const localUrl = URL.createObjectURL(cachedBlob);
-            historyObjectUrls.push(localUrl);
-            const imgEl = div.querySelector("img");
-            if (imgEl) imgEl.src = localUrl;
-            div.dataset.displayUrl = localUrl;
-            setHistoryCacheBadge(div, "local");
-          });
           return;
         }
         const localUrl = URL.createObjectURL(blob);
         historyObjectUrls.push(localUrl);
         const imgEl = div.querySelector("img");
         if (imgEl) imgEl.src = localUrl;
-        div.dataset.displayUrl = localUrl;
         setHistoryCacheBadge(div, "local");
       });
     }
@@ -4852,16 +4593,15 @@ window.addEventListener("load", () => {
 async function tryBackfillHistoryCache() {
   let history = [];
   try {
-    await migrateLocalStorageHistoryToIndexedDB();
-    history = await readHistoryRecordsFromDB();
+    history = JSON.parse(localStorage.getItem("nb_history") || "[]");
   } catch {
     return;
   }
   for (const item of history) {
-    if (!item?.id || !getHistoryFullUrl(item)) continue;
+    if (!item?.id || !item?.url) continue;
     const exists = await getCachedHistoryImage(item.id);
     if (exists) continue;
-    await cacheHistoryImage(item.id, getHistoryFullUrl(item));
+    await cacheHistoryImage(item.id, item.url);
   }
 }
 

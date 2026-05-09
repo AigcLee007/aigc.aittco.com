@@ -1,6 +1,5 @@
 import { create } from 'zustand';
-import { createJSONStorage, persist, type StateStorage } from 'zustand/middleware';
-import { get, set, del } from 'idb-keyval';
+import { persist } from 'zustand/middleware';
 
 const MAX_HISTORY_LOGS = 50;
 
@@ -51,28 +50,6 @@ const sanitizeHistoryLogs = (logs: Partial<GenerationLog>[] = []): GenerationLog
     .map((log) => sanitizeHistoryLog(log))
     .filter((log): log is GenerationLog => Boolean(log))
     .slice(0, MAX_HISTORY_LOGS);
-
-const indexedDbHistoryStorage: StateStorage = {
-  getItem: async (name: string) => {
-    const value = await get<string>(name);
-    if (typeof value === 'string') return value;
-    if (typeof window !== 'undefined' && window.localStorage) {
-      const legacyValue = window.localStorage.getItem(name);
-      if (legacyValue) {
-        await set(name, legacyValue);
-        window.localStorage.removeItem(name);
-        return legacyValue;
-      }
-    }
-    return null;
-  },
-  setItem: async (name: string, value: string) => {
-    await set(name, value);
-  },
-  removeItem: async (name: string) => {
-    await del(name);
-  },
-};
 
 export const useHistoryStore = create<HistoryStore>()(
   persist(
@@ -125,7 +102,6 @@ export const useHistoryStore = create<HistoryStore>()(
     }),
     {
       name: 'infinitemuse-history',
-      storage: createJSONStorage(() => indexedDbHistoryStorage),
       partialize: (state) => ({ logs: sanitizeHistoryLogs(state.logs) }),
       merge: (persistedState, currentState) => ({
         ...currentState,

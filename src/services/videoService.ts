@@ -22,32 +22,6 @@ const buildVideoRequestHeaders = async (
   ...buildAuthHeaders(apiKey),
 });
 
-const PUBLIC_VIDEO_API_MODELS = new Set([
-  'kling-video-3.0',
-  'kling-video-o3-omni',
-  'sora2',
-  'sora-v3-pro',
-  'sora-v3-fast',
-  'veo31-fast',
-]);
-
-const getPublicVideoResolution = (model: string, hd?: boolean) => {
-  if (model === 'sora2') return '720p';
-  if (model === 'sora-v3-pro' || model === 'sora-v3-fast') return '720p';
-  if (model === 'kling-video-3.0' || model === 'kling-video-o3-omni') {
-    return hd === false ? '720p' : '1080p';
-  }
-  if (model === 'veo31-fast') return hd === false ? '720p' : '1080p';
-  return hd ? '1080p' : '720p';
-};
-
-const toPublicVideoImageReference = (value: string) => {
-  const trimmed = String(value || '').trim();
-  if (!trimmed) return '';
-  if (/^(https?:\/\/|data:image\/)/i.test(trimmed)) return trimmed;
-  return `data:image/jpeg;base64,${trimmed}`;
-};
-
 // Extracted polling function for reuse in recovery
 export const pollVideoTask = async (
   apiKey: string | undefined,
@@ -169,18 +143,7 @@ export const generateVideo = async (
       'veo3.1-fast-4k',
     ]);
 
-    if (PUBLIC_VIDEO_API_MODELS.has(normalizedModel)) {
-      payload.aspect_ratio = options?.aspect_ratio || '16:9';
-      payload.duration = Number.parseInt(String(options?.duration || '5'), 10);
-      payload.resolution = getPublicVideoResolution(normalizedModel, options?.hd);
-      payload.generate_audio = true;
-
-      if (images && images.length > 0) {
-        payload.image_urls = images
-          .map(toPublicVideoImageReference)
-          .filter(Boolean);
-      }
-    } else if (model.startsWith('veo')) {
+    if (model.startsWith('veo')) {
       const durationNum = Number.parseInt(String(options?.duration ?? '8'), 10);
       const normalizedDuration = Number.isFinite(durationNum) ? durationNum : 8;
       const is4kLike = /4k/i.test(model) || model === 'veo3.1-pro';

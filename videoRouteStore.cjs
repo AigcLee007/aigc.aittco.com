@@ -166,10 +166,12 @@ const ensureVideoRouteSchema = async () => {
       );
 
       await withTransaction(async (connection) => {
+        const [countRows] = await connection.execute("SELECT COUNT(*) AS total FROM video_routes");
+        if (Number(countRows?.[0]?.total || 0) > 0) return;
         const nowDb = toDbDateTime();
         for (const row of buildStaticRows()) {
           await connection.execute(
-            `INSERT IGNORE INTO video_routes (
+            `INSERT INTO video_routes (
               route_id,label,description,route_family,line_value,transport,mode,base_url,generate_path,
               task_path,upstream_model,use_request_model,allow_user_api_key_without_login,api_key,api_key_env,point_cost,sort_order,
               is_active,is_default_route,created_at,updated_at

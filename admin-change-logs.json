@@ -1,22 +1,5 @@
 [
   {
-    "id": "adm_2fbd67d159bf3640",
-    "createdAt": "2026-05-09T15:41:26.325Z",
-    "actorUserId": "usr_5ad0227fa82d839a",
-    "actorEmail": "aigclee@sina.com",
-    "actorDisplayName": "1",
-    "actorRole": "super_admin",
-    "action": "billing.adjust_points",
-    "entityType": "billing_account",
-    "entityId": "acct_e1383374975bab09",
-    "summary": "Added 1000 points",
-    "detail": {
-      "accountId": "acct_e1383374975bab09",
-      "delta": 1000,
-      "note": "Manual adjustment for aigclee@sina.com"
-    }
-  },
-  {
     "id": "adm_dd7c35608e32f921",
     "createdAt": "2026-04-20T18:10:48.052Z",
     "actorUserId": "usr_990e4aa54e3f1995",

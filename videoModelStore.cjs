@@ -159,10 +159,12 @@ const ensureVideoModelSchema = async () => {
       }
 
       await withTransaction(async (connection) => {
+        const [countRows] = await connection.execute("SELECT COUNT(*) AS total FROM video_models");
+        if (Number(countRows?.[0]?.total || 0) > 0) return;
         const nowDb = toDbDateTime();
         for (const row of buildStaticRows()) {
           await connection.execute(
-            `INSERT IGNORE INTO video_models (
+            `INSERT INTO video_models (
               model_id,label,description,model_family,route_family,request_model,selector_cost,
               max_reference_images,reference_labels_json,default_aspect_ratio,aspect_ratio_options_json,
               default_duration,duration_options_json,supports_hd,default_hd,is_active,is_default_model,
@@ -174,19 +176,6 @@ const ensureVideoModelSchema = async () => {
               row.aspect_ratio_options_json, row.default_duration, row.duration_options_json, row.supports_hd ? 1 : 0,
               row.default_hd ? 1 : 0, row.is_active ? 1 : 0, row.is_default_model ? 1 : 0, row.sort_order, nowDb, nowDb,
             ],
-          );
-        }
-
-        const inactiveStaticModelIds = buildStaticRows()
-          .filter((row) => !row.is_active)
-          .map((row) => row.model_id)
-          .filter(Boolean);
-        if (inactiveStaticModelIds.length > 0) {
-          await connection.execute(
-            `UPDATE video_models
-             SET is_active = 0, updated_at = ?
-             WHERE model_id IN (${inactiveStaticModelIds.map(() => "?").join(", ")})`,
-            [nowDb, ...inactiveStaticModelIds],
           );
         }
       });

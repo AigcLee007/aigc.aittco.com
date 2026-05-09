@@ -15,11 +15,6 @@ export default defineConfig(({ mode }) => {
           target: `http://localhost:${backendPort}`,
           changeOrigin: true,
           secure: false,
-        },
-        '/generated-assets': {
-          target: `http://localhost:${backendPort}`,
-          changeOrigin: true,
-          secure: false,
         }
       },
     },
@@ -27,14 +22,8 @@ export default defineConfig(({ mode }) => {
       {
         name: 'classic-create-route',
         configureServer(server) {
-          server.middlewares.use((req, res, next) => {
+          server.middlewares.use((req, _res, next) => {
             if (req.url === '/create/classic' || req.url === '/create/classic/') {
-              res.statusCode = 302;
-              res.setHeader('Location', '/vip');
-              res.end();
-              return;
-            }
-            if (req.url === '/vip' || req.url === '/vip/') {
               req.url = '/classic-app/index.html';
             }
             next();

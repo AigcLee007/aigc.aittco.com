@@ -232,7 +232,7 @@ const BillingCenterPage: React.FC = () => {
             <button
               type="button"
               onClick={() => {
-                window.location.href = '/vip';
+                window.location.href = '/create/classic';
               }}
               className="inline-flex h-11 items-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-4 text-sm text-white hover:bg-white/10"
             >
