@@ -36,16 +36,9 @@ import { useGlobalPolling } from "./src/hooks/useGlobalPolling";
 const App: React.FC = () => {
   const currentPath =
     typeof window !== "undefined" ? window.location.pathname : "/";
-  const normalizedPath = currentPath.replace(/\/+$/, "") || "/";
   const preferredCreateUi =
     typeof window !== "undefined"
-      ? (() => {
-          try {
-            return window.localStorage.getItem("preferred-create-ui");
-          } catch {
-            return null;
-          }
-        })()
+      ? window.localStorage.getItem("preferred-create-ui")
       : null;
   const isInitialMobileViewport =
     typeof window !== "undefined" &&
@@ -53,7 +46,7 @@ const App: React.FC = () => {
       window.matchMedia?.("(max-width: 639px)")?.matches === true);
   const classicModePreferred =
     typeof window !== "undefined" &&
-    normalizedPath === "/" &&
+    currentPath === "/" &&
     preferredCreateUi === "classic";
   const isAdminRoute =
     typeof window !== "undefined" &&
@@ -61,12 +54,15 @@ const App: React.FC = () => {
   const isBillingRoute =
     typeof window !== "undefined" &&
     currentPath.startsWith("/billing");
-  const isClassicCreateRoute = normalizedPath === "/create/classic";
-  const isCanvasCreateRoute = normalizedPath === "/create/canvas";
+  const isClassicCreateRoute =
+    typeof window !== "undefined" && currentPath.startsWith("/create/classic");
   const mobileShouldDefaultToClassic =
+    typeof window !== "undefined" &&
     isInitialMobileViewport &&
-    !isCanvasCreateRoute &&
-    (normalizedPath === "/" || isClassicCreateRoute);
+    !isAdminRoute &&
+    !isBillingRoute &&
+    !isClassicCreateRoute &&
+    (currentPath === "/" || preferredCreateUi !== "canvas");
 
   if (isAdminRoute) {
     return <AdminDashboardPage />;
@@ -77,7 +73,7 @@ const App: React.FC = () => {
   }
 
   if (classicModePreferred || mobileShouldDefaultToClassic) {
-    window.location.replace("/vip");
+    window.location.replace("/create/classic");
     return null;
   }
 
@@ -331,8 +327,8 @@ const App: React.FC = () => {
 
   const openClassicMode = useCallback(() => {
     if (typeof window === "undefined") return;
-    window.localStorage.setItem("preferred-create-ui", "canvas");
-    window.location.href = "/vip";
+    window.localStorage.setItem("preferred-create-ui", "classic");
+    window.location.href = "/create/classic";
   }, []);
 
   useEffect(() => {
