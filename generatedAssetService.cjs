@@ -300,8 +300,7 @@ const rewritePayload = (value, replacements) => {
   return next;
 };
 
-const shouldPersistRoute = (context = {}) =>
-  trim(context.routeId) === LOCAL_LINE4_ROUTE_ID;
+const shouldPersistRoute = (context = {}) => Boolean(trim(context.routeId));
 
 const persistGeneratedImageResults = async ({
   payload = null,

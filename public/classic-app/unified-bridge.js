@@ -40,6 +40,8 @@
     "admin_credit",
     "redeem_code",
   ]);
+  const CLASSIC_ALLOWED_IMAGE_MODEL_IDS = new Set(["nano-banana", "gpt-image-2"]);
+  const CLASSIC_ALLOWED_ROUTE_FAMILIES = new Set(["nano-banana", "gpt-image-2"]);
 
   let bridgeModelCatalog = {
     defaultModelId: "",
@@ -955,6 +957,7 @@
     size,
     ratio,
     n = 1,
+    clientLiveTaskId = "",
   }) => {
     const gptSettings = getClassicGptSettings();
     const payload = {
@@ -962,6 +965,7 @@
       modelId: selectedModel.id,
       routeId: selectedRoute.id,
       uiMode: "classic",
+      clientLiveTaskId,
       prompt,
       size: calculateClassicGptImageSize(size, ratio),
       image_size: size,
@@ -986,6 +990,7 @@
     size,
     quantity,
     referenceImages,
+    clientLiveTaskIds = [],
   }) => {
     const parts = [{ text: prompt }];
     referenceImages.forEach((imageValue) => {
@@ -1013,6 +1018,7 @@
       modelId: selectedModel.id,
       routeId: selectedRoute.id,
       uiMode: "classic",
+      clientLiveTaskIds,
       prompt,
       aspect_ratio: ratio,
       image_size: String(size || "1K").trim().toUpperCase(),
@@ -1492,14 +1498,22 @@
       }),
     ]);
 
+    const fetchedModels = (Array.isArray(modelsData.models) ? modelsData.models : [])
+      .map(normalizeModel)
+      .filter((model) => CLASSIC_ALLOWED_IMAGE_MODEL_IDS.has(model.id));
+    const fetchedDefaultModelId = String(modelsData.defaultModelId || "").trim();
     bridgeModelCatalog = {
-      defaultModelId: String(modelsData.defaultModelId || "").trim(),
-      models: Array.isArray(modelsData.models) ? modelsData.models.map(normalizeModel) : [],
+      defaultModelId: CLASSIC_ALLOWED_IMAGE_MODEL_IDS.has(fetchedDefaultModelId)
+        ? fetchedDefaultModelId
+        : "nano-banana",
+      models: fetchedModels,
     };
     bridgeRouteCatalog = {
       defaultRouteId: String(routesData.defaultRouteId || "").trim(),
       defaultNanoBananaLine: String(routesData.defaultNanoBananaLine || "line1").trim(),
-      routes: Array.isArray(routesData.routes) ? routesData.routes.map(normalizeRoute) : [],
+      routes: (Array.isArray(routesData.routes) ? routesData.routes : [])
+        .map(normalizeRoute)
+        .filter((route) => CLASSIC_ALLOWED_ROUTE_FAMILIES.has(route.modelFamily)),
     };
 
     renderCatalogUi();
@@ -2126,33 +2140,29 @@
     if (Number.isNaN(date.getTime())) return "";
     return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
   };
-  const readLocalClassicHistoryRecords = () => {
+  const readLocalClassicHistoryRecords = async () => {
     try {
-      const raw = JSON.parse(localStorage.getItem("nb_history") || "[]");
+      if (typeof migrateLocalStorageHistoryToIndexedDB === "function") {
+        await migrateLocalStorageHistoryToIndexedDB();
+      }
+      const raw =
+        typeof readHistoryRecordsFromDB === "function"
+          ? await readHistoryRecordsFromDB()
+          : [];
       return (Array.isArray(raw) ? raw : [])
         .map((item) => {
-          const fullUrl =
-            typeof item === "string"
-              ? item
-              : String(item?.fullUrl || item?.url || "").trim();
+          const fullUrl = String(item?.fullUrl || item?.url || "").trim();
           if (!fullUrl) return null;
-          const previewUrl =
-            typeof item === "string"
-              ? (typeof getClassicLine4ThumbUrl === "function" && getClassicLine4ThumbUrl(item)) || item
-              : String(item?.previewUrl || item?.displayUrl || item?.url || fullUrl).trim();
-          const completedAt =
-            typeof item === "object" && item?.completedAt
-              ? String(item.completedAt)
-              : typeof item === "object" && item?.createdAt
-                ? String(item.createdAt)
-                : new Date().toISOString();
+          const previewUrl = String(item?.previewUrl || item?.displayUrl || item?.url || fullUrl).trim();
+          const completedAt = String(item?.completedAt || item?.createdAt || new Date().toISOString());
           return {
-            id: `local:${typeof item === "object" && item?.id ? item.id : fullUrl}`,
+            id: `local:${item?.id || fullUrl}`,
             resultUrls: [fullUrl],
             previewUrl: previewUrl || fullUrl,
-            prompt: typeof item === "object" ? String(item.prompt || "") : "",
+            prompt: String(item?.prompt || ""),
             createdAt: completedAt,
             completedAt,
+            localRecordId: String(item?.id || ""),
             localOnly: true,
           };
         })
@@ -2161,8 +2171,8 @@
       return [];
     }
   };
-  const mergeRemoteAndLocalHistoryRecords = (records = []) =>
-    dedupeHistoryRecords([...readLocalClassicHistoryRecords(), ...(Array.isArray(records) ? records : [])]);
+  const mergeRemoteAndLocalHistoryRecords = async (records = []) =>
+    dedupeHistoryRecords([...(await readLocalClassicHistoryRecords()), ...(Array.isArray(records) ? records : [])]);
   const renderRemoteHistoryGrid = async (records = []) => {
     if (typeof clearHistoryObjectUrlRefs === "function") {
       clearHistoryObjectUrlRefs();
@@ -2171,7 +2181,7 @@
     if (!grid) return;
     grid.innerHTML = "";
 
-    const mergedRecords = mergeRemoteAndLocalHistoryRecords(records);
+    const mergedRecords = await mergeRemoteAndLocalHistoryRecords(records);
 
     if (!Array.isArray(mergedRecords) || mergedRecords.length === 0) {
       grid.innerHTML =
@@ -2183,7 +2193,7 @@
       const originalUrl = String(record.resultUrls?.[0] || record.previewUrl || "").trim();
       const url = String(record.previewUrl || originalUrl || "").trim();
       if (!originalUrl) return;
-      const recordId = String(record.id || "").trim();
+      const recordId = String(record.localRecordId || record.id || "").trim();
       const prompt = String(record.prompt || "");
       const encodedPrompt = encodeURIComponent(prompt || "");
       const promptLabel = prompt ? `提示词：${prompt}` : "提示词：无记录";
@@ -2238,6 +2248,37 @@
       }
     });
   };
+  const persistRemoteSuccessRecordsToLocalHistory = async (records = []) => {
+    if (typeof writeHistoryRecordsToDB !== "function") return;
+    const successRecords = (Array.isArray(records) ? records : [])
+      .filter((record) => String(record?.status || "").trim().toUpperCase() === "SUCCESS")
+      .map((record) => {
+        const fullUrl = String(record?.resultUrls?.[0] || record?.previewUrl || "").trim();
+        if (!fullUrl) return null;
+        return {
+          id: `remote:${record.id || fullUrl}`,
+          url: fullUrl,
+          fullUrl,
+          previewUrl: String(record.previewUrl || fullUrl).trim(),
+          prompt: String(record.prompt || ""),
+          createdAt: String(record.createdAt || record.completedAt || new Date().toISOString()),
+          completedAt: String(record.completedAt || record.createdAt || new Date().toISOString()),
+        };
+      })
+      .filter(Boolean);
+    if (successRecords.length === 0) return;
+    try {
+      const localRecords =
+        typeof readHistoryRecordsFromDB === "function" ? await readHistoryRecordsFromDB() : [];
+      const seen = new Set(localRecords.map((record) => String(record.fullUrl || record.url || "").trim()));
+      await writeHistoryRecordsToDB([
+        ...successRecords.filter((record) => !seen.has(String(record.fullUrl || record.url || "").trim())),
+        ...localRecords,
+      ]);
+    } catch (error) {
+      console.warn("[Classic Bridge] persist remote history locally failed:", error);
+    }
+  };
   const renderRemotePendingTasks = (records = []) => {
     const grid = document.getElementById("pendingTasksGrid");
     const container = document.getElementById("pendingTasksContainer");
@@ -2291,12 +2332,46 @@
     return legacyClearHistory ? legacyClearHistory() : undefined;
   };
 
-  loadHistory = async function () {
-    remoteHistoryRecordsCache = [];
-    remoteHistoryCursor = {
-      sinceCreatedAt: "",
-      sinceId: "",
-    };
+  loadHistory = async function (options = {}) {
+    const incremental = Boolean(options.incremental);
+    const force = options.force !== false;
+    if (!incremental) {
+      remoteHistoryRecordsCache = [];
+      remoteHistoryCursor = {
+        sinceCreatedAt: "",
+        sinceId: "",
+      };
+    }
+
+    if (isSessionAuthenticated()) {
+      try {
+        const result = await fetchGenerationRecords({
+          mediaType: "image",
+          status: "success",
+          page: 1,
+          pageSize: incremental ? HISTORY_INITIAL_PAGE_SIZE : 100,
+          sinceCreatedAt: incremental ? remoteHistoryCursor.sinceCreatedAt : "",
+          sinceId: incremental ? remoteHistoryCursor.sinceId : "",
+        });
+        const records = Array.isArray(result?.records) ? result.records : [];
+        remoteHistoryRecordsCache = dedupeHistoryRecords([
+          ...records,
+          ...remoteHistoryRecordsCache,
+        ]);
+        remoteHistoryCursor = getHistoryCursorFromRecords(remoteHistoryRecordsCache);
+        lastHistoryRefreshAt = Date.now();
+        await persistRemoteSuccessRecordsToLocalHistory(remoteHistoryRecordsCache);
+        if (typeof window.reconcileClassicLiveTasksWithGenerationRecords === "function") {
+          window.reconcileClassicLiveTasksWithGenerationRecords(remoteHistoryRecordsCache);
+        }
+        await renderRemoteHistoryGrid(remoteHistoryRecordsCache);
+        return remoteHistoryRecordsCache;
+      } catch (error) {
+        console.warn("[Classic Bridge] load remote history failed:", error);
+        if (!force) return remoteHistoryRecordsCache;
+      }
+    }
+
     return legacyLoadHistory ? legacyLoadHistory() : undefined;
   };
 
@@ -2330,6 +2405,17 @@
       });
       const records = Array.isArray(result?.records) ? result.records : [];
       renderRemotePendingTasks(records);
+      const recentResult = await fetchGenerationRecords({
+        mediaType: "image",
+        status: "all",
+        page: 1,
+        pageSize: 100,
+      }).catch(() => null);
+      const recentRecords = Array.isArray(recentResult?.records) ? recentResult.records : [];
+      if (typeof window.reconcileClassicLiveTasksWithGenerationRecords === "function") {
+        window.reconcileClassicLiveTasksWithGenerationRecords(recentRecords);
+      }
+      await persistRemoteSuccessRecordsToLocalHistory(recentRecords);
       records
         .filter((record) => record?.taskId)
         .forEach((record, index) => {
@@ -2761,6 +2847,9 @@
       return;
     }
 
+    if (typeof window.clearClassicLiveTasks === "function") {
+      window.clearClassicLiveTasks({ silent: true });
+    }
     btn.disabled = true;
     btn.innerHTML = "提交中...";
     armSubmitUnlockFailsafe();
@@ -2856,6 +2945,7 @@
           size,
           quantity: batchSize,
           referenceImages: normalizedRefImages,
+          clientLiveTaskIds: liveTaskIds,
         }),
         key,
         size,
@@ -2869,6 +2959,7 @@
           endpoint: "/api/gemini/generate",
           expectedCount: batchSize,
           liveTaskIds,
+          clientLiveTaskIds: liveTaskIds,
           promptSnapshot: promptBaseText,
           modelLabel,
           routeLabel,
@@ -2891,6 +2982,7 @@
             size,
             ratio,
             n: 1,
+            clientLiveTaskId: liveTaskId,
           });
           if (submitReferenceIndices.length > 0) {
             payload.reference_indices = submitReferenceIndices.slice();
@@ -2984,6 +3076,7 @@
           {
             ...payloadBase,
             n: 1,
+            clientLiveTaskId: liveTaskId,
           },
           key,
           size,

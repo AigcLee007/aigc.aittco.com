@@ -944,6 +944,14 @@ const normalizeGenerationMediaType = (value = "IMAGE") => {
   const normalized = String(value || "IMAGE").trim().toUpperCase();
   return normalized === "VIDEO" ? "VIDEO" : "IMAGE";
 };
+const normalizeClientLiveTaskIds = (value) =>
+  Array.from(
+    new Set(
+      (Array.isArray(value) ? value : [value])
+        .map((item) => String(item || "").trim())
+        .filter(Boolean),
+    ),
+  );
 const dedupeResultUrls = (urls = []) =>
   Array.from(
     new Set(
@@ -1465,24 +1473,9 @@ const respondWithUserFacingGenerationError = (res, error, fallbackStatus = 500) 
 };
 const requestWithRetry = async (
   fn,
-  { retries = 1, delayMs = 500, label = "request" } = {},
+  _options = {},
 ) => {
-  let attempt = 0;
-  while (true) {
-    try {
-      return await fn();
-    } catch (error) {
-      if (!isRetryableNetworkError(error) || attempt >= retries) {
-        throw error;
-      }
-      const wait = delayMs * Math.pow(2, attempt);
-      console.warn(
-        `[Retry] ${label} attempt ${attempt + 1} failed: ${error.message}. Retrying in ${wait}ms`,
-      );
-      await sleep(wait);
-      attempt += 1;
-    }
-  }
+  return fn();
 };
 
 const createTransientHttpsAgent = () =>
@@ -1606,14 +1599,18 @@ const postJsonWithTlsFallback = async ({
   label,
   includeGoogleApiKey = false,
 }) => {
-  return axios.post(
-    endpoint,
-    body,
-    buildUpstreamJsonRequestConfig(authorization, {
-      httpsAgent: createTransientHttpsAgent(),
-      closeConnection: true,
-      includeGoogleApiKey,
-    }),
+  return requestWithRetry(
+    () =>
+      axios.post(
+        endpoint,
+        body,
+        buildUpstreamJsonRequestConfig(authorization, {
+          httpsAgent: createTransientHttpsAgent(),
+          closeConnection: true,
+          includeGoogleApiKey,
+        }),
+      ),
+    { retries: 2, delayMs: 900, label },
   );
 };
 
@@ -3216,6 +3213,9 @@ app.post("/api/generate", generateLimiter, async (req, res) => {
     const fallbackAuthorization = req.headers["authorization"];
     const requestBody = { ...(req.body || {}) };
     const uiMode = normalizeGenerationUiMode(requestBody.uiMode);
+    const clientLiveTaskIds = normalizeClientLiveTaskIds(
+      requestBody.clientLiveTaskIds || requestBody.clientLiveTaskId,
+    );
     const route = await resolveImageRoute(requestBody.routeId);
     const requestedImageModel = await resolveRequestedImageModel(requestBody);
     const useUserProvidedApiKey = shouldUseUserProvidedApiKey(
@@ -3228,6 +3228,8 @@ app.post("/api/generate", generateLimiter, async (req, res) => {
     }
 
     delete requestBody.uiMode;
+    delete requestBody.clientLiveTaskId;
+    delete requestBody.clientLiveTaskIds;
     const routeMode = String(route?.mode || "").trim().toLowerCase();
     const geminiRequestedCount = Math.max(
       1,
@@ -3290,6 +3292,7 @@ app.post("/api/generate", generateLimiter, async (req, res) => {
         meta: {
           transport: route.transport,
           routeMode: isAsyncGeminiRoute ? "async" : route.mode,
+          clientLiveTaskIds,
         },
       });
 
@@ -3759,6 +3762,7 @@ app.post("/api/generate", generateLimiter, async (req, res) => {
       meta: {
         transport: route.transport,
         routeMode: isSyncLine ? "sync" : route.mode,
+        clientLiveTaskIds,
       },
     });
 
@@ -3987,15 +3991,15 @@ app.post("/api/generate", generateLimiter, async (req, res) => {
         try {
           const response = await requestWithRetry(
             () =>
-              axios.post(upstreamUrl, finalRequestBody, {
-                headers: {
-                  Authorization: userKey,
-                  "Content-Type": "application/json",
-                },
-                timeout: 600000,
-                httpsAgent: SHARED_HTTPS_AGENT,
-              }),
-            { retries: 1, delayMs: 700, label: `generate-bg-${route.id}` },
+              axios.post(
+                upstreamUrl,
+                finalRequestBody,
+                buildUpstreamJsonRequestConfig(userKey, {
+                  httpsAgent: createTransientHttpsAgent(),
+                  closeConnection: true,
+                }),
+              ),
+            { retries: 2, delayMs: 900, label: `generate-bg-${route.id}` },
           );
 
           const resultUrls = extractResultUrlsFromPayload(response.data);
@@ -4337,6 +4341,7 @@ app.post("/api/generate", generateLimiter, async (req, res) => {
           routeMode: route.mode,
           upstreamStatus,
           settled: "immediate_result",
+          clientLiveTaskIds,
         }, persistedResult),
       });
       return res.json(
@@ -4416,6 +4421,7 @@ app.post("/api/generate", generateLimiter, async (req, res) => {
       meta: mergeGeneratedAssetMeta({
         transport: route.transport,
         routeMode: route.mode,
+        clientLiveTaskIds,
       }, persistedResult),
     });
 
@@ -4641,12 +4647,13 @@ app.post("/api/edit", generateLimiter, async (req, res) => {
                   headers: {
                     Authorization: authorization,
                     ...formData.getHeaders(),
+                    Connection: "close",
                   },
                   timeout: 600000,
-                  httpsAgent: SHARED_HTTPS_AGENT,
+                  httpsAgent: createTransientHttpsAgent(),
                 },
               ),
-            { retries: 1, delayMs: 700, label: `edit-bg-${route.id}` },
+            { retries: 2, delayMs: 900, label: `edit-bg-${route.id}` },
           );
 
           const resultUrls = extractResultUrlsFromPayload(response.data);
@@ -5223,6 +5230,9 @@ app.post("/api/gemini/generate", generateLimiter, async (req, res) => {
     const fallbackAuthorization = req.headers["authorization"];
     const requestBody = { ...(req.body || {}) };
     const uiMode = normalizeGenerationUiMode(requestBody.uiMode);
+    const clientLiveTaskIds = normalizeClientLiveTaskIds(
+      requestBody.clientLiveTaskIds || requestBody.clientLiveTaskId,
+    );
     const route = await resolveImageRoute(requestBody.routeId);
     const requestedImageModel = await resolveRequestedImageModel(requestBody);
 
@@ -5237,6 +5247,8 @@ app.post("/api/gemini/generate", generateLimiter, async (req, res) => {
     delete requestBody.routeId;
     delete requestBody.modelId;
     delete requestBody.uiMode;
+    delete requestBody.clientLiveTaskId;
+    delete requestBody.clientLiveTaskIds;
     requestBody.model = getRouteModelName(
       route,
       requestBody,
@@ -5267,6 +5279,7 @@ app.post("/api/gemini/generate", generateLimiter, async (req, res) => {
       meta: {
         transport: route.transport,
         routeMode: route.mode,
+        clientLiveTaskIds,
       },
     });
 
@@ -5296,6 +5309,7 @@ app.post("/api/gemini/generate", generateLimiter, async (req, res) => {
       meta: mergeGeneratedAssetMeta({
         transport: route.transport,
         routeMode: route.mode,
+        clientLiveTaskIds,
       }, persistedResult),
     });
 
@@ -5534,6 +5548,7 @@ app.post("/api/video/generate", generateLimiter, async (req, res) => {
       },
     });
   } catch (error) {
+    const normalizedError = normalizeGenerationError(error);
     if (billingCharge?.chargeId && billingAccount?.accountId && !localTaskId) {
       await refundPoints(billingAccount.accountId, billingCharge.chargeId, {
         reason: "request_failed",
@@ -5635,41 +5650,27 @@ async function postGeminiWithModels({
   logTag,
   extraAxiosConfig = {},
 }) {
-  let lastError;
-  for (const model of models) {
-    const endpoint = buildGeminiGenerateEndpoint(model);
-    try {
-      const response = await requestWithRetry(
-        () =>
-          axios.post(
-            endpoint,
-            payload,
-            {
-              headers: {
-                Authorization: authorization,
-                "Content-Type": "application/json",
-              },
-              timeout,
-              httpsAgent: SHARED_HTTPS_AGENT,
-              ...extraAxiosConfig,
-            },
-          ),
-        { retries: 1, delayMs: 500, label: `${logTag}-${model}` },
-      );
+  const model = Array.isArray(models) && models.length > 0 ? models[0] : getPromptToolModel();
+  const endpoint = buildGeminiGenerateEndpoint(model);
+  const response = await requestWithRetry(
+    () =>
+      axios.post(
+        endpoint,
+        payload,
+        {
+          headers: {
+            Authorization: authorization,
+            "Content-Type": "application/json",
+          },
+          timeout,
+          httpsAgent: SHARED_HTTPS_AGENT,
+          ...extraAxiosConfig,
+        },
+      ),
+    { label: `${logTag}-${model}` },
+  );
 
-      if (model !== models[0]) {
-        console.warn(`[${logTag}] Fallback succeeded with model: ${model}`);
-      }
-
-      return { response, model };
-    } catch (error) {
-      lastError = error;
-      const status = error?.response?.status || error?.code || "unknown";
-      console.warn(`[${logTag}] Model ${model} failed:`, status);
-    }
-  }
-
-  throw lastError;
+  return { response, model };
 }
 
 app.post("/api/optimize-prompt", async (req, res) => {
@@ -6289,7 +6290,7 @@ app.use('/uploads', express.static(ANNOUNCEMENT_UPLOAD_ROOT));
 app.use(express.static(path.join(__dirname, 'dist')));
 
 app.get(['/create/classic', '/create/classic/'], (_req, res) => {
-  res.sendFile(path.join(__dirname, 'dist', 'classic-app', 'index.html'));
+  res.redirect(302, '/vip');
 });
 
 app.get(['/vip', '/vip/'], (_req, res) => {
