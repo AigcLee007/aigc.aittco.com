@@ -33,6 +33,18 @@ const NOTICE_POPUP_DISMISSED_KEY = "nb_notice_popup_dismissed_id";
 const CREATE_MODE_STORAGE_KEY = "preferred-create-ui";
 const PRICE_LINE_ALL = "__all__";
 const AUTH_SESSION_STORAGE_KEY = "auth-session-v1";
+const SMART_RATIO_OPTIONS = [
+  "21:9",
+  "16:9",
+  "5:4",
+  "4:3",
+  "3:2",
+  "1:1",
+  "2:3",
+  "3:4",
+  "4:5",
+  "9:16",
+];
 
 try {
   localStorage.setItem(CREATE_MODE_STORAGE_KEY, "classic");
@@ -1937,6 +1949,30 @@ function getClassicModelAlias(modelId = imageModel) {
   return value;
 }
 
+function snapToClassicFixedRatio(width, height) {
+  const sourceWidth = Number(width);
+  const sourceHeight = Number(height);
+  if (!Number.isFinite(sourceWidth) || !Number.isFinite(sourceHeight) || sourceWidth <= 0 || sourceHeight <= 0) {
+    return "1:1";
+  }
+
+  const sourceRatio = sourceWidth / sourceHeight;
+  let bestRatio = SMART_RATIO_OPTIONS[0] || "1:1";
+  let bestDistance = Number.POSITIVE_INFINITY;
+
+  SMART_RATIO_OPTIONS.forEach((ratioText) => {
+    const parsed = parseAspectRatio(ratioText);
+    const candidateRatio = parsed.w / parsed.h;
+    const distance = Math.abs(Math.log(sourceRatio / candidateRatio));
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      bestRatio = parsed.text;
+    }
+  });
+
+  return bestRatio;
+}
+
 function getClassicModels() {
   return Array.isArray(classicPricingCatalog?.models)
     ? classicPricingCatalog.models.filter((model) => model?.isActive !== false)
@@ -2880,10 +2916,8 @@ async function detectAndSetSmartRatio(base64) {
       clearTimeout(timeout);
       const w = img.width;
       const h = img.height;
-      function gcd(a, b) { return b === 0 ? a : gcd(b, a % b); }
-      const commonGcd = gcd(w, h);
-      smartRatio = `${w / commonGcd}:${h / commonGcd}`;
-      console.log("Detected Smart Ratio:", smartRatio);
+      smartRatio = snapToClassicFixedRatio(w, h);
+      console.log("Detected Smart Ratio:", smartRatio, "from", `${w}:${h}`);
       updateRatioOptions(true);
       resolve();
     };
