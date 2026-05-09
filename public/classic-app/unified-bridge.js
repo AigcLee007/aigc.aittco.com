@@ -40,8 +40,8 @@
     "admin_credit",
     "redeem_code",
   ]);
-  const CLASSIC_ALLOWED_IMAGE_MODEL_IDS = new Set(["nano-banana", "gpt-image-2"]);
-  const CLASSIC_ALLOWED_ROUTE_FAMILIES = new Set(["nano-banana", "gpt-image-2"]);
+  const CLASSIC_ALLOWED_IMAGE_MODEL_IDS = new Set(["nano-banana", "nano-banana-2", "gpt-image-2"]);
+  const CLASSIC_ALLOWED_ROUTE_FAMILIES = new Set(["nano-banana", "nano-banana-2", "gpt-image-2"]);
 
   let bridgeModelCatalog = {
     defaultModelId: "",
@@ -1168,7 +1168,7 @@
     }
 
     const selected = getCurrentRoute();
-    lineModule.style.display = "flex";
+    lineModule.style.setProperty("display", "flex", "important");
     menu.innerHTML = routes
       .map((route) => {
         const activeClass = selected?.id === route.id ? " active" : "";

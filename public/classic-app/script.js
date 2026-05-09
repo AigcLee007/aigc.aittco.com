@@ -56,12 +56,12 @@ let classicPricingCatalog = {
       selectorCost: 5,
     },
     {
-      id: "gemini-flash",
+      id: "nano-banana-2",
       label: "Nano Banana 2",
-      routeFamily: "gemini-flash",
+      routeFamily: "nano-banana-2",
       sizeOptions: ["1k", "2k", "4k"],
       defaultSize: "2k",
-      selectorCost: 2.5,
+      selectorCost: 5,
     },
     {
       id: "gpt-image-2",
@@ -89,8 +89,8 @@ let classicPricingCatalog = {
       },
     },
     { id: "openai-image-default", label: "Default Route", modelFamily: "default", line: "default", pointCost: 12 },
-    { id: "nano-banana-2-line1", label: "Line 1", modelFamily: "gemini-flash", line: "line1", pointCost: 2.5 },
-    { id: "nano-banana-2-line2", label: "Line 2", modelFamily: "gemini-flash", line: "line2", pointCost: 2.5 },
+    { id: "nano-banana-2-line1", label: "Line 1", modelFamily: "nano-banana-2", line: "line1", pointCost: 5 },
+    { id: "nano-banana-2-line2", label: "Line 2", modelFamily: "nano-banana-2", line: "line2", pointCost: 5 },
     {
       id: "gpt-image-2-default",
       label: "Line 1",
@@ -1861,9 +1861,15 @@ function updateModelUI() {
   const lineModule = document.getElementById('lineModule');
   const grokRefModeModule = document.getElementById('grokRefModeModule');
 
-  // 根据模型切换线路选择器显示逻辑，其他保持静态
+  // 根据后台返回的线路数量切换显示，避免旧模型名判断隐藏真实线路。
   if (lineModule) {
-    lineModule.style.display = (imageModel === 'nano-banana') ? 'flex' : 'none';
+    const currentModel = getClassicModelConfig(imageModel);
+    const routeCount = getClassicRoutesForModel(currentModel).length;
+    if (routeCount > 1) {
+      lineModule.style.setProperty('display', 'flex', 'important');
+    } else {
+      lineModule.style.display = 'none';
+    }
   }
   if (grokRefModeModule) {
     grokRefModeModule.style.display = String(imageModel).startsWith("grok-") ? "flex" : "none";
@@ -1926,7 +1932,6 @@ function getClassicLineLabel(line, fallback = "") {
 
 function getClassicModelAlias(modelId = imageModel) {
   const value = String(modelId || "").trim();
-  if (value === "nano-banana-2") return "gemini-flash";
   return value;
 }
 
