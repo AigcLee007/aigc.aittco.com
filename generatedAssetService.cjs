@@ -300,7 +300,7 @@ const rewritePayload = (value, replacements) => {
   return next;
 };
 
-const shouldPersistRoute = (context = {}) => Boolean(trim(context.routeId));
+const shouldPersistRoute = () => false;
 
 const persistGeneratedImageResults = async ({
   payload = null,
