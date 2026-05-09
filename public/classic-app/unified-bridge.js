@@ -41,7 +41,6 @@
     "redeem_code",
   ]);
   const CLASSIC_ALLOWED_IMAGE_MODEL_IDS = new Set(["nano-banana", "nano-banana-2", "gpt-image-2"]);
-  const CLASSIC_ALLOWED_ROUTE_FAMILIES = new Set(["nano-banana", "nano-banana-2", "gpt-image-2"]);
 
   let bridgeModelCatalog = {
     defaultModelId: "",
@@ -1500,6 +1499,11 @@
     const fetchedModels = (Array.isArray(modelsData.models) ? modelsData.models : [])
       .map(normalizeModel)
       .filter((model) => CLASSIC_ALLOWED_IMAGE_MODEL_IDS.has(model.id));
+    const allowedRouteFamilies = new Set(
+      fetchedModels
+        .map((model) => String(model.routeFamily || model.modelFamily || model.id || "").trim())
+        .filter(Boolean),
+    );
     const fetchedDefaultModelId = String(modelsData.defaultModelId || "").trim();
     bridgeModelCatalog = {
       defaultModelId: CLASSIC_ALLOWED_IMAGE_MODEL_IDS.has(fetchedDefaultModelId)
@@ -1512,7 +1516,7 @@
       defaultNanoBananaLine: String(routesData.defaultNanoBananaLine || "line1").trim(),
       routes: (Array.isArray(routesData.routes) ? routesData.routes : [])
         .map(normalizeRoute)
-        .filter((route) => CLASSIC_ALLOWED_ROUTE_FAMILIES.has(route.modelFamily)),
+        .filter((route) => allowedRouteFamilies.has(route.modelFamily)),
     };
 
     renderCatalogUi();
