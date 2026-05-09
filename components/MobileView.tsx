@@ -76,7 +76,7 @@ const MobileView: React.FC<MobileViewProps> = ({
           <button
             onClick={onOpenClassicMode}
             className="w-8 h-8 rounded-lg bg-white/5 border border-white/10 text-gray-200 flex items-center justify-center active:scale-95"
-            title="经典版"
+            title="VIP"
           >
             <Layers size={15} />
           </button>
