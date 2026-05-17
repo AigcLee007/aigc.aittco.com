@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowLeft,
   Boxes,
@@ -32,6 +32,8 @@ interface SectionItem {
   icon: LucideIcon;
 }
 
+const DASHBOARD_REFRESH_INTERVAL_MS = 120000;
+
 const AdminDashboardPage: React.FC = () => {
   const [session, setSession] = useState<AuthSessionPayload | null>(null);
   const [sessionLoading, setSessionLoading] = useState(true);
@@ -39,6 +41,7 @@ const AdminDashboardPage: React.FC = () => {
   const [dashboardLoading, setDashboardLoading] = useState(false);
   const [dashboardError, setDashboardError] = useState<string | null>(null);
   const [activeSection, setActiveSection] = useState<AdminSection>('overview');
+  const dashboardLoadingRef = useRef(false);
 
   const refreshSession = useCallback(async () => {
     setSessionLoading(true);
@@ -55,7 +58,9 @@ const AdminDashboardPage: React.FC = () => {
       setDashboard(null);
       return;
     }
+    if (dashboardLoadingRef.current) return;
 
+    dashboardLoadingRef.current = true;
     setDashboardLoading(true);
     setDashboardError(null);
     try {
@@ -64,6 +69,7 @@ const AdminDashboardPage: React.FC = () => {
     } catch (error) {
       setDashboardError((error as Error).message);
     } finally {
+      dashboardLoadingRef.current = false;
       setDashboardLoading(false);
     }
   }, [session?.user?.isAdmin]);
@@ -77,7 +83,7 @@ const AdminDashboardPage: React.FC = () => {
     void loadDashboard();
     const timer = window.setInterval(() => {
       void loadDashboard();
-    }, 30000);
+    }, DASHBOARD_REFRESH_INTERVAL_MS);
     return () => window.clearInterval(timer);
   }, [loadDashboard, session?.user?.isAdmin]);
 

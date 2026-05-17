@@ -128,6 +128,15 @@ const logger = winston.createLogger({
 
 const app = express();
 const PORT = Number.parseInt(String(process.env.PORT || "3355"), 10);
+const parsedAdminDashboardCacheTtlMs = Number.parseInt(
+  String(process.env.ADMIN_DASHBOARD_CACHE_TTL_MS || "15000"),
+  10,
+);
+const ADMIN_DASHBOARD_CACHE_TTL_MS = Number.isFinite(parsedAdminDashboardCacheTtlMs)
+  ? Math.max(0, parsedAdminDashboardCacheTtlMs)
+  : 15000;
+const DEBUG_TASK_POLLING =
+  String(process.env.DEBUG_TASK_POLLING || "").trim().toLowerCase() === "true";
 const UPSTREAM_URL = "https://api.bltcy.ai";
 const TRUST_PROXY_HOPS = Number.parseInt(String(process.env.TRUST_PROXY_HOPS || "1"), 10);
 app.set("trust proxy", Number.isFinite(TRUST_PROXY_HOPS) && TRUST_PROXY_HOPS > 0 ? TRUST_PROXY_HOPS : 1);
@@ -912,6 +921,40 @@ const buildAdminDashboardPayload = async () => {
     videoModelStats,
   };
 };
+let adminDashboardCache = {
+  expiresAt: 0,
+  payload: null,
+};
+let adminDashboardInflight = null;
+const getCachedAdminDashboardPayload = async ({ force = false } = {}) => {
+  const now = Date.now();
+  if (
+    !force &&
+    ADMIN_DASHBOARD_CACHE_TTL_MS > 0 &&
+    adminDashboardCache.payload &&
+    adminDashboardCache.expiresAt > now
+  ) {
+    return adminDashboardCache.payload;
+  }
+
+  if (!force && adminDashboardInflight) {
+    return adminDashboardInflight;
+  }
+
+  adminDashboardInflight = buildAdminDashboardPayload()
+    .then((payload) => {
+      adminDashboardCache = {
+        payload,
+        expiresAt: Date.now() + ADMIN_DASHBOARD_CACHE_TTL_MS,
+      };
+      return payload;
+    })
+    .finally(() => {
+      adminDashboardInflight = null;
+    });
+
+  return adminDashboardInflight;
+};
 const sendBillingError = (res, error) => {
   if (error instanceof BillingError) {
     const normalized = normalizeGenerationError(error, 400);
@@ -1334,6 +1377,79 @@ const parseJsonLikeErrorString = (value = "") => {
   }
 };
 
+const isMeaningfulGenerationErrorText = (value) => {
+  const text = String(value || "").trim();
+  if (!text) return false;
+  return !["success", "succeeded", "ok", "completed", "complete", "done"].includes(
+    text.toLowerCase(),
+  );
+};
+
+const getValueByPath = (obj, path) =>
+  String(path || "")
+    .split(".")
+    .reduce((current, key) => {
+      if (!current || typeof current !== "object") return undefined;
+      return current[key];
+    }, obj);
+
+const GENERATION_ERROR_MESSAGE_PATHS = [
+  "fail_reason",
+  "failReason",
+  "failure_reason",
+  "failureReason",
+  "error_message",
+  "errorMessage",
+  "reason",
+  "data.fail_reason",
+  "data.failReason",
+  "data.failure_reason",
+  "data.failureReason",
+  "data.error_message",
+  "data.errorMessage",
+  "data.reason",
+  "data.error.message",
+  "error.fail_reason",
+  "error.failReason",
+  "error.failure_reason",
+  "error.failureReason",
+  "error.error_message",
+  "error.errorMessage",
+  "error.reason",
+  "error.message",
+  "message",
+  "details",
+  "msg",
+  "data.message",
+  "data.details",
+  "data.msg",
+  "code",
+  "data.code",
+];
+
+const getGenerationFailureMessageFromData = (data) => {
+  if (!data) return "";
+  if (typeof data === "string") {
+    const parsed = parseJsonLikeErrorString(data);
+    if (parsed && parsed !== data) {
+      const parsedMessage = getGenerationFailureMessageFromData(parsed);
+      if (parsedMessage) return parsedMessage;
+    }
+    return isMeaningfulGenerationErrorText(data) ? data.trim() : "";
+  }
+  if (typeof data !== "object") {
+    return isMeaningfulGenerationErrorText(data) ? String(data).trim() : "";
+  }
+
+  for (const path of GENERATION_ERROR_MESSAGE_PATHS) {
+    const value = getValueByPath(data, path);
+    if (isMeaningfulGenerationErrorText(value)) return String(value).trim();
+  }
+
+  if (isMeaningfulGenerationErrorText(data.error)) return String(data.error).trim();
+  return "";
+};
+
 const getErrorData = (error) => {
   const data = error?.response?.data;
   if (typeof data === "string") {
@@ -1367,17 +1483,9 @@ const buildGenerationErrorMeta = (error, data) => {
 };
 
 const getGenerationErrorMessage = (error, data) => {
-  if (data && typeof data === "object") {
-    const nested = data.error;
-    if (nested && typeof nested === "object" && nested.message) {
-      return nested.message;
-    }
-    if (typeof nested === "string") return nested;
-    if (data.message) return data.message;
-    if (data.details) return data.details;
-  }
-  if (typeof data === "string" && data.trim()) return data;
-  if (error?.message) return error.message;
+  const dataMessage = getGenerationFailureMessageFromData(data);
+  if (dataMessage) return dataMessage;
+  if (isMeaningfulGenerationErrorText(error?.message)) return error.message;
   return DEFAULT_GENERATION_ERROR_MESSAGE;
 };
 
@@ -2564,7 +2672,10 @@ app.patch("/api/admin/users/:userId", async (req, res) => {
 app.get("/api/admin/dashboard", async (req, res) => {
   try {
     await requireAdminAccess(req, EMERGENCY_ADMIN_API_KEYS);
-    res.json(await buildAdminDashboardPayload());
+    const forceRefresh = ["1", "true", "yes"].includes(
+      String(req.query?.refresh || "").trim().toLowerCase(),
+    );
+    res.json(await getCachedAdminDashboardPayload({ force: forceRefresh }));
   } catch (error) {
     if (sendAuthError(res, error)) return;
     if (sendBillingError(res, error)) return;
@@ -3843,7 +3954,9 @@ app.post("/api/generate", generateLimiter, async (req, res) => {
                 });
                 if (["SUCCEEDED", "SUCCESS", "COMPLETED"].includes(settledStatus)) break;
                 if (["FAILED", "FAILURE", "ERROR", "CANCELLED", "CANCELED"].includes(settledStatus)) {
-                  throw new Error(record.error || record.failure_reason || "Visionary generation failed");
+                  throw new Error(
+                    getGenerationFailureMessageFromData(record) || "Visionary generation failed",
+                  );
                 }
               }
               await sleep(2000);
@@ -4010,8 +4123,7 @@ app.post("/api/generate", generateLimiter, async (req, res) => {
             ["ERROR", "CANCELLED", "CANCELED"].includes(upstreamStatus)
           ) {
             throw new Error(
-              response.data?.error ||
-                response.data?.message ||
+              getGenerationFailureMessageFromData(response.data) ||
                 `GPT-image-2 sync route did not return an image (status: ${upstreamStatus || "UNKNOWN"})`,
             );
           }
@@ -4243,6 +4355,16 @@ app.post("/api/generate", generateLimiter, async (req, res) => {
         return res.json(normalizedResponse);
       }
 
+      if (
+        isTaskFailureStatus(syncUpstreamStatus) ||
+        ["ERROR", "CANCELLED", "CANCELED"].includes(syncUpstreamStatus)
+      ) {
+        throw new Error(
+          getGenerationFailureMessageFromData(response.data) ||
+            `Image generation failed (status: ${syncUpstreamStatus || "UNKNOWN"})`,
+        );
+      }
+
       const chatContent = response.data.choices?.[0]?.message?.content || "";
       console.log("[Generate] Chat response content:", chatContent.substring(0, 100));
 
@@ -4298,6 +4420,15 @@ app.post("/api/generate", generateLimiter, async (req, res) => {
     console.log("[Generate] Upstream response:", response.data);
     const immediateResultUrls = extractResultUrlsFromPayload(response.data);
     const upstreamStatus = extractResultStatus(response.data);
+    if (
+      isTaskFailureStatus(upstreamStatus) ||
+      ["ERROR", "CANCELLED", "CANCELED"].includes(upstreamStatus)
+    ) {
+      throw new Error(
+        getGenerationFailureMessageFromData(response.data) ||
+          `Image generation failed (status: ${upstreamStatus || "UNKNOWN"})`,
+      );
+    }
     const shouldTreatAsImmediateResult =
       immediateResultUrls.length > 0 &&
       (
@@ -4403,6 +4534,9 @@ app.post("/api/generate", generateLimiter, async (req, res) => {
     }
 
     const finalResultUrls = extractResultUrlsFromPayload(response.data);
+    if (finalResultUrls.length === 0) {
+      throw new Error("上游未返回任务 ID，也未返回图片结果");
+    }
     const persistedResult = await persistImageResultPayloadSafe({
       payload: response.data,
       resultUrls: finalResultUrls,
@@ -4912,7 +5046,9 @@ app.get("/api/proxy/image", async (req, res) => {
 const isTaskSuccessStatus = (status = "") =>
   ["SUCCESS", "SUCCEEDED", "COMPLETED"].includes(String(status || "").trim().toUpperCase());
 const isTaskFailureStatus = (status = "") =>
-  ["FAILURE", "FAILED"].includes(String(status || "").trim().toUpperCase());
+  ["FAILURE", "FAILED", "ERROR", "CANCELLED", "CANCELED"].includes(
+    String(status || "").trim().toUpperCase(),
+  );
 const buildImageTaskResponseFromGenerationRecord = (record, taskId) => {
   if (!record) return null;
 
@@ -5119,11 +5255,7 @@ const pollImageTaskAndSettle = async ({
     await settlePendingTask(normalizedTaskId, "FAILED");
     await completeGenerationRecordFailureSafe({
       taskId: normalizedTaskId,
-      errorMessage:
-        responseData?.error ||
-        responseData?.message ||
-        responseData?.fail_reason ||
-        "Image task failed",
+      errorMessage: getGenerationFailureMessageFromData(responseData) || "Image task failed",
       meta: {
         polledAt: new Date().toISOString(),
         source,
@@ -5190,11 +5322,7 @@ const pollVideoTaskAndSettle = async ({
     await settlePendingTask(normalizedTaskId, "FAILED");
     await completeGenerationRecordFailureSafe({
       taskId: normalizedTaskId,
-      errorMessage:
-        responseData?.error ||
-        responseData?.message ||
-        responseData?.fail_reason ||
-        "Video task failed",
+      errorMessage: getGenerationFailureMessageFromData(responseData) || "Video task failed",
       meta: {
         polledAt: new Date().toISOString(),
         source,
@@ -5574,12 +5702,16 @@ app.get("/api/video/task/:taskId", pollingLimiter, async (req, res) => {
       fallbackAuthorization: req.headers["authorization"],
       source: "video_task_poll",
     });
-    logger.info({
-      timestamp: new Date().toISOString(),
-      type: "Poll Response",
-      taskId: String(req.params.taskId || "").trim(),
-      responsePreview: JSON.stringify(responseData).substring(0, 1000),
-    });
+    const pollStatus = extractResultStatus(responseData);
+    if (DEBUG_TASK_POLLING || isTaskSuccessStatus(pollStatus) || isTaskFailureStatus(pollStatus)) {
+      logger.info({
+        timestamp: new Date().toISOString(),
+        type: "Poll Response",
+        taskId: String(req.params.taskId || "").trim(),
+        status: pollStatus || null,
+        responsePreview: JSON.stringify(responseData).substring(0, 1000),
+      });
+    }
     res.json(responseData);
   } catch (error) {
     console.error("[Video Task Poll] Error:", error.message);

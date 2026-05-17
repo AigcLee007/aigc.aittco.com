@@ -223,6 +223,15 @@ const ensureBillingSchema = async () => {
           `ALTER TABLE ${tableName} MODIFY COLUMN ${columnName} ${definition}`,
         );
       };
+      const ensureIndex = async (statement) => {
+        try {
+          await pool.execute(statement);
+        } catch (error) {
+          if (error?.code !== "ER_DUP_KEYNAME") {
+            throw error;
+          }
+        }
+      };
 
       await ensureOneDecimalColumn("billing_accounts", "points", "DECIMAL(12,1) NOT NULL DEFAULT 0");
       await ensureOneDecimalColumn(
@@ -250,6 +259,15 @@ const ensureBillingSchema = async () => {
         "billing_redeem_codes",
         "points",
         "DECIMAL(12,1) NOT NULL",
+      );
+      await ensureIndex(
+        "ALTER TABLE billing_ledger ADD INDEX idx_billing_ledger_type_created (type, created_at)",
+      );
+      await ensureIndex(
+        "ALTER TABLE billing_pending_tasks ADD INDEX idx_billing_pending_status_settled (status, settled_at)",
+      );
+      await ensureIndex(
+        "ALTER TABLE billing_pending_tasks ADD INDEX idx_billing_pending_route_status (route_id, status, settled_at)",
       );
     })();
   }
@@ -862,37 +880,244 @@ const buildAdminBillingOverviewFromRows = ({
   };
 };
 
+const ADMIN_BILLING_METRIC_SELECT = `
+  COUNT(*) AS total_charges,
+  SUM(CASE WHEN refunded_at IS NULL THEN 1 ELSE 0 END) AS successful_charges,
+  SUM(CASE WHEN refunded_at IS NOT NULL THEN 1 ELSE 0 END) AS failed_charges,
+  COALESCE(SUM(points), 0) AS gross_charge_points,
+  COALESCE(SUM(CASE WHEN refunded_at IS NOT NULL THEN points ELSE 0 END), 0) AS refunded_points,
+  COALESCE(SUM(CASE WHEN refunded_at IS NULL THEN points ELSE 0 END), 0) AS net_spent_points,
+  SUM(CASE WHEN created_at >= ? THEN 1 ELSE 0 END) AS requests_last_24h,
+  SUM(CASE WHEN created_at >= ? AND refunded_at IS NULL THEN 1 ELSE 0 END) AS successful_last_24h,
+  SUM(CASE WHEN created_at >= ? AND refunded_at IS NOT NULL THEN 1 ELSE 0 END) AS failed_last_24h,
+  SUM(CASE WHEN created_at >= ? THEN 1 ELSE 0 END) AS requests_last_30m,
+  SUM(CASE WHEN created_at >= ? AND refunded_at IS NULL THEN 1 ELSE 0 END) AS successful_last_30m,
+  SUM(CASE WHEN created_at >= ? AND refunded_at IS NOT NULL THEN 1 ELSE 0 END) AS failed_last_30m,
+  COALESCE(SUM(CASE WHEN created_at >= ? THEN points ELSE 0 END), 0) AS gross_charge_points_last_30m,
+  COALESCE(SUM(CASE WHEN created_at >= ? AND refunded_at IS NOT NULL THEN points ELSE 0 END), 0) AS refunded_points_last_30m,
+  COALESCE(SUM(CASE WHEN created_at >= ? AND refunded_at IS NULL THEN points ELSE 0 END), 0) AS net_spent_points_last_30m,
+  MAX(created_at) AS last_charge_at
+`;
+
+const buildAdminBillingMetricParams = (recentCutoffDb, recent30mCutoffDb) => [
+  recentCutoffDb,
+  recentCutoffDb,
+  recentCutoffDb,
+  recent30mCutoffDb,
+  recent30mCutoffDb,
+  recent30mCutoffDb,
+  recent30mCutoffDb,
+  recent30mCutoffDb,
+  recent30mCutoffDb,
+];
+
+const finalizeAdminBillingMetricBucket = (bucket) => ({
+  ...bucket,
+  grossChargePoints: toPointNumber(bucket.grossChargePoints, 0),
+  refundedPoints: toPointNumber(bucket.refundedPoints, 0),
+  netSpentPoints: toPointNumber(bucket.netSpentPoints, 0),
+  grossChargePointsLast30m: toPointNumber(bucket.grossChargePointsLast30m, 0),
+  refundedPointsLast30m: toPointNumber(bucket.refundedPointsLast30m, 0),
+  netSpentPointsLast30m: toPointNumber(bucket.netSpentPointsLast30m, 0),
+  totalBalancePoints: toPointNumber(bucket.totalBalancePoints, 0),
+  totalRechargedPoints: toPointNumber(bucket.totalRechargedPoints, 0),
+  totalSpentPoints: toPointNumber(bucket.totalSpentPoints, 0),
+  successRate:
+    bucket.totalCharges > 0
+      ? Number(((bucket.successfulCharges / bucket.totalCharges) * 100).toFixed(1))
+      : 0,
+  successRateLast24h:
+    bucket.requestsLast24h > 0
+      ? Number(((bucket.successfulLast24h / bucket.requestsLast24h) * 100).toFixed(1))
+      : 0,
+  successRateLast30m:
+    bucket.requestsLast30m > 0
+      ? Number(((bucket.successfulLast30m / bucket.requestsLast30m) * 100).toFixed(1))
+      : 0,
+});
+
+const adminBillingMetricBucketFromRow = (row = {}, seed = {}) =>
+  createMetricBucket({
+    ...seed,
+    totalCharges: Number(row.total_charges || 0),
+    successfulCharges: Number(row.successful_charges || 0),
+    failedCharges: Number(row.failed_charges || 0),
+    grossChargePoints: toPointNumber(row.gross_charge_points || 0, 0),
+    refundedPoints: toPointNumber(row.refunded_points || 0, 0),
+    netSpentPoints: toPointNumber(row.net_spent_points || 0, 0),
+    requestsLast24h: Number(row.requests_last_24h || 0),
+    successfulLast24h: Number(row.successful_last_24h || 0),
+    failedLast24h: Number(row.failed_last_24h || 0),
+    requestsLast30m: Number(row.requests_last_30m || 0),
+    successfulLast30m: Number(row.successful_last_30m || 0),
+    failedLast30m: Number(row.failed_last_30m || 0),
+    grossChargePointsLast30m: toPointNumber(row.gross_charge_points_last_30m || 0, 0),
+    refundedPointsLast30m: toPointNumber(row.refunded_points_last_30m || 0, 0),
+    netSpentPointsLast30m: toPointNumber(row.net_spent_points_last_30m || 0, 0),
+    lastChargeAt: fromDbDateTime(row.last_charge_at) || null,
+  });
+
+const sortAdminBillingBuckets = (items, keyName) =>
+  items.sort((left, right) => {
+    if (right.requestsLast24h !== left.requestsLast24h) {
+      return right.requestsLast24h - left.requestsLast24h;
+    }
+    if (right.totalCharges !== left.totalCharges) {
+      return right.totalCharges - left.totalCharges;
+    }
+    return String(left[keyName] || "").localeCompare(String(right[keyName] || ""));
+  });
+
 const getAdminBillingOverview = async ({ recentWindowHours = 24 } = {}) => {
   await ensureBillingSchema();
 
-  const [accounts, chargeEntries, pendingTasks] = await Promise.all([
+  const safeRecentWindowHours = Math.max(
+    1,
+    Number.parseInt(String(recentWindowHours || 24), 10) || 24,
+  );
+  const recentCutoffDb = toDbDateTime(
+    new Date(Date.now() - safeRecentWindowHours * 60 * 60 * 1000),
+  );
+  const recent30mCutoffDb = toDbDateTime(new Date(Date.now() - 30 * 60 * 1000));
+  const metricParams = buildAdminBillingMetricParams(recentCutoffDb, recent30mCutoffDb);
+
+  const jsonMetaExpr = "IF(JSON_VALID(meta_json), meta_json, '{}')";
+  const routeIdExpr = `COALESCE(NULLIF(JSON_UNQUOTE(JSON_EXTRACT(${jsonMetaExpr}, '$.routeId')), ''), 'unknown')`;
+  const lineExpr = `NULLIF(JSON_UNQUOTE(JSON_EXTRACT(${jsonMetaExpr}, '$.line')), '')`;
+  const modelIdExpr = `NULLIF(JSON_UNQUOTE(JSON_EXTRACT(${jsonMetaExpr}, '$.modelId')), '')`;
+  const requestModelExpr = `NULLIF(JSON_UNQUOTE(JSON_EXTRACT(${jsonMetaExpr}, '$.model')), '')`;
+
+  const [
+    accountRows,
+    chargeOverallRows,
+    routeRows,
+    modelRows,
+    pendingOverallRows,
+    pendingRouteRows,
+  ] = await Promise.all([
     query(
       `
-        SELECT points, total_recharged, total_spent
+        SELECT
+          COUNT(*) AS total_accounts,
+          COALESCE(SUM(points), 0) AS total_balance_points,
+          COALESCE(SUM(total_recharged), 0) AS total_recharged_points,
+          COALESCE(SUM(total_spent), 0) AS total_spent_points
         FROM billing_accounts
       `,
     ),
     query(
       `
-        SELECT points, created_at, meta_json, refunded_at
+        SELECT ${ADMIN_BILLING_METRIC_SELECT}
         FROM billing_ledger
         WHERE type = 'charge'
+      `,
+      metricParams,
+    ),
+    query(
+      `
+        SELECT route_id, line, ${ADMIN_BILLING_METRIC_SELECT}
+        FROM (
+          SELECT
+            points,
+            created_at,
+            refunded_at,
+            ${routeIdExpr} AS route_id,
+            ${lineExpr} AS line
+          FROM billing_ledger
+          WHERE type = 'charge'
+        ) charge_meta
+        GROUP BY route_id, line
+      `,
+      metricParams,
+    ),
+    query(
+      `
+        SELECT model_key, model_id, request_model, ${ADMIN_BILLING_METRIC_SELECT}
+        FROM (
+          SELECT
+            points,
+            created_at,
+            refunded_at,
+            ${modelIdExpr} AS model_id,
+            ${requestModelExpr} AS request_model,
+            COALESCE(${modelIdExpr}, ${requestModelExpr}, 'unknown') AS model_key
+          FROM billing_ledger
+          WHERE type = 'charge'
+        ) charge_meta
+        GROUP BY model_key, model_id, request_model
+      `,
+      metricParams,
+    ),
+    query(
+      `
+        SELECT COUNT(*) AS pending_tasks
+        FROM billing_pending_tasks
+        WHERE status = 'PENDING'
+          AND settled_at IS NULL
       `,
     ),
     query(
       `
-        SELECT route_id, status, settled_at
+        SELECT COALESCE(NULLIF(route_id, ''), 'unknown') AS route_id, COUNT(*) AS pending_tasks
         FROM billing_pending_tasks
+        WHERE status = 'PENDING'
+          AND settled_at IS NULL
+        GROUP BY COALESCE(NULLIF(route_id, ''), 'unknown')
       `,
     ),
   ]);
 
-  return buildAdminBillingOverviewFromRows({
-    accounts,
-    chargeEntries,
-    pendingTasks,
-    recentWindowHours,
-  });
+  const accountSummary = accountRows?.[0] || {};
+  const pendingTasks = Number(pendingOverallRows?.[0]?.pending_tasks || 0);
+  const overall = finalizeAdminBillingMetricBucket(
+    adminBillingMetricBucketFromRow(chargeOverallRows?.[0] || {}, {
+      totalAccounts: Number(accountSummary.total_accounts || 0),
+      totalBalancePoints: toPointNumber(accountSummary.total_balance_points || 0, 0),
+      totalRechargedPoints: toPointNumber(accountSummary.total_recharged_points || 0, 0),
+      totalSpentPoints: toPointNumber(accountSummary.total_spent_points || 0, 0),
+      pendingTasks,
+    }),
+  );
+
+  const routeBuckets = new Map();
+  for (const row of routeRows || []) {
+    const routeId = String(row.route_id || "").trim() || "unknown";
+    routeBuckets.set(
+      routeId,
+      adminBillingMetricBucketFromRow(row, {
+        routeId,
+        line: String(row.line || "").trim() || null,
+      }),
+    );
+  }
+  for (const row of pendingRouteRows || []) {
+    const routeId = String(row.route_id || "").trim() || "unknown";
+    const bucket = routeBuckets.get(routeId) || createMetricBucket({ routeId });
+    bucket.pendingTasks = Number(row.pending_tasks || 0);
+    routeBuckets.set(routeId, bucket);
+  }
+
+  const modelStats = (modelRows || []).map((row) =>
+    finalizeAdminBillingMetricBucket(
+      adminBillingMetricBucketFromRow(row, {
+        modelKey: String(row.model_key || "").trim() || "unknown",
+        modelId: String(row.model_id || "").trim() || null,
+        requestModel: String(row.request_model || "").trim() || null,
+      }),
+    ),
+  );
+
+  return {
+    recentWindowHours: safeRecentWindowHours,
+    overall,
+    routeStats: sortAdminBillingBuckets(
+      Array.from(routeBuckets.values()).map((bucket) =>
+        finalizeAdminBillingMetricBucket(bucket),
+      ),
+      "routeId",
+    ),
+    modelStats: sortAdminBillingBuckets(modelStats, "modelKey"),
+  };
 };
 
 const listPendingTasks = async ({

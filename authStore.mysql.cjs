@@ -32,6 +32,10 @@ const EMAIL_CODE_LENGTH = 6;
 const EMAIL_CODE_TTL_MS = 10 * 60 * 1000;
 const EMAIL_CODE_COOLDOWN_MS = 60 * 1000;
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+const SESSION_TOUCH_INTERVAL_MS = Math.max(
+  30 * 1000,
+  Number.parseInt(String(process.env.AUTH_SESSION_TOUCH_INTERVAL_MS || "60000"), 10) || 60000,
+);
 const AUTH_EMAIL_CODE_PURPOSES = new Set(["login", "password_reset"]);
 
 class AuthError extends Error {
@@ -170,6 +174,15 @@ const ensureAuthSchema = async () => {
           }
         }
       };
+      const ensureIndex = async (statement) => {
+        try {
+          await pool.execute(statement);
+        } catch (error) {
+          if (error?.code !== "ER_DUP_KEYNAME") {
+            throw error;
+          }
+        }
+      };
       await pool.execute(`
         CREATE TABLE IF NOT EXISTS auth_users (
           user_id VARCHAR(32) PRIMARY KEY,
@@ -218,6 +231,12 @@ const ensureAuthSchema = async () => {
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
       `);
       await ensureColumn("ALTER TABLE auth_email_codes ADD COLUMN purpose VARCHAR(32) NOT NULL DEFAULT 'login'");
+      await ensureIndex(
+        "ALTER TABLE auth_sessions ADD INDEX idx_auth_sessions_exp_seen_user (expires_at, last_seen_at, user_id)",
+      );
+      await ensureIndex(
+        "ALTER TABLE auth_email_codes ADD INDEX idx_auth_email_codes_expires_at (expires_at)",
+      );
 
       await withTransaction(async (connection) => {
         const [rows] = await connection.execute(
@@ -448,6 +467,23 @@ const upsertRoleForEmailPromotion = async (connection, row) => {
     };
   }
   return row;
+};
+
+const applyRolePromotionIfNeeded = async (row) => {
+  const nextRole = resolveStoredRole(row);
+  const currentRole = normalizeRole(row.role, "user");
+  if (nextRole === currentRole) return row;
+
+  const nowDb = toDbDateTime();
+  await execute(
+    "UPDATE auth_users SET role = ?, updated_at = ? WHERE user_id = ? AND role = ?",
+    [nextRole, nowDb, row.user_id, currentRole],
+  );
+  return {
+    ...row,
+    role: nextRole,
+    updated_at: nowDb,
+  };
 };
 
 const verifyEmailCode = async (email, code, { purpose = "login" } = {}) => {
@@ -724,62 +760,57 @@ const getSessionUserFromRequest = async (req) => {
     return null;
   }
 
-  return withTransaction(async (connection) => {
-    await cleanupExpiredAuthArtifacts(connection);
-    const [rows] = await connection.execute(
-      `
-        SELECT
-          s.token,
-          s.user_id,
-          s.created_at AS session_created_at,
-          s.last_seen_at,
-          s.expires_at,
-          u.user_id,
-          u.email,
-          u.display_name,
-          u.password_hash,
-          u.role,
-          u.status,
-          u.created_at,
-          u.updated_at,
-          u.last_login_at
-        FROM auth_sessions s
-        INNER JOIN auth_users u ON u.user_id = s.user_id
-        WHERE s.token = ?
-        LIMIT 1
-        FOR UPDATE
-      `,
-      [token],
-    );
-    const row = rows[0];
-    if (!row) return null;
-    if (new Date(fromDbDateTime(row.expires_at)).getTime() <= Date.now()) {
-      await connection.execute("DELETE FROM auth_sessions WHERE token = ?", [token]);
-      return null;
-    }
-    if (normalizeStatus(row.status, "active") !== "active") {
-      await connection.execute("DELETE FROM auth_sessions WHERE token = ?", [token]);
-      return null;
-    }
+  const rows = await query(
+    `
+      SELECT
+        s.token,
+        s.user_id,
+        s.created_at AS session_created_at,
+        s.last_seen_at,
+        s.expires_at,
+        u.user_id,
+        u.email,
+        u.display_name,
+        u.password_hash,
+        u.role,
+        u.status,
+        u.created_at,
+        u.updated_at,
+        u.last_login_at
+      FROM auth_sessions s
+      INNER JOIN auth_users u ON u.user_id = s.user_id
+      WHERE s.token = ?
+      LIMIT 1
+    `,
+    [token],
+  );
+  const row = rows[0];
+  if (!row) return null;
 
-    const promotedRow = await upsertRoleForEmailPromotion(connection, row);
-    const now = new Date();
-    const lastSeenAt = toDbDateTime(now);
-    const expiresAt = toDbDateTime(new Date(now.getTime() + SESSION_TTL_MS));
-    await connection.execute(
+  const nowMs = Date.now();
+  const expiresAt = fromDbDateTime(row.expires_at);
+  const expiresAtMs = expiresAt ? Date.parse(expiresAt) : NaN;
+  if (!Number.isFinite(expiresAtMs) || expiresAtMs <= nowMs) {
+    await execute("DELETE FROM auth_sessions WHERE token = ?", [token]);
+    return null;
+  }
+  if (normalizeStatus(row.status, "active") !== "active") {
+    await execute("DELETE FROM auth_sessions WHERE token = ?", [token]);
+    return null;
+  }
+
+  const promotedRow = await applyRolePromotionIfNeeded(row);
+  const lastSeenAt = fromDbDateTime(row.last_seen_at);
+  const lastSeenAtMs = lastSeenAt ? Date.parse(lastSeenAt) : 0;
+  if (!Number.isFinite(lastSeenAtMs) || nowMs - lastSeenAtMs >= SESSION_TOUCH_INTERVAL_MS) {
+    const now = new Date(nowMs);
+    await execute(
       "UPDATE auth_sessions SET last_seen_at = ?, expires_at = ? WHERE token = ?",
-      [lastSeenAt, expiresAt, token],
+      [toDbDateTime(now), toDbDateTime(new Date(now.getTime() + SESSION_TTL_MS)), token],
     );
-    await connection.execute("UPDATE auth_users SET updated_at = ? WHERE user_id = ?", [
-      lastSeenAt,
-      row.user_id,
-    ]);
+  }
 
-    return toPublicUser({
-      ...promotedRow,
-      updated_at: lastSeenAt,
-    });
-  });
+  return toPublicUser(promotedRow);
 };
 
 const requireAuthUser = async (req) => {
@@ -1051,7 +1082,6 @@ const getAdminAuthOverview = async ({
   recentWindowDays = 7,
 } = {}) => {
   await ensureAuthSchema();
-  await cleanupExpiredAuthArtifacts();
 
   const safeOnlineWindowMinutes = Math.max(
     1,
@@ -1062,89 +1092,52 @@ const getAdminAuthOverview = async ({
     Number.parseInt(String(recentWindowDays || 7), 10) || 7,
   );
 
-  const [users, sessions] = await Promise.all([
+  const now = new Date();
+  const onlineCutoff = new Date(now.getTime() - safeOnlineWindowMinutes * 60 * 1000);
+  const recentUsersCutoff = new Date(now.getTime() - safeRecentWindowDays * 24 * 60 * 60 * 1000);
+
+  const [userRows, sessionRows] = await Promise.all([
     query(
       `
-        SELECT user_id, role, status, created_at
+        SELECT
+          COUNT(*) AS total_users,
+          SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END) AS active_users,
+          SUM(CASE WHEN status = 'disabled' THEN 1 ELSE 0 END) AS disabled_users,
+          SUM(CASE WHEN role IN ('admin', 'super_admin') THEN 1 ELSE 0 END) AS admin_users,
+          SUM(CASE WHEN role = 'super_admin' THEN 1 ELSE 0 END) AS super_admin_users,
+          SUM(CASE WHEN created_at >= ? THEN 1 ELSE 0 END) AS recent_users,
+          MAX(created_at) AS latest_user_created_at
         FROM auth_users
       `,
+      [toDbDateTime(recentUsersCutoff)],
     ),
     query(
       `
-        SELECT user_id, last_seen_at, expires_at
+        SELECT
+          COUNT(*) AS total_sessions,
+          SUM(CASE WHEN last_seen_at >= ? THEN 1 ELSE 0 END) AS active_sessions,
+          COUNT(DISTINCT CASE WHEN last_seen_at >= ? THEN user_id ELSE NULL END) AS online_users
         FROM auth_sessions
+        WHERE expires_at > ?
       `,
+      [toDbDateTime(onlineCutoff), toDbDateTime(onlineCutoff), toDbDateTime(now)],
     ),
   ]);
 
-  const nowMs = Date.now();
-  const onlineCutoffMs = nowMs - safeOnlineWindowMinutes * 60 * 1000;
-  const recentUsersCutoffMs = nowMs - safeRecentWindowDays * 24 * 60 * 60 * 1000;
-
-  let totalUsers = 0;
-  let activeUsers = 0;
-  let disabledUsers = 0;
-  let adminUsers = 0;
-  let superAdminUsers = 0;
-  let recentUsers = 0;
-  let latestUserCreatedAt = null;
-
-  for (const row of users || []) {
-    totalUsers += 1;
-    const role = normalizeRole(row.role, "user");
-    const status = normalizeStatus(row.status, "active");
-    const createdAt = fromDbDateTime(row.created_at);
-    const createdAtMs = createdAt ? Date.parse(createdAt) : NaN;
-
-    if (status === "active") activeUsers += 1;
-    if (status === "disabled") disabledUsers += 1;
-    if (hasAdminRole(role)) adminUsers += 1;
-    if (hasSuperAdminRole(role)) superAdminUsers += 1;
-    if (Number.isFinite(createdAtMs) && createdAtMs >= recentUsersCutoffMs) {
-      recentUsers += 1;
-    }
-    if (
-      createdAt &&
-      (!latestUserCreatedAt || Date.parse(createdAt) > Date.parse(latestUserCreatedAt))
-    ) {
-      latestUserCreatedAt = createdAt;
-    }
-  }
-
-  let totalSessions = 0;
-  let activeSessions = 0;
-  const onlineUserIds = new Set();
-
-  for (const row of sessions || []) {
-    const expiresAt = fromDbDateTime(row.expires_at);
-    const expiresAtMs = expiresAt ? Date.parse(expiresAt) : NaN;
-    if (!Number.isFinite(expiresAtMs) || expiresAtMs <= nowMs) {
-      continue;
-    }
-
-    totalSessions += 1;
-
-    const lastSeenAt = fromDbDateTime(row.last_seen_at);
-    const lastSeenAtMs = lastSeenAt ? Date.parse(lastSeenAt) : NaN;
-    if (Number.isFinite(lastSeenAtMs) && lastSeenAtMs >= onlineCutoffMs) {
-      activeSessions += 1;
-      if (row.user_id) {
-        onlineUserIds.add(String(row.user_id));
-      }
-    }
-  }
+  const userSummary = userRows?.[0] || {};
+  const sessionSummary = sessionRows?.[0] || {};
 
   return {
-    totalUsers,
-    activeUsers,
-    disabledUsers,
-    adminUsers,
-    superAdminUsers,
-    totalSessions,
-    activeSessions,
-    onlineUsers: onlineUserIds.size,
-    recentUsers,
-    latestUserCreatedAt,
+    totalUsers: Number(userSummary.total_users || 0),
+    activeUsers: Number(userSummary.active_users || 0),
+    disabledUsers: Number(userSummary.disabled_users || 0),
+    adminUsers: Number(userSummary.admin_users || 0),
+    superAdminUsers: Number(userSummary.super_admin_users || 0),
+    totalSessions: Number(sessionSummary.total_sessions || 0),
+    activeSessions: Number(sessionSummary.active_sessions || 0),
+    onlineUsers: Number(sessionSummary.online_users || 0),
+    recentUsers: Number(userSummary.recent_users || 0),
+    latestUserCreatedAt: fromDbDateTime(userSummary.latest_user_created_at),
     onlineWindowMinutes: safeOnlineWindowMinutes,
     recentWindowDays: safeRecentWindowDays,
   };
