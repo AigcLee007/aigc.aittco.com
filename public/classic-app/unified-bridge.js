@@ -62,6 +62,7 @@
   const remotePendingPollRegistry = new Set();
   const activeTaskPollers = new Map();
   const HISTORY_INITIAL_PAGE_SIZE = 15;
+  const HISTORY_MOBILE_PAGE_SIZE = 24;
   const HISTORY_REFRESH_DEBOUNCE_MS = 2000;
   const HISTORY_REFRESH_MIN_INTERVAL_MS = 10000;
   const REMOTE_PENDING_STALE_MS = 30 * 60 * 1000;
@@ -73,6 +74,27 @@
   };
   let historyRefreshTimer = null;
   let lastHistoryRefreshAt = 0;
+
+  const isBridgeMobileViewport = () => {
+    try {
+      return (
+        window.innerWidth <= 768 ||
+        window.matchMedia?.("(max-width: 768px)")?.matches === true ||
+        /iPhone|iPad|iPod|Android|Mobile/i.test(navigator.userAgent || "")
+      );
+    } catch (_) {
+      return false;
+    }
+  };
+
+  const getBridgeHistoryPageSize = (incremental = false) =>
+    isBridgeMobileViewport() ? HISTORY_MOBILE_PAGE_SIZE : incremental ? HISTORY_INITIAL_PAGE_SIZE : 100;
+
+  const shouldBridgeCacheHistoryImages = () => {
+    if (isBridgeMobileViewport()) return false;
+    const historyTab = document.getElementById("tab-gallery");
+    return Boolean(historyTab && historyTab.classList.contains("active"));
+  };
 
   const cleanUrl = (url) => String(url || "").replace(/\/$/, "");
   const escapeHtmlText = (value) =>
@@ -2192,7 +2214,8 @@
       return;
     }
 
-    mergedRecords.forEach((record) => {
+    const visibleRecords = mergedRecords.slice(0, getBridgeHistoryPageSize(false));
+    visibleRecords.forEach((record) => {
       const originalUrl = String(record.resultUrls?.[0] || record.previewUrl || "").trim();
       const url = String(record.previewUrl || originalUrl || "").trim();
       if (!originalUrl) return;
@@ -2209,7 +2232,7 @@
       div.dataset.fullUrl = originalUrl;
       div.dataset.displayUrl = url;
       div.innerHTML = `
-        <img src="${url}" loading="lazy" onclick="openLightbox(this.closest('.history-item').dataset.fullUrl || this.src)">
+        <img src="${url}" loading="lazy" decoding="async" onclick="openLightbox(this.closest('.history-item').dataset.fullUrl || this.src)">
         ${time ? `<div class="history-time-tag">${time}</div>` : ""}
         <div class="history-cache-badge syncing">缓存中</div>
         ${promptTooltip}
@@ -2227,7 +2250,7 @@
         setHistoryCacheBadge(div, "cloud");
       }
 
-      if (typeof getCachedHistoryImage === "function") {
+      if (typeof getCachedHistoryImage === "function" && shouldBridgeCacheHistoryImages()) {
         getCachedHistoryImage(recordId).then((blob) => {
           if (!blob) {
             if (typeof cacheHistoryImage === "function") {
@@ -2352,7 +2375,7 @@
           mediaType: "image",
           status: "success",
           page: 1,
-          pageSize: incremental ? HISTORY_INITIAL_PAGE_SIZE : 100,
+          pageSize: getBridgeHistoryPageSize(incremental),
           sinceCreatedAt: incremental ? remoteHistoryCursor.sinceCreatedAt : "",
           sinceId: incremental ? remoteHistoryCursor.sinceId : "",
         });

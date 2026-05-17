@@ -134,7 +134,7 @@ const HISTORY_CACHE_STORE = "images";
 const HISTORY_RECORD_STORE = "records";
 const HISTORY_META_STORE = "meta";
 const HISTORY_DB_VERSION = 2;
-const HISTORY_MAX_RECORDS = 200;
+const HISTORY_MAX_RECORDS = isClassicMobileViewport() ? 60 : 200;
 const HISTORY_MIGRATION_KEY = "localStorageMigrationV1";
 
 function openHistoryCacheDB() {
@@ -262,12 +262,43 @@ function getHistoryDisplayUrl(item) {
 }
 
 const CLASSIC_LIVE_TASKS_KEY = "nb_classic_live_tasks_v1";
-const CLASSIC_LIVE_MAX_TASKS = 30;
+const CLASSIC_LIVE_MAX_TASKS = isClassicMobileViewport() ? 8 : 30;
 const CLASSIC_LIVE_TTL_MS = 72 * 60 * 60 * 1000;
 const CLASSIC_LIVE_STALE_RUNNING_MS = 30 * 60 * 1000;
 let classicLiveTasks = [];
 let classicLiveSelectedId = "";
 let classicLiveResizeTimer = null;
+
+function isClassicMobileViewport() {
+  try {
+    return (
+      window.innerWidth <= 768 ||
+      window.matchMedia?.("(max-width: 768px)")?.matches === true ||
+      /iPhone|iPad|iPod|Android|Mobile/i.test(navigator.userAgent || "")
+    );
+  } catch (_) {
+    return false;
+  }
+}
+
+function isClassicHistoryTabActive() {
+  const historyTab = document.getElementById("tab-gallery");
+  return Boolean(historyTab && historyTab.classList.contains("active"));
+}
+
+function shouldAutoCacheHistoryImages() {
+  return !isClassicMobileViewport() && isClassicHistoryTabActive();
+}
+
+function getClassicHistoryRenderLimit() {
+  return isClassicMobileViewport() ? 30 : HISTORY_MAX_RECORDS;
+}
+
+function getClassicImageDisplayUrl(fullUrl = "", previewUrl = "") {
+  const preview = String(previewUrl || "").trim();
+  if (preview) return preview;
+  return getClassicLine4ThumbUrl(fullUrl) || String(fullUrl || "").trim();
+}
 
 function makeClassicLiveId() {
   return `live_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
@@ -639,7 +670,8 @@ function renderClassicLiveTasks() {
       const isSuccess = status === "success" && fullUrl;
       const isFailed = status === "failed";
       if (isSuccess) {
-        return `<img src="${escapeHtml(fullUrl)}" alt="生成结果" loading="lazy" referrerpolicy="no-referrer">`;
+        const displayUrl = getClassicImageDisplayUrl(fullUrl, getClassicLivePreviewUrl(task));
+        return `<img src="${escapeHtml(displayUrl)}" alt="生成结果" loading="lazy" decoding="async" referrerpolicy="no-referrer">`;
       }
       if (isFailed) {
         return `<div class="classic-live-error">${escapeHtml(task.errorMessage || "生成失败，请重试")}</div>`;
@@ -790,7 +822,7 @@ function renderClassicLiveTasks() {
           <div class="classic-live-thumb-media">
             ${
               thumbSrc
-                ? `<img src="${escapeHtml(thumbSrc)}" alt="生成结果缩略图" loading="lazy" referrerpolicy="no-referrer">`
+                ? `<img src="${escapeHtml(thumbSrc)}" alt="生成结果缩略图" loading="lazy" decoding="async" referrerpolicy="no-referrer">`
                 : `<div class="classic-live-thumb-pending">${escapeHtml(getClassicLiveStatusLabel(status))}</div>`
             }
           </div>
@@ -837,7 +869,8 @@ function renderClassicLiveTasks() {
 
     let mediaHtml = "";
     if (isSuccess) {
-      mediaHtml = `<img src="${escapeHtml(fullUrl)}" alt="生成结果" loading="lazy" referrerpolicy="no-referrer">`;
+      const displayUrl = getClassicImageDisplayUrl(fullUrl, previewUrl);
+      mediaHtml = `<img src="${escapeHtml(displayUrl)}" alt="生成结果" loading="lazy" decoding="async" referrerpolicy="no-referrer">`;
     } else if (isFailed) {
       mediaHtml = `<div class="classic-live-error">${escapeHtml(task.errorMessage || "生成失败，请重试")}</div>`;
     } else {
@@ -4179,6 +4212,7 @@ function appendImageToGrid(url, size, targetWrapper = null, options = {}) {
   const img = document.createElement("img");
   img.src = url;
   img.loading = "lazy";
+  img.decoding = "async";
   img.referrerPolicy = "no-referrer";
 
   img.onload = () => {
@@ -4351,9 +4385,15 @@ function saveToHistory(url, promptText = "", previewUrl = "") {
       if (!newRecord) return;
       const deduped = history.filter((item) => getHistoryFullUrl(item) !== fullUrl);
       await writeHistoryRecordsToDB([newRecord, ...deduped]);
-      await loadHistory();
-      const ok = await cacheHistoryImage(newRecord.id, fullUrl);
-      if (ok) await loadHistory();
+      if (isClassicHistoryTabActive()) {
+        await loadHistory({ incremental: true, force: false });
+      }
+      if (shouldAutoCacheHistoryImages()) {
+        const ok = await cacheHistoryImage(newRecord.id, fullUrl);
+        if (ok && isClassicHistoryTabActive()) {
+          await loadHistory({ incremental: true, force: false });
+        }
+      }
     } catch (e) {
       console.warn("saveToHistory failed:", e);
     }
@@ -4446,7 +4486,7 @@ async function loadHistory() {
     return;
   }
 
-  history.forEach((item) => {
+  history.slice(0, getClassicHistoryRenderLimit()).forEach((item) => {
     const url = getHistoryDisplayUrl(item);
     const fullUrl = getHistoryFullUrl(item) || url;
     const recordId = typeof item === "object" ? item.id : "";
@@ -4464,7 +4504,7 @@ async function loadHistory() {
     div.dataset.displayUrl = url;
 
     div.innerHTML = `
-            <img src="${url}" loading="lazy" onclick="openLightbox(this.closest('.history-item').dataset.fullUrl || this.src)">
+            <img src="${url}" loading="lazy" decoding="async" onclick="openLightbox(this.closest('.history-item').dataset.fullUrl || this.src)">
             <!-- Timestamp Display -->
             ${time ? `<div class="history-time-tag">${time}</div>` : ""}
             <div class="history-cache-badge syncing">缓存中</div>
@@ -4485,6 +4525,7 @@ async function loadHistory() {
       getCachedHistoryImage(recordId).then((blob) => {
         if (!blob) {
           setHistoryCacheBadge(div, "cloud");
+          if (!shouldAutoCacheHistoryImages()) return;
           cacheHistoryImage(recordId, fullUrl).then(async (ok) => {
             if (!ok) return;
             const cachedBlob = await getCachedHistoryImage(recordId);
