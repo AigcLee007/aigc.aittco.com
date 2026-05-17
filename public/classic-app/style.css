@@ -4369,11 +4369,111 @@ html.classic-vip-mode .classic-live-empty {
 
 @media (max-width: 480px) {
   .params-row {
-    grid-template-columns: 1fr !important;
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
   }
 
   .brand-title {
     font-size: 1.35rem !important;
+  }
+}
+
+@media (max-width: 768px) {
+  .right-column {
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    align-items: start !important;
+    gap: 10px !important;
+  }
+
+  .model-selector-module,
+  .line-selector-module,
+  .grok-ref-mode-module {
+    grid-column: 1 / -1 !important;
+  }
+
+  .model-selector-module,
+  .line-selector-module {
+    border-radius: 16px !important;
+    padding: 12px !important;
+  }
+
+  .model-selector-module .module-header,
+  .line-selector-module .module-header {
+    margin-bottom: 2px !important;
+    font-size: 13px !important;
+  }
+
+  .model-selector-module .pill-trigger,
+  .line-selector-module .pill-trigger {
+    min-height: 44px !important;
+    border-radius: 22px !important;
+    padding: 9px 13px !important;
+    font-size: 15px !important;
+  }
+
+  .model-selector-module .trigger-label,
+  .line-selector-module .trigger-label {
+    min-width: 0 !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    white-space: nowrap !important;
+  }
+
+  .params-row {
+    grid-column: 1 / -1 !important;
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+    gap: 8px !important;
+  }
+
+  .params-row > .tech-module {
+    min-width: 0 !important;
+    min-height: 72px !important;
+    border-radius: 16px !important;
+    padding: 10px !important;
+    justify-content: center !important;
+  }
+
+  .params-row > .tech-module .pill-trigger {
+    min-height: 38px !important;
+    justify-content: center !important;
+    gap: 8px !important;
+    padding: 7px 9px !important;
+    border-radius: 18px !important;
+    font-size: 13px !important;
+  }
+
+  .params-row > .tech-module .trigger-label {
+    min-width: 0 !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    white-space: nowrap !important;
+  }
+
+  .current-price-card {
+    display: none !important;
+  }
+
+  .gpt-settings-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+
+  .gpt-settings-row[style*="display: none"] {
+    display: none !important;
+  }
+}
+
+@media (max-width: 380px) {
+  .params-row {
+    gap: 6px !important;
+  }
+
+  .params-row > .tech-module {
+    padding: 8px !important;
+  }
+
+  .params-row > .tech-module .pill-trigger {
+    font-size: 12px !important;
+    padding: 6px 7px !important;
   }
 }
 

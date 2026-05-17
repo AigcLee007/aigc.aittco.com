@@ -1,11 +1,9 @@
-import { useEffect, useMemo, useRef } from 'react';
 import { useQueries } from '@tanstack/react-query';
+import { useEffect, useMemo, useRef } from 'react';
 import { checkTaskStatus, checkVideoTaskStatus, findAllUrlsInObject } from '../services/api';
 import { useToast } from '../context/ToastContext';
 import { useCanvasStore } from '../store/canvasStore';
-import {
-  extractErrorMessage,
-} from '../utils/errorDebug';
+import { extractErrorMessage } from '../utils/errorDebug';
 
 export const useGlobalPolling = (
   apiKey: string | undefined,
@@ -141,8 +139,7 @@ export const useGlobalPolling = (
 
         if (data.isFailed && !processedState.failed) {
           processedTasksRef.current.set(processedKey, { ...processedState, failed: true });
-          const rawDetails = data.raw?.details || data.raw?.error || data.raw?.message || data.raw;
-          const nextError = extractErrorMessage(rawDetails) || '任务失败，未返回错误详情';
+          const nextError = extractErrorMessage(data.raw) || '任务失败，未返回错误详情';
           onUpdateGeneration(node.id, null, nextError);
           toastError(nextError);
         }

@@ -199,26 +199,35 @@ export const generateImageApi = async (
   }
 
   const resJson = await response.json();
-
-  if (resJson.url || resJson.image_url) {
-    return { taskId: '', url: resJson.url || resJson.image_url };
-  }
-
-  if (Array.isArray(resJson.images) && resJson.images.length > 0) {
-    return { taskId: '', images: resJson.images, ...resJson };
-  }
-
   const normalizedStatus = String(resJson?.status || resJson?.state || '').trim().toLowerCase();
+  if (['failed', 'failure', 'error', 'cancelled', 'canceled'].includes(normalizedStatus)) {
+    throw new AppError(extractErrorMessage(resJson) || '图片生成失败，未返回错误详情');
+  }
+
+  const directImageUrl = [resJson.url, resJson.image_url].find((value) =>
+    isUsableResultUrl(value),
+  );
+  if (directImageUrl) {
+    return { taskId: '', url: directImageUrl };
+  }
+
+  const directImages = Array.isArray(resJson.images)
+    ? resJson.images.filter((value: unknown) => isUsableResultUrl(value))
+    : [];
+  if (directImages.length > 0) {
+    return { ...resJson, taskId: '', images: directImages };
+  }
+
   const directResultUrls = extractGenerateResultUrls(resJson);
   const isImmediateSuccess =
     ['succeeded', 'success', 'completed'].includes(normalizedStatus) &&
     directResultUrls.length > 0;
   if (isImmediateSuccess) {
     return {
+      ...resJson,
       taskId: '',
       url: directResultUrls[0],
       images: directResultUrls,
-      ...resJson,
     };
   }
 
@@ -248,25 +257,35 @@ export const editImageApi = async (
   }
 
   const resJson = await response.json();
-  if (resJson.url || resJson.image_url) {
-    return { taskId: '', url: resJson.url || resJson.image_url, ...resJson };
-  }
-
-  if (Array.isArray(resJson.images) && resJson.images.length > 0) {
-    return { taskId: '', images: resJson.images, ...resJson };
-  }
-
   const normalizedStatus = String(resJson?.status || resJson?.state || '').trim().toLowerCase();
+  if (['failed', 'failure', 'error', 'cancelled', 'canceled'].includes(normalizedStatus)) {
+    throw new AppError(extractErrorMessage(resJson) || '图片编辑失败，未返回错误详情');
+  }
+
+  const directImageUrl = [resJson.url, resJson.image_url].find((value) =>
+    isUsableResultUrl(value),
+  );
+  if (directImageUrl) {
+    return { ...resJson, taskId: '', url: directImageUrl };
+  }
+
+  const directImages = Array.isArray(resJson.images)
+    ? resJson.images.filter((value: unknown) => isUsableResultUrl(value))
+    : [];
+  if (directImages.length > 0) {
+    return { ...resJson, taskId: '', images: directImages };
+  }
+
   const directResultUrls = extractGenerateResultUrls(resJson);
   const isImmediateSuccess =
     ['succeeded', 'success', 'completed'].includes(normalizedStatus) &&
     directResultUrls.length > 0;
   if (isImmediateSuccess) {
     return {
+      ...resJson,
       taskId: '',
       url: directResultUrls[0],
       images: directResultUrls,
-      ...resJson,
     };
   }
 

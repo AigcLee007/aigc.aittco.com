@@ -1276,8 +1276,16 @@ function parseAspectRatio(ratioText) {
   return { w, h, text: `${w}:${h}` };
 }
 
-function isClassicGptImageModel(modelId = imageModel) {
-  return String(modelId || "").trim() === "gpt-image-2";
+function getClassicSelectedModelId(fallback = imageModel) {
+  return String(
+    document.getElementById("modelPill")?.getAttribute("data-selected-value") ||
+      fallback ||
+      "",
+  ).trim();
+}
+
+function isClassicGptImageModel(modelId = null) {
+  return getClassicSelectedModelId(modelId || imageModel) === "gpt-image-2";
 }
 
 function getCurrentRefImageLimit(modelId = imageModel) {

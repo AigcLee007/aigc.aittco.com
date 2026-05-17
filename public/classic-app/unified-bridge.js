@@ -1217,7 +1217,7 @@
     const route = getCurrentRoute();
     const options = getRouteSizeOptions(model, route);
     const currentValue = getCurrentSelectedSize();
-    const shouldShow = model?.showSizeSelector !== false && options.length > 1;
+    const shouldShow = model?.showSizeSelector !== false && options.length > 0;
 
     module.style.display = shouldShow ? "" : "none";
     menu.innerHTML = options
@@ -2063,8 +2063,12 @@
   };
   const extractImmediateImageUrls = (payload) => {
     const directUrls = [];
+    const isUsableImageUrl = (value) => {
+      const text = String(value || "").trim();
+      return /^https?:\/\//i.test(text) || /^data:image\//i.test(text) || text.startsWith("/");
+    };
     const pushUrl = (value) => {
-      if (typeof value === "string" && value.trim()) {
+      if (typeof value === "string" && isUsableImageUrl(value)) {
         directUrls.push(value.trim());
       }
     };
