@@ -365,18 +365,6 @@ const ensureImageRouteSchema = async () => {
           ],
         );
       }
-      await pool.execute(
-        `
-          UPDATE image_routes
-          SET is_active = 0,
-              is_default_route = 0,
-              updated_at = ?
-          WHERE model_family = 'gpt-image-2'
-            AND route_id NOT IN ('gpt-image-2-default', 'gpt-image-2-line2')
-        `,
-        [nowDb],
-      );
-
       await withTransaction(async (connection) => {
         const [countRows] = await connection.execute(
           "SELECT COUNT(*) AS total FROM image_routes",

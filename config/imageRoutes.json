@@ -1,13 +1,13 @@
 {
-  "defaultRouteId": "openai-image-default",
-  "defaultNanoBananaLine": "line1",
+  "defaultRouteId": "",
+  "defaultNanoBananaLine": "",
   "routes": [
     {
-      "id": "nano-banana-pro-line1",
-      "label": "Line 1",
-      "description": "BLTCY async image generation",
+      "id": "nano-banana-pro",
+      "label": "线路一",
+      "description": "",
       "modelFamily": "nano-banana",
-      "line": "line1",
+      "line": "线路一",
       "transport": "openai-image",
       "mode": "async",
       "baseUrl": "https://api.bltcy.ai",
@@ -15,90 +15,111 @@
       "taskPath": "/v1/images/tasks/{taskId}",
       "editPath": "/v1/images/edits?async=true",
       "upstreamModel": "nano-banana-pro",
-      "allowUserApiKeyWithoutLogin": true,
       "apiKeyEnv": "IMAGE_ROUTE_NANO_BANANA_PRO_LINE1_KEY",
-      "pointCost": 10
+      "pointCost": 12,
+      "sortOrder": 0
     },
     {
-      "id": "nano-banana-pro-line2",
-      "label": "Line 2",
-      "description": "AITTCO Gemini sync image generation",
+      "id": "nano-banana-pro-线路二",
+      "label": "线路二",
+      "description": "",
       "modelFamily": "nano-banana",
-      "line": "line2",
-      "transport": "gemini-native",
-      "mode": "sync",
-      "baseUrl": "https://api.aittco.com",
-      "generatePath": "/v1beta/models/{model}:generateContent",
-      "upstreamModel": "gemini-3-pro-image-preview",
-      "apiKeyEnv": "IMAGE_ROUTE_NANO_BANANA_PRO_LINE2_KEY",
-      "pointCost": 18
-    },
-    {
-      "id": "nano-banana-pro-line3",
-      "label": "Line 3",
-      "description": "02Studio Gemini sync image generation",
-      "modelFamily": "nano-banana",
-      "line": "line3",
-      "transport": "gemini-native",
-      "mode": "sync",
-      "baseUrl": "https://api.02studio.net",
-      "generatePath": "/v1beta/models/{model}:generateContent",
-      "upstreamModel": "gemini-3.0-pro-image",
-      "apiKeyEnv": "IMAGE_ROUTE_NANO_BANANA_PRO_LINE3_KEY",
-      "pointCost": 20
-    },
-    {
-      "id": "nano-banana-pro-line4",
-      "label": "Line 4",
-      "description": "Visionary openai-image sync generation",
-      "modelFamily": "nano-banana",
-      "line": "line4",
-      "transport": "openai-image",
-      "mode": "sync",
-      "baseUrl": "https://visionary.beer",
-      "generatePath": "/openapi/v1/images/generations",
-      "upstreamModel": "Nano_Banana_Pro",
-      "useRequestModel": false,
-      "allowUserApiKeyWithoutLogin": false,
-      "apiKeyEnv": "IMAGE_ROUTE_VISIONARY_NANO_BANANA_PRO_LINE4_KEY",
-      "pointCost": 5,
-      "sizeOverrides": {
-        "1k": {
-          "upstreamModel": "Nano_Banana_Pro",
-          "pointCost": 4
-        },
-        "2k": {
-          "upstreamModel": "Nano_Banana_Pro",
-          "pointCost": 4.5
-        },
-        "4k": {
-          "upstreamModel": "Nano_Banana_Pro",
-          "pointCost": 5
-        }
-      },
-      "sortOrder": 40
-    },
-    {
-      "id": "openai-image-default",
-      "label": "Default Route",
-      "description": "Default async image generation route",
-      "modelFamily": "default",
-      "line": "default",
+      "line": "线路二",
       "transport": "openai-image",
       "mode": "async",
       "baseUrl": "https://api.bltcy.ai",
       "generatePath": "/v1/images/generations?async=true",
       "taskPath": "/v1/images/tasks/{taskId}",
       "editPath": "/v1/images/edits?async=true",
-      "useRequestModel": true,
-      "allowUserApiKeyWithoutLogin": true,
-      "apiKeyEnv": "IMAGE_ROUTE_DEFAULT_KEY",
-      "pointCost": 12
+      "upstreamModel": "gemini-3.1-flash-image-preview",
+      "apiKeyEnv": "IMAGE_ROUTE_NANO_BANANA_PRO_LINE1_KEY",
+      "pointCost": 5,
+      "sortOrder": 1
+    },
+    {
+      "id": "nano-banana-pro-line3",
+      "label": "线路三",
+      "description": "",
+      "modelFamily": "nano-banana",
+      "line": "line3",
+      "transport": "gemini-native",
+      "mode": "async",
+      "baseUrl": "https://api.pixellelabs.com",
+      "generatePath": "/v1beta/models/{model}:generateContent",
+      "upstreamModel": "gemini-3-pro-image-preview",
+      "apiKeyEnv": "IMAGE_ROUTE_NANO_BANANA_PRO_LINE3_KEY",
+      "pointCost": 4,
+      "sortOrder": 2
+    },
+    {
+      "id": "nano-banana-pro-line4",
+      "label": "线路四",
+      "description": "",
+      "modelFamily": "nano-banana",
+      "line": "线路四",
+      "transport": "openai-image",
+      "mode": "sync",
+      "baseUrl": "https://visionary.beer",
+      "generatePath": "/openapi/v1/images/generations",
+      "taskPath": "/v1/images/tasks/{taskId}",
+      "editPath": "/v1/images/edits?async=true",
+      "upstreamModel": "Nano_Banana_Pro",
+      "apiKeyEnv": "IMAGE_ROUTE_VISIONARY_NANO_BANANA_PRO_LINE4_KEY",
+      "pointCost": 5,
+      "sortOrder": 3
+    },
+    {
+      "id": "nano-banana-2-线路一",
+      "label": "线路一",
+      "description": "",
+      "modelFamily": "nano-banana-2",
+      "line": "线路一",
+      "transport": "openai-image",
+      "mode": "async",
+      "baseUrl": "https://api.bltcy.ai",
+      "generatePath": "/v1/images/generations?async=true",
+      "taskPath": "/v1/images/tasks/{taskId}",
+      "editPath": "/v1/images/edits?async=true",
+      "upstreamModel": "gemini-3.1-flash-image-preview",
+      "apiKeyEnv": "IMAGE_ROUTE_NANO_BANANA_PRO_LINE1_KEY",
+      "pointCost": 5,
+      "sortOrder": 0
+    },
+    {
+      "id": "nano-banana-2-线路二",
+      "label": "线路二",
+      "description": "",
+      "modelFamily": "nano-banana-2",
+      "line": "线路二",
+      "transport": "gemini-native",
+      "mode": "sync",
+      "baseUrl": "https://api.02studio.net",
+      "generatePath": "/v1beta/models/{model}:generateContent",
+      "upstreamModel": "gemini-3.1-flash-image",
+      "apiKeyEnv": "IMAGE_ROUTE_NANO_BANANA_PRO_LINE3_KEY",
+      "pointCost": 5,
+      "isActive": false,
+      "sortOrder": 1
+    },
+    {
+      "id": "nano-banana-2-线路三",
+      "label": "线路三",
+      "description": "",
+      "modelFamily": "nano-banana-2",
+      "line": "线路三",
+      "transport": "openai-image",
+      "mode": "sync",
+      "baseUrl": "https://visionary.beer",
+      "generatePath": "/openapi/v1/images/generations",
+      "upstreamModel": "Nano_Banana_2",
+      "apiKeyEnv": "IMAGE_ROUTE_VISIONARY_NANO_BANANA_PRO_LINE4_KEY",
+      "pointCost": 5,
+      "sortOrder": 2
     },
     {
       "id": "gpt-image-2-default",
       "label": "Line 1",
-      "description": "GPT-image-2 BLTCY async image generation route",
+      "description": "",
       "modelFamily": "gpt-image-2",
       "line": "line1",
       "transport": "openai-image",
@@ -107,53 +128,41 @@
       "generatePath": "/v1/images/generations?async=true",
       "taskPath": "/v1/images/tasks/{taskId}",
       "editPath": "/v1/images/edits?async=true",
-      "useRequestModel": true,
-      "allowUserApiKeyWithoutLogin": true,
       "apiKeyEnv": "IMAGE_ROUTE_GPT_IMAGE_2_KEY",
       "pointCost": 1,
-      "sizeOverrides": {
-        "1k": {
-          "upstreamModel": "gpt-image-2-all",
-          "pointCost": 1
-        },
-        "2k": {
-          "upstreamModel": "gpt-image-2",
-          "pointCost": 2
-        },
-        "4k": {
-          "upstreamModel": "gpt-image-2",
-          "pointCost": 4
-        }
-      },
-      "sortOrder": 100
+      "sortOrder": 0
     },
     {
       "id": "gpt-image-2-line2",
       "label": "Line 2",
-      "description": "GPT-image-2 PixelleLabs sync image generation route",
+      "description": "",
       "modelFamily": "gpt-image-2",
       "line": "line2",
       "transport": "openai-image",
       "mode": "sync",
       "baseUrl": "https://api.pixellelabs.com",
       "generatePath": "/v1/images/generations",
-      "taskPath": "",
       "editPath": "/v1/images/edits",
-      "useRequestModel": true,
-      "allowUserApiKeyWithoutLogin": true,
       "apiKeyEnv": "IMAGE_ROUTE_GPT_IMAGE_2_LINE2_KEY",
       "pointCost": 3,
-      "sizeOverrides": {
-        "2k": {
-          "upstreamModel": "gpt-image-2",
-          "pointCost": 3
-        },
-        "4k": {
-          "upstreamModel": "gpt-image-2",
-          "pointCost": 4
-        }
-      },
-      "sortOrder": 110
+      "sortOrder": 1
+    },
+    {
+      "id": "gpt-image-2",
+      "label": "线路一",
+      "description": "",
+      "modelFamily": "gpt-image-2",
+      "line": "线路一",
+      "transport": "openai-image",
+      "mode": "async",
+      "baseUrl": "https://api.bltcy.ai",
+      "generatePath": "/v1/images/generations?async=true",
+      "taskPath": "/v1/images/tasks/{taskId}",
+      "editPath": "/v1/images/edits?async=true",
+      "apiKeyEnv": "IMAGE_ROUTE_GPT_IMAGE_2_KEY",
+      "pointCost": 1,
+      "isActive": false,
+      "sortOrder": 2
     }
   ]
 }

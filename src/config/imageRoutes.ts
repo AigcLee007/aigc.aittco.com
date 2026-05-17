@@ -139,15 +139,7 @@ const normalizeCatalog = (
           return left.label.localeCompare(right.label);
         })
     : [];
-  const gptImage2CanonicalIds = new Set(['gpt-image-2-default', 'gpt-image-2-line2']);
-  const hasCanonicalGptImage2Routes = normalizedRoutes.some((route) =>
-    gptImage2CanonicalIds.has(route.id),
-  );
-  const routes = hasCanonicalGptImage2Routes
-    ? normalizedRoutes.filter(
-        (route) => route.modelFamily !== 'gpt-image-2' || gptImage2CanonicalIds.has(route.id),
-      )
-    : normalizedRoutes;
+  const routes = normalizedRoutes;
 
   const defaultRouteId =
     String(input?.defaultRouteId || '').trim() ||
