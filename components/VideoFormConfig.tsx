@@ -13,6 +13,8 @@ import {
   getVideoModelDisplayCost,
   getVideoModelDurationOptions,
   getVideoModelOptions,
+  getVideoModelPointCostPerSecond,
+  getVideoModelPricingMode,
   getVideoModelSupportsHd,
 } from '../src/config/videoModels';
 import {
@@ -111,9 +113,15 @@ export const VideoFormConfig: React.FC<VideoFormConfigProps> = ({
   const modelOptions = visibleVideoModels.map((model) => ({
     value: model.id,
     label: model.label,
-    cost: getVideoModelDisplayCost(model.id),
+    cost: getVideoModelDisplayCost(
+      model.id,
+      model.id === currentModel.id ? videoDuration : model.defaultDuration,
+    ),
     icon: model.id.startsWith('grok') ? <Sparkles size={14} /> : <GoogleLogo />,
   }));
+  const isPerSecondPricing = getVideoModelPricingMode(currentModel.id) === 'per_second';
+  const pointCostPerSecond = getVideoModelPointCostPerSecond(currentModel.id);
+  const estimatedCost = getVideoModelDisplayCost(currentModel.id, videoDuration);
 
   if (visibleVideoModels.length === 0) {
     return (
@@ -176,6 +184,11 @@ export const VideoFormConfig: React.FC<VideoFormConfigProps> = ({
       <div>
         <div className="mb-1 flex items-center justify-between">
           <label className="block text-[10px] text-gray-500">视频模型</label>
+          <span className="text-[10px] font-medium text-yellow-300">
+            {isPerSecondPricing
+              ? `${pointCostPerSecond} 金币/s · 预计 ${estimatedCost} 金币`
+              : `预计 ${estimatedCost} 金币`}
+          </span>
           {supportsHd && (
             <label className="flex cursor-pointer items-center gap-1.5">
               <input

@@ -502,6 +502,20 @@ const getRoutePointCost = (route, quantity = 1, requestBody = {}) => {
   const pointCost = toPointNumber(sizeOverride?.pointCost ?? route?.pointCost ?? 0);
   return toPointNumber(Math.max(0, pointCost) * Math.max(1, Number(quantity || 1)), 0);
 };
+const getVideoDurationSeconds = (requestBody = {}, model = null) => {
+  const parsed = Number.parseFloat(String(requestBody.duration || model?.defaultDuration || 0));
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+};
+const getVideoPointCost = (route, model = null, requestBody = {}) => {
+  if (model?.pricingMode === "per_second") {
+    const durationSeconds = getVideoDurationSeconds(requestBody, model);
+    const pointCostPerSecond = toPointNumber(model.pointCostPerSecond || 0);
+    if (durationSeconds > 0 && pointCostPerSecond > 0) {
+      return toPointNumber(durationSeconds * pointCostPerSecond, 0);
+    }
+  }
+  return getRoutePointCost(route, 1, requestBody);
+};
 const resolveRequestedImageModel = async (requestBody = {}) => {
   const modelId = String(requestBody?.modelId || "").trim();
   if (modelId) {
@@ -5501,7 +5515,7 @@ app.post("/api/video/generate", generateLimiter, async (req, res) => {
       return sendUserFacingGenerationError(res, 400, new Error("视频线路不存在或已停用，请联系管理员"));
     }
 
-    const pointCost = getRoutePointCost(route, 1, requestBody);
+    const pointCost = getVideoPointCost(route, requestedVideoModel, requestBody);
     billingAccount = await requireBillingAccount(req);
     chargeRouteId = route.id;
 
@@ -5524,6 +5538,9 @@ app.post("/api/video/generate", generateLimiter, async (req, res) => {
       mode: route.mode,
       model: requestBody.model,
       modelId: requestedVideoModel?.id || null,
+      duration: requestBody.duration || null,
+      pricingMode: requestedVideoModel?.pricingMode || "fixed",
+      pointCostPerSecond: requestedVideoModel?.pointCostPerSecond || null,
     });
 
     // Detailed File Logging
@@ -5597,6 +5614,8 @@ app.post("/api/video/generate", generateLimiter, async (req, res) => {
         transport: route.transport,
         routeMode: route.mode,
         duration: requestBody.duration || null,
+        pricingMode: requestedVideoModel?.pricingMode || "fixed",
+        pointCostPerSecond: requestedVideoModel?.pointCostPerSecond || null,
       },
     });
 

@@ -50,6 +50,8 @@ const normalizeStaticModel = (model, index) => ({
   route_family: trimToString(model.routeFamily || model.modelFamily || "default"),
   request_model: trimToNull(model.requestModel),
   selector_cost: parseDecimal(model.selectorCost, 0),
+  pricing_mode: trimToString(model.pricingMode || "fixed") === "per_second" ? "per_second" : "fixed",
+  point_cost_per_second: parseDecimal(model.pointCostPerSecond, 0),
   max_reference_images: Math.max(0, parseInteger(model.maxReferenceImages, 1)),
   reference_labels_json: encodeJson(model.referenceLabels || []),
   default_aspect_ratio: trimToString(model.defaultAspectRatio || "16:9"),
@@ -78,6 +80,8 @@ const mapRowToModel = (row) => ({
   routeFamily: trimToString(row.route_family || row.model_family || "default"),
   requestModel: trimToString(row.request_model || ""),
   selectorCost: parseDecimal(row.selector_cost, 0),
+  pricingMode: trimToString(row.pricing_mode || "fixed") === "per_second" ? "per_second" : "fixed",
+  pointCostPerSecond: parseDecimal(row.point_cost_per_second, 0),
   maxReferenceImages: Math.max(0, parseInteger(row.max_reference_images, 1)),
   referenceLabels: parseJsonArray(row.reference_labels_json),
   defaultAspectRatio: trimToString(row.default_aspect_ratio || "16:9"),
@@ -130,6 +134,8 @@ const ensureVideoModelSchema = async () => {
           route_family VARCHAR(64) NOT NULL,
           request_model VARCHAR(160) NULL,
           selector_cost DECIMAL(10,1) NOT NULL DEFAULT 0,
+          pricing_mode VARCHAR(24) NOT NULL DEFAULT 'fixed',
+          point_cost_per_second DECIMAL(10,1) NOT NULL DEFAULT 0,
           max_reference_images INT NOT NULL DEFAULT 1,
           reference_labels_json LONGTEXT NOT NULL,
           default_aspect_ratio VARCHAR(16) NOT NULL DEFAULT '16:9',
@@ -157,24 +163,44 @@ const ensureVideoModelSchema = async () => {
           MODIFY COLUMN selector_cost DECIMAL(10,1) NOT NULL DEFAULT 0
         `);
       }
+      const ensureColumn = async (statement) => {
+        try {
+          await pool.execute(statement);
+        } catch (error) {
+          if (error?.code !== "ER_DUP_FIELDNAME") {
+            throw error;
+          }
+        }
+      };
+      await ensureColumn("ALTER TABLE video_models ADD COLUMN pricing_mode VARCHAR(24) NOT NULL DEFAULT 'fixed' AFTER selector_cost");
+      await ensureColumn("ALTER TABLE video_models ADD COLUMN point_cost_per_second DECIMAL(10,1) NOT NULL DEFAULT 0 AFTER pricing_mode");
 
       await withTransaction(async (connection) => {
         const nowDb = toDbDateTime();
         for (const row of buildStaticRows()) {
           await connection.execute(
             `INSERT IGNORE INTO video_models (
-              model_id,label,description,model_family,route_family,request_model,selector_cost,
+              model_id,label,description,model_family,route_family,request_model,selector_cost,pricing_mode,point_cost_per_second,
               max_reference_images,reference_labels_json,default_aspect_ratio,aspect_ratio_options_json,
               default_duration,duration_options_json,supports_hd,default_hd,is_active,is_default_model,
               sort_order,created_at,updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
               row.model_id, row.label, row.description, row.model_family, row.route_family, row.request_model,
-              row.selector_cost, row.max_reference_images, row.reference_labels_json, row.default_aspect_ratio,
+              row.selector_cost, row.pricing_mode, row.point_cost_per_second,
+              row.max_reference_images, row.reference_labels_json, row.default_aspect_ratio,
               row.aspect_ratio_options_json, row.default_duration, row.duration_options_json, row.supports_hd ? 1 : 0,
               row.default_hd ? 1 : 0, row.is_active ? 1 : 0, row.is_default_model ? 1 : 0, row.sort_order, nowDb, nowDb,
             ],
           );
+          if (row.pricing_mode === "per_second") {
+            await connection.execute(
+              `UPDATE video_models
+               SET selector_cost = ?, pricing_mode = ?, point_cost_per_second = ?, updated_at = ?
+               WHERE model_id = ?`,
+              [row.selector_cost, row.pricing_mode, row.point_cost_per_second, nowDb, row.model_id],
+            );
+          }
         }
 
         const inactiveStaticModelIds = buildStaticRows()
@@ -269,6 +295,12 @@ const validateModelPayload = (input = {}, { partial = false } = {}) => {
   if (!partial || Object.prototype.hasOwnProperty.call(input, "routeFamily")) next.route_family = trimToString(input.routeFamily || "default") || "default";
   if (!partial || Object.prototype.hasOwnProperty.call(input, "requestModel")) next.request_model = trimToNull(input.requestModel);
   if (!partial || Object.prototype.hasOwnProperty.call(input, "selectorCost")) next.selector_cost = Math.max(0, parseDecimal(input.selectorCost, 0));
+  if (!partial || Object.prototype.hasOwnProperty.call(input, "pricingMode")) {
+    next.pricing_mode = trimToString(input.pricingMode || "fixed") === "per_second" ? "per_second" : "fixed";
+  }
+  if (!partial || Object.prototype.hasOwnProperty.call(input, "pointCostPerSecond")) {
+    next.point_cost_per_second = Math.max(0, parseDecimal(input.pointCostPerSecond, 0));
+  }
   if (!partial || Object.prototype.hasOwnProperty.call(input, "maxReferenceImages")) next.max_reference_images = Math.max(0, parseInteger(input.maxReferenceImages, 1));
   if (!partial || Object.prototype.hasOwnProperty.call(input, "referenceLabels")) next.reference_labels_json = JSON.stringify(normalizeStringArray(input.referenceLabels));
   if (!partial || Object.prototype.hasOwnProperty.call(input, "defaultAspectRatio")) next.default_aspect_ratio = trimToString(input.defaultAspectRatio || "16:9") || "16:9";
@@ -306,13 +338,14 @@ const createManagedVideoModel = async (input = {}) => {
     if (payload.is_default_model) await connection.execute("UPDATE video_models SET is_default_model = 0");
     await connection.execute(
       `INSERT INTO video_models (
-        model_id,label,description,model_family,route_family,request_model,selector_cost,max_reference_images,
+        model_id,label,description,model_family,route_family,request_model,selector_cost,pricing_mode,point_cost_per_second,max_reference_images,
         reference_labels_json,default_aspect_ratio,aspect_ratio_options_json,default_duration,duration_options_json,
         supports_hd,default_hd,is_active,is_default_model,sort_order,created_at,updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         payload.model_id, payload.label, payload.description || null, payload.model_family, payload.route_family || "default",
-        payload.request_model || null, payload.selector_cost || 0, payload.max_reference_images ?? 1,
+        payload.request_model || null, payload.selector_cost || 0, payload.pricing_mode || "fixed", payload.point_cost_per_second || 0,
+        payload.max_reference_images ?? 1,
         payload.reference_labels_json || JSON.stringify([]), payload.default_aspect_ratio || "16:9",
         payload.aspect_ratio_options_json || JSON.stringify(["16:9", "9:16"]), payload.default_duration || "4",
         payload.duration_options_json || JSON.stringify(["4", "6", "8"]), payload.supports_hd ?? 0, payload.default_hd ?? 0,

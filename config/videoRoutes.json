@@ -85,7 +85,7 @@
       "upstreamModel": "sora2",
       "allowUserApiKeyWithoutLogin": false,
       "apiKeyEnv": "VEDIO_ROUTE_pixellelabs_KEY",
-      "pointCost": 5,
+      "pointCost": 8,
       "sortOrder": 12,
       "isDefaultRoute": true
     },
@@ -103,7 +103,7 @@
       "upstreamModel": "sora-v3-pro",
       "allowUserApiKeyWithoutLogin": false,
       "apiKeyEnv": "VEDIO_ROUTE_pixellelabs_KEY",
-      "pointCost": 5,
+      "pointCost": 50,
       "sortOrder": 13,
       "isDefaultRoute": true
     },
@@ -121,7 +121,7 @@
       "upstreamModel": "sora-v3-fast",
       "allowUserApiKeyWithoutLogin": false,
       "apiKeyEnv": "VEDIO_ROUTE_pixellelabs_KEY",
-      "pointCost": 5,
+      "pointCost": 35,
       "sortOrder": 14,
       "isDefaultRoute": true
     },
@@ -139,7 +139,7 @@
       "upstreamModel": "veo31-fast",
       "allowUserApiKeyWithoutLogin": false,
       "apiKeyEnv": "VEDIO_ROUTE_pixellelabs_KEY",
-      "pointCost": 5,
+      "pointCost": 6,
       "sortOrder": 15,
       "isDefaultRoute": true
     },

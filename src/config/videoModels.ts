@@ -9,6 +9,8 @@ export interface VideoModelConfig {
   routeFamily: string;
   requestModel?: string;
   selectorCost?: number;
+  pricingMode?: 'fixed' | 'per_second';
+  pointCostPerSecond?: number;
   maxReferenceImages?: number;
   referenceLabels?: string[];
   defaultAspectRatio?: string;
@@ -62,6 +64,8 @@ const normalizeModel = (model: Partial<VideoModelConfig> = {}): VideoModelConfig
   routeFamily: String(model.routeFamily || model.modelFamily || 'default').trim(),
   requestModel: String(model.requestModel || '').trim(),
   selectorCost: roundNonNegativePoint(model.selectorCost || 0, 0),
+  pricingMode: model.pricingMode === 'per_second' ? 'per_second' : 'fixed',
+  pointCostPerSecond: roundNonNegativePoint(model.pointCostPerSecond || 0, 0),
   maxReferenceImages: Math.max(0, Number(model.maxReferenceImages || 1)),
   referenceLabels: normalizeStringArray(model.referenceLabels || []),
   defaultAspectRatio: String(model.defaultAspectRatio || '16:9').trim(),
@@ -102,7 +106,8 @@ const normalizeCatalog = (input: Partial<VideoModelCatalogShape> | null | undefi
   };
 };
 
-let catalogState = normalizeCatalog(videoModelCatalog as VideoModelCatalogShape);
+const staticCatalogState = normalizeCatalog(videoModelCatalog as VideoModelCatalogShape);
+let catalogState = staticCatalogState;
 let pendingLoad: Promise<VideoModelCatalogShape> | null = null;
 const listeners = new Set<() => void>();
 
@@ -111,7 +116,8 @@ const emitCatalogChange = () => {
 };
 
 const setCatalogState = (nextCatalog: Partial<VideoModelCatalogShape>) => {
-  catalogState = normalizeCatalog(nextCatalog);
+  const normalized = normalizeCatalog(nextCatalog);
+  catalogState = normalized.models.length > 0 ? normalized : staticCatalogState;
   emitCatalogChange();
   return catalogState;
 };
@@ -160,7 +166,9 @@ export const getVideoModelById = (modelId?: string): VideoModelConfig => {
   return (
     VIDEO_MODELS().find((model) => model.id === normalized) ||
     VIDEO_MODELS().find((model) => model.id === DEFAULT_VIDEO_MODEL_ID()) ||
-    VIDEO_MODELS()[0]
+    VIDEO_MODELS()[0] ||
+    staticCatalogState.models[0] ||
+    normalizeModel({ id: 'veo3.1-fast', label: 'Veo 3.1 Fast', modelFamily: 'veo31', routeFamily: 'veo31' })
   );
 };
 
@@ -176,8 +184,17 @@ export const getVideoModelMaxReferenceImages = (modelId?: string) =>
 export const getVideoModelReferenceLabels = (modelId?: string) => getVideoModelById(modelId).referenceLabels || [];
 export const getVideoModelSupportsHd = (modelId?: string) => getVideoModelById(modelId).supportsHd === true;
 export const getVideoModelDefaultHd = (modelId?: string) => getVideoModelById(modelId).defaultHd === true;
-export const getVideoModelDisplayCost = (modelId?: string) =>
-  roundNonNegativePoint(getVideoModelById(modelId).selectorCost || 0, 0);
+export const getVideoModelPricingMode = (modelId?: string) => getVideoModelById(modelId).pricingMode || 'fixed';
+export const getVideoModelPointCostPerSecond = (modelId?: string) =>
+  roundNonNegativePoint(getVideoModelById(modelId).pointCostPerSecond || 0, 0);
+export const getVideoModelDisplayCost = (modelId?: string, duration?: string | number) => {
+  const model = getVideoModelById(modelId);
+  const durationSeconds = Number.parseFloat(String(duration || model.defaultDuration || '0'));
+  if (model.pricingMode === 'per_second' && Number.isFinite(durationSeconds) && durationSeconds > 0) {
+    return roundNonNegativePoint((model.pointCostPerSecond || 0) * durationSeconds, 0);
+  }
+  return roundNonNegativePoint(model.selectorCost || 0, 0);
+};
 export const getVideoModelRequestName = (modelId?: string) => {
   const model = getVideoModelById(modelId);
   return model.requestModel || model.id;

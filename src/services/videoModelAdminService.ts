@@ -31,6 +31,8 @@ export interface AdminVideoModelPayload {
   routeFamily: string;
   requestModel?: string;
   selectorCost?: number;
+  pricingMode?: 'fixed' | 'per_second';
+  pointCostPerSecond?: number;
   maxReferenceImages?: number;
   referenceLabels?: string[];
   defaultAspectRatio?: string;

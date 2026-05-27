@@ -1646,12 +1646,12 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
     setPromptOptions([]);
   };
 
-  const getImageModelTitle = () => selectedImageModelConfig.label || 'Image Model';
+  const getImageModelTitle = () => selectedImageModelConfig?.label || 'Image Model';
 
   const getImageTitleIcon = () => (
-    <ImageModelIcon
-      iconKind={selectedImageModelConfig.iconKind}
-      line={selectedImageRoute.line}
+      <ImageModelIcon
+      iconKind={selectedImageModelConfig?.iconKind}
+      line={selectedImageRoute?.line}
       variant="title"
     />
   );
@@ -1669,7 +1669,7 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
   );
 
   const videoPanelTitle = hasUnlockedVideoGenerationAccess
-    ? selectedVideoModelConfig.label || 'AIGC Video'
+    ? selectedVideoModelConfig?.label || 'AIGC Video'
     : 'AI VIDEO';
   const videoTitleText = (
     <span className="bg-linear-to-r from-blue-300 via-purple-300 to-indigo-300 bg-clip-text text-transparent italic">

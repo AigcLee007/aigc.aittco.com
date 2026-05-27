@@ -116,7 +116,8 @@ const normalizeCatalog = (
   };
 };
 
-let catalogState = normalizeCatalog(imageModelCatalog as ImageModelCatalogShape);
+const staticCatalogState = normalizeCatalog(imageModelCatalog as ImageModelCatalogShape);
+let catalogState = staticCatalogState;
 let pendingLoad: Promise<ImageModelCatalogShape> | null = null;
 const listeners = new Set<() => void>();
 
@@ -125,7 +126,8 @@ const emitCatalogChange = () => {
 };
 
 const setCatalogState = (nextCatalog: Partial<ImageModelCatalogShape>) => {
-  catalogState = normalizeCatalog(nextCatalog);
+  const normalized = normalizeCatalog(nextCatalog);
+  catalogState = normalized.models.length > 0 ? normalized : staticCatalogState;
   emitCatalogChange();
   return catalogState;
 };
@@ -181,7 +183,9 @@ export const getImageModelById = (modelId?: string): ImageModelConfig => {
   return (
     IMAGE_MODELS().find((model) => model.id === modelId) ||
     IMAGE_MODELS().find((model) => model.id === DEFAULT_IMAGE_MODEL_ID()) ||
-    IMAGE_MODELS()[0]
+    IMAGE_MODELS()[0] ||
+    staticCatalogState.models[0] ||
+    normalizeModel({ id: 'nano-banana', label: 'Nano Banana Pro', modelFamily: 'nano-banana', routeFamily: 'nano-banana' })
   );
 };
 
