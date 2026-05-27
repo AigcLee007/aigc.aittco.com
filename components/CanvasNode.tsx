@@ -228,37 +228,65 @@ const VideoNode: React.FC<{ node: NodeData; progress: number; statusText: string
   const [isMuted, setIsMuted] = useState(true);
   const updateNode = useCanvasStore((state) => state.updateNode);
 
+  const getCanvasVideoSrc = (src: string) => {
+    if (!src) return '';
+    if (src.startsWith('http')) return `/api/proxy/video?url=${encodeURIComponent(src)}`;
+    return src;
+  };
+
   useEffect(() => {
     if (!node.src || node.type !== 'VIDEO') return;
 
-    if (!videoRef.current) {
-      const vid = document.createElement('video');
-      vid.src = node.src;
-      vid.crossOrigin = 'anonymous';
-      vid.loop = true;
-      vid.muted = true;
+    const vid = document.createElement('video');
+    vid.crossOrigin = 'anonymous';
+    vid.preload = 'auto';
+    vid.playsInline = true;
+    vid.loop = true;
+    vid.muted = true;
+    vid.src = getCanvasVideoSrc(node.src);
+    videoRef.current = vid;
+    setVideoImage(null);
+    setIsPlaying(false);
 
-      vid.onloadedmetadata = () => {
-        const videoWidth = vid.videoWidth;
-        const videoHeight = vid.videoHeight;
-        if (videoWidth && videoHeight) {
-          const newHeight = node.width * (videoHeight / videoWidth);
-          if (Math.abs(newHeight - node.height) > 1) {
-            updateNode(node.id, { height: newHeight });
-          }
+    const drawLayer = () => imageRef.current?.getLayer()?.batchDraw();
+    const handleLoadedMetadata = () => {
+      const videoWidth = vid.videoWidth;
+      const videoHeight = vid.videoHeight;
+      if (videoWidth && videoHeight) {
+        const newHeight = node.width * (videoHeight / videoWidth);
+        if (Math.abs(newHeight - node.height) > 1) {
+          updateNode(node.id, { height: newHeight });
         }
-        vid.currentTime = 0.1;
-      };
-
-      videoRef.current = vid;
+      }
+      try {
+        vid.currentTime = Math.min(0.1, Math.max(0, (vid.duration || 1) - 0.01));
+      } catch {
+        // Some providers do not allow seeking before enough data is buffered.
+      }
+    };
+    const handleFrameReady = () => {
       setVideoImage(vid);
-    } else if (videoRef.current.src !== node.src) {
-      videoRef.current.src = node.src;
-      setIsPlaying(false);
-    }
+      window.requestAnimationFrame(drawLayer);
+    };
+
+    vid.addEventListener('loadedmetadata', handleLoadedMetadata);
+    vid.addEventListener('loadeddata', handleFrameReady);
+    vid.addEventListener('canplay', handleFrameReady);
+    vid.addEventListener('seeked', drawLayer);
+    vid.load();
 
     return () => {
-      if (videoRef.current) videoRef.current.pause();
+      vid.pause();
+      vid.removeAttribute('src');
+      vid.load();
+      vid.removeEventListener('loadedmetadata', handleLoadedMetadata);
+      vid.removeEventListener('loadeddata', handleFrameReady);
+      vid.removeEventListener('canplay', handleFrameReady);
+      vid.removeEventListener('seeked', drawLayer);
+      if (videoRef.current === vid) {
+        videoRef.current = null;
+        setVideoImage(null);
+      }
     };
   }, [node.src, node.width, node.height, node.id, node.type, updateNode]);
 
@@ -296,7 +324,7 @@ const VideoNode: React.FC<{ node: NodeData; progress: number; statusText: string
     return <ErrorPlaceholder width={node.width} height={node.height} message={node.errorMessage || 'Failed'} />;
   }
   if (!videoImage) {
-    return <Rect width={node.width} height={node.height} fill="#000" cornerRadius={30} />;
+    return <DownloadingPlaceholder width={node.width} height={node.height} />;
   }
 
   return (

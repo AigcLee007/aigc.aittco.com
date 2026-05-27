@@ -5057,6 +5057,57 @@ app.get("/api/proxy/image", async (req, res) => {
   }
 });
 
+app.get("/api/proxy/video", async (req, res) => {
+  const videoUrl = req.query.url;
+  if (!videoUrl) return res.status(400).send("Url is required");
+  if (!String(videoUrl).startsWith("http")) {
+    return res.status(400).send("Invalid URL protocol");
+  }
+
+  try {
+    console.log("[Video Proxy] Fetching:", String(videoUrl).substring(0, 100) + "...");
+    const upstream = await axios.get(videoUrl, {
+      responseType: "stream",
+      timeout: 60000,
+      httpsAgent: SHARED_HTTPS_AGENT,
+      validateStatus: (status) => status >= 200 && status < 500,
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+        ...(req.headers.range ? { Range: req.headers.range } : {}),
+      },
+    });
+
+    if (upstream.status >= 400) {
+      return res.status(upstream.status).send(`Failed to proxy video: upstream ${upstream.status}`);
+    }
+
+    res.status(upstream.status === 206 ? 206 : 200);
+    res.setHeader("Content-Type", upstream.headers["content-type"] || "video/mp4");
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Accept-Ranges", upstream.headers["accept-ranges"] || "bytes");
+    if (upstream.headers["content-length"]) {
+      res.setHeader("Content-Length", upstream.headers["content-length"]);
+    }
+    if (upstream.headers["content-range"]) {
+      res.setHeader("Content-Range", upstream.headers["content-range"]);
+    }
+    upstream.data.on("error", (error) => {
+      console.error("[Video Proxy] Stream Error:", error.message);
+      if (!res.headersSent) res.status(500);
+      res.end();
+    });
+    upstream.data.pipe(res);
+  } catch (error) {
+    console.error("[Video Proxy] Error:", error.message);
+    if (!res.headersSent) {
+      res.status(500).send("Failed to proxy video: " + error.message);
+    } else {
+      res.end();
+    }
+  }
+});
+
 const isTaskSuccessStatus = (status = "") =>
   ["SUCCESS", "SUCCEEDED", "COMPLETED"].includes(String(status || "").trim().toUpperCase());
 const isTaskFailureStatus = (status = "") =>
