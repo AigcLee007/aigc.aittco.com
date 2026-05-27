@@ -188,9 +188,10 @@ export const getVideoRouteOptions = (
   const modelConfig = getVideoModelById(videoModel);
   const routeFamily = String(modelConfig?.routeFamily || '').trim();
   if (!routeFamily) return [];
-  const familyRoutes = getVideoRoutesByRouteFamily(routeFamily).filter((route) =>
-    directKeyOnly ? route.allowUserApiKeyWithoutLogin === true : true,
-  );
+  const familyRoutes = getVideoRoutesByRouteFamily(routeFamily).filter((route) => {
+    if (route.isActive === false) return false;
+    return directKeyOnly ? route.allowUserApiKeyWithoutLogin === true : true;
+  });
   if (familyRoutes.length <= 1) return [];
   return familyRoutes.map((route) => ({
     value: route.line,

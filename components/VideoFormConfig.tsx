@@ -50,9 +50,10 @@ export const VideoFormConfig: React.FC<VideoFormConfigProps> = ({
 
   const visibleVideoModels = useMemo(
     () =>
-      getVideoModelOptions().filter((model) =>
-        restrictToDirectKeyCompatible ? canUseDirectUserApiKeyForVideoModel(model.id) : true,
-      ),
+      getVideoModelOptions().filter((model) => {
+        if (model.isActive === false) return false;
+        return restrictToDirectKeyCompatible ? canUseDirectUserApiKeyForVideoModel(model.id) : true;
+      }),
     [restrictToDirectKeyCompatible],
   );
 
@@ -63,9 +64,10 @@ export const VideoFormConfig: React.FC<VideoFormConfigProps> = ({
 
   const availableRoutes = useMemo(
     () =>
-      getVideoRoutesByRouteFamily(currentModel.routeFamily).filter((route) =>
-        restrictToDirectKeyCompatible ? route.allowUserApiKeyWithoutLogin === true : true,
-      ),
+      getVideoRoutesByRouteFamily(currentModel.routeFamily).filter((route) => {
+        if (route.isActive === false) return false;
+        return restrictToDirectKeyCompatible ? route.allowUserApiKeyWithoutLogin === true : true;
+      }),
     [currentModel.routeFamily, restrictToDirectKeyCompatible],
   );
 
