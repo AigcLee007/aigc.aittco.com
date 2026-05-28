@@ -4,6 +4,7 @@ import JSZip from 'jszip';
 import { saveAs } from 'file-saver';
 import { checkBalance } from '../services/geminiService';
 import { useHistoryStore } from '../src/store/historyStore';
+import { useCanvasStore } from '../src/store/canvasStore';
 import { useSelectionStore } from '../src/store/selectionStore';
 import wechatQR from '../src/assets/wechat_qr.png';
 import GlassModal from './GlassModal';
@@ -327,8 +328,11 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [isConfirmingClear, setIsConfirmingClear] = useState(false);
   const [isCleaningLocalCache, setIsCleaningLocalCache] = useState(false);
+  const [isResettingLocalWorkspace, setIsResettingLocalWorkspace] = useState(false);
+  const [isConfirmingWorkspaceReset, setIsConfirmingWorkspaceReset] = useState(false);
   const [localCacheMessage, setLocalCacheMessage] = useState<string | null>(null);
   const { logs = [], clearLogs } = useHistoryStore();
+  const { setNodes, resetCanvasView } = useCanvasStore();
   const safeLogs = Array.isArray(logs) ? logs : [];
 
   const [authSession, setAuthSession] = useState<AuthSessionPayload | null>(null);
@@ -514,6 +518,30 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
     }
   };
 
+  const handleResetLocalWorkspace = async () => {
+    if (!isConfirmingWorkspaceReset) {
+      setIsConfirmingWorkspaceReset(true);
+      window.setTimeout(() => setIsConfirmingWorkspaceReset(false), 4000);
+      return;
+    }
+
+    setIsResettingLocalWorkspace(true);
+    setLocalCacheMessage(null);
+    try {
+      setNodes([], true);
+      resetCanvasView();
+      clearLogs();
+      const result = await runLocalCacheMaintenance({ force: true });
+      setLocalCacheMessage(`已重置画布和历史记录，并清理 ${result.removed} 个本地素材缓存。`);
+      setIsConfirmingWorkspaceReset(false);
+      setActiveTab('settings');
+    } catch (resetError: any) {
+      setLocalCacheMessage(resetError?.message || '重置本地数据失败');
+    } finally {
+      setIsResettingLocalWorkspace(false);
+    }
+  };
+
   const handleDownloadAll = async () => {
     if (effectiveLogs.length === 0) return;
     setIsDownloadingAll(true);
@@ -687,23 +715,38 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
               </div>
 
               <div className="bg-white/5 border border-white/10 rounded-xl p-3.5">
-                <div className="flex items-center justify-between gap-3">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <div className="min-w-0">
                     <div className="text-sm text-gray-200 font-medium">本地缓存清理</div>
-                    <div className="text-xs text-gray-500 mt-1">清理未被画布、历史记录、参考图使用的浏览器图片缓存。</div>
+                    <div className="text-xs text-gray-500 mt-1">清理浏览器里的素材缓存；如果页面长期变卡，可以重置画布和历史记录。</div>
                     {localCacheMessage && (
                       <div className="mt-2 text-xs text-emerald-300/80">{localCacheMessage}</div>
                     )}
                   </div>
-                  <button
-                    type="button"
-                    onClick={handleCleanLocalCache}
-                    disabled={isCleaningLocalCache}
-                    className="inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/10 px-4 text-xs font-medium text-gray-200 transition-colors hover:bg-white/15 disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    {isCleaningLocalCache ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
-                    清理缓存
-                  </button>
+                  <div className="flex shrink-0 flex-col gap-2 sm:flex-row">
+                    <button
+                      type="button"
+                      onClick={handleCleanLocalCache}
+                      disabled={isCleaningLocalCache || isResettingLocalWorkspace}
+                      className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/10 px-4 text-xs font-medium text-gray-200 transition-colors hover:bg-white/15 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {isCleaningLocalCache ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
+                      清理缓存
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleResetLocalWorkspace}
+                      disabled={isCleaningLocalCache || isResettingLocalWorkspace}
+                      className={`inline-flex h-10 items-center justify-center gap-2 rounded-xl border px-4 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${
+                        isConfirmingWorkspaceReset
+                          ? 'border-red-400/40 bg-red-500/20 text-red-100 hover:bg-red-500/30'
+                          : 'border-amber-400/25 bg-amber-500/10 text-amber-100 hover:bg-amber-500/15'
+                      }`}
+                    >
+                      {isResettingLocalWorkspace ? <Loader2 size={14} className="animate-spin" /> : <RotateCcw size={14} />}
+                      {isConfirmingWorkspaceReset ? '再次点击确认重置' : '重置画布/历史'}
+                    </button>
+                  </div>
                 </div>
               </div>
 
