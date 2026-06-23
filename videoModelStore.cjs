@@ -193,27 +193,6 @@ const ensureVideoModelSchema = async () => {
               row.default_hd ? 1 : 0, row.is_active ? 1 : 0, row.is_default_model ? 1 : 0, row.sort_order, nowDb, nowDb,
             ],
           );
-          if (row.pricing_mode === "per_second") {
-            await connection.execute(
-              `UPDATE video_models
-               SET selector_cost = ?, pricing_mode = ?, point_cost_per_second = ?, updated_at = ?
-               WHERE model_id = ?`,
-              [row.selector_cost, row.pricing_mode, row.point_cost_per_second, nowDb, row.model_id],
-            );
-          }
-        }
-
-        const inactiveStaticModelIds = buildStaticRows()
-          .filter((row) => !row.is_active)
-          .map((row) => row.model_id)
-          .filter(Boolean);
-        if (inactiveStaticModelIds.length > 0) {
-          await connection.execute(
-            `UPDATE video_models
-             SET is_active = 0, updated_at = ?
-             WHERE model_id IN (${inactiveStaticModelIds.map(() => "?").join(", ")})`,
-            [nowDb, ...inactiveStaticModelIds],
-          );
         }
       });
     })();

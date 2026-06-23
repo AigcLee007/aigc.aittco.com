@@ -6106,9 +6106,12 @@ app.post("/api/reverse-prompt", async (req, res) => {
 });
 
 // ==================== Announcement APIs ====================
-const ANNOUNCEMENT_FILE = path.join(__dirname, 'announcement.json');
 const ANNOUNCEMENT_UPLOAD_ROOT = path.join(__dirname, 'uploads');
 const ANNOUNCEMENT_UPLOAD_DIR = path.join(ANNOUNCEMENT_UPLOAD_ROOT, 'announcements');
+const LEGACY_ANNOUNCEMENT_FILE = path.join(__dirname, 'announcement.json');
+const ANNOUNCEMENT_FILE = process.env.ANNOUNCEMENT_FILE_PATH
+  ? path.resolve(process.env.ANNOUNCEMENT_FILE_PATH)
+  : path.join(ANNOUNCEMENT_UPLOAD_ROOT, 'announcement.json');
 const sortAnnouncements = (items = []) =>
   [...items].sort((a, b) => {
     const ap = a?.pinned === true ? 1 : 0;
@@ -6134,7 +6137,22 @@ const normalizeAnnouncement = (item) => {
     images: imageList
   };
 };
+const ensureAnnouncementStorage = () => {
+  try {
+    fs.mkdirSync(path.dirname(ANNOUNCEMENT_FILE), { recursive: true });
+    if (
+      ANNOUNCEMENT_FILE !== LEGACY_ANNOUNCEMENT_FILE &&
+      !fs.existsSync(ANNOUNCEMENT_FILE) &&
+      fs.existsSync(LEGACY_ANNOUNCEMENT_FILE)
+    ) {
+      fs.copyFileSync(LEGACY_ANNOUNCEMENT_FILE, ANNOUNCEMENT_FILE);
+    }
+  } catch (error) {
+    console.warn("[Announcement] Failed to prepare announcement storage", error);
+  }
+};
 const readAnnouncementList = () => {
+  ensureAnnouncementStorage();
   if (!fs.existsSync(ANNOUNCEMENT_FILE)) return [];
   const data = fs.readFileSync(ANNOUNCEMENT_FILE, 'utf8').trim();
   if (!data) return [];
@@ -6158,6 +6176,7 @@ const readAnnouncementList = () => {
     .filter((item) => item.content && String(item.content).trim().length > 0);
 };
 const writeAnnouncementList = (items) => {
+  ensureAnnouncementStorage();
   const normalized = (Array.isArray(items) ? items : [])
     .map(normalizeAnnouncement);
   const sorted = sortAnnouncements(normalized);

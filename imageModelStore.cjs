@@ -199,25 +199,6 @@ const ensureImageModelSchema = async () => {
         `);
       }
 
-      const gptImage2StaticModel = getStaticModelDefaults("gpt-image-2");
-      if (gptImage2StaticModel) {
-        await pool.execute(
-          `
-            UPDATE image_models
-            SET default_size = ?,
-                size_options_json = ?,
-                updated_at = ?
-            WHERE model_id = ?
-          `,
-          [
-            gptImage2StaticModel.default_size,
-            gptImage2StaticModel.size_options_json,
-            toDbDateTime(),
-            gptImage2StaticModel.model_id,
-          ],
-        );
-      }
-
       await withTransaction(async (connection) => {
         const [countRows] = await connection.execute(
           "SELECT COUNT(*) AS total FROM image_models",
