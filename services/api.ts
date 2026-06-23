@@ -135,6 +135,14 @@ const isUsableResultUrl = (value: unknown): value is string => {
   return value.startsWith('http') || value.startsWith('data:') || value.startsWith('/');
 };
 
+export const normalizeImageResultValue = (value: unknown): string | null => {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  if (isUsableResultUrl(trimmed)) return trimmed;
+  return `data:image/png;base64,${trimmed}`;
+};
+
 export function findAllUrlsInObject(obj: any, results: string[] = []) {
   if (!obj) return;
 
@@ -164,7 +172,8 @@ export function findAllUrlsInObject(obj: any, results: string[] = []) {
   ) {
     results.push(obj.image_url);
   } else if (obj.b64_json && typeof obj.b64_json === 'string') {
-    results.push(`data:image/png;base64,${obj.b64_json}`);
+    const normalized = normalizeImageResultValue(obj.b64_json);
+    if (normalized) results.push(normalized);
   }
 
   Object.keys(obj).forEach((key) => {

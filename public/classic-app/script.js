@@ -3583,7 +3583,11 @@ function parseStandardImageUrls(rawJson) {
     }
   }
 
-  let dataList = dataNode?.data;
+  let dataList = Array.isArray(root?.results)
+    ? root.results
+    : Array.isArray(root?.data)
+      ? root.data
+      : dataNode?.data;
   if (typeof dataList === "string") {
     try {
       const parsed = JSON.parse(dataList);
@@ -3600,7 +3604,10 @@ function parseStandardImageUrls(rawJson) {
   }
 
   const rawUrls = dataList
-    .map((item) => (typeof item?.url === "string" ? item.url.trim() : ""))
+    .map((item) => {
+      if (typeof item === "string") return item.trim();
+      return String(item?.url || item?.image_url || item?.imageUrl || item?.output || "").trim();
+    })
     .filter((u) => !!u);
 
   const urls = [];
@@ -4338,7 +4345,12 @@ function findAllUrlsInObject(obj, foundUrls = []) {
   }
   if (typeof obj === "object") {
     if (typeof obj.b64_json === "string" && obj.b64_json.trim()) {
-      foundUrls.push(`data:image/png;base64,${obj.b64_json.trim()}`);
+      const b64Json = obj.b64_json.trim();
+      foundUrls.push(
+        b64Json.startsWith("http") || b64Json.startsWith("data:") || b64Json.startsWith("/")
+          ? b64Json
+          : `data:image/png;base64,${b64Json}`,
+      );
     }
     if (obj.inlineData?.data) {
       foundUrls.push(`data:${obj.inlineData.mimeType || "image/png"};base64,${obj.inlineData.data}`);

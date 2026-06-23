@@ -470,6 +470,13 @@ const ensureDataUriImage = (value) => {
   const mimeType = guessDataUriMimeType(compact);
   return `data:${mimeType};base64,${compact}`;
 };
+const normalizeImageResultValue = (value) => {
+  if (typeof value !== "string") return "";
+  const trimmed = value.trim();
+  if (!trimmed) return "";
+  if (isUsableResultUrl(trimmed)) return trimmed;
+  return `data:image/png;base64,${trimmed}`;
+};
 const applyVisionaryImageCompat = (requestBody = {}) => {
   const normalizeArray = (value) => {
     if (Array.isArray(value)) {
@@ -1059,7 +1066,8 @@ const collectResultUrls = (value, bucket = []) => {
   });
 
   if (typeof value.b64_json === "string" && value.b64_json.trim()) {
-    bucket.push(`data:image/png;base64,${value.b64_json.trim()}`);
+    const normalized = normalizeImageResultValue(value.b64_json);
+    if (normalized) bucket.push(normalized);
   }
 
   Object.keys(value).forEach((key) => {
