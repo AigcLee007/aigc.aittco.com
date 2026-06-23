@@ -161,15 +161,22 @@ const ImageNode: React.FC<{ node: NodeData; progress: number; statusText: string
   statusText,
   onLoad,
 }) => {
-  const [source, setSource] = useState(node.src || '');
+  const getCanvasImageSrc = (src: string) => {
+    if (!src) return '';
+    if (src.startsWith('http')) return `/api/proxy/image?url=${encodeURIComponent(src)}`;
+    return src;
+  };
+
+  const [source, setSource] = useState(getCanvasImageSrc(node.src || ''));
   const [image, status] = useImage(source, 'anonymous');
 
   useEffect(() => {
-    setSource(node.src || '');
+    setSource(getCanvasImageSrc(node.src || ''));
   }, [node.src]);
 
   const fallbackToRaw = () => {
     if (!source.startsWith('/api/proxy/image?url=')) return;
+    if (source.includes('visionary.beer')) return;
     try {
       const url = new URL(source, window.location.origin);
       const raw = url.searchParams.get('url');
