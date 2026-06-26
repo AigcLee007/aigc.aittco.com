@@ -185,12 +185,15 @@ const downloadImage = async (url) => {
   const maxBytes = getMaxBytes();
   const response = await axios.get(url, {
     responseType: "arraybuffer",
-    timeout: Number.parseInt(trim(process.env.GENERATED_ASSET_DOWNLOAD_TIMEOUT_MS || "30000"), 10),
+    timeout: Number.parseInt(trim(process.env.GENERATED_ASSET_DOWNLOAD_TIMEOUT_MS || "120000"), 10),
     maxContentLength: maxBytes,
     maxBodyLength: maxBytes,
     headers: {
       "User-Agent":
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+      Accept: "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+      "Accept-Encoding": "identity",
+      Referer: "https://visionary.beer/",
     },
   });
   const buffer = Buffer.from(response.data);
@@ -300,7 +303,19 @@ const rewritePayload = (value, replacements) => {
   return next;
 };
 
-const shouldPersistRoute = () => false;
+const shouldPersistRoute = (context = {}) => {
+  const routeId = trim(context.routeId);
+  const routeLine = trim(context.routeLine).toLowerCase();
+  const routeBaseUrl = trim(context.routeBaseUrl).toLowerCase();
+  const routeGeneratePath = trim(context.routeGeneratePath).toLowerCase();
+
+  return (
+    routeId === LOCAL_LINE4_ROUTE_ID ||
+    routeLine === "line4" ||
+    routeBaseUrl.includes("visionary.beer") ||
+    routeGeneratePath.includes("/openapi/v1/images/generations")
+  );
+};
 
 const persistGeneratedImageResults = async ({
   payload = null,

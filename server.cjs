@@ -1196,6 +1196,8 @@ const buildGeneratedAssetContext = ({
   taskId: taskId || generationRecord?.taskId || null,
   routeId: route?.id || null,
   routeLine: route?.line || null,
+  routeBaseUrl: route?.baseUrl || null,
+  routeGeneratePath: route?.generatePath || null,
   modelId: modelId || generationRecord?.modelId || null,
   requestId,
 });

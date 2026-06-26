@@ -20,6 +20,7 @@ billing-data.json
 generation-records.json
 announcement.json
 uploads/
+storage/
 .tmp-*.png
 tmp_*.png
 tmp_fix_*.ps1
