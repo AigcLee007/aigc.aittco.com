@@ -3359,6 +3359,16 @@ app.post("/api/generate", generateLimiter, async (req, res) => {
     if (!route) {
       return sendUserFacingGenerationError(res, 400, new Error("图片线路不存在或已停用，请联系管理员"));
     }
+    console.log("[Generate] Request accepted:", {
+      routeId: route.id,
+      transport: route.transport,
+      mode: route.mode,
+      baseUrl: route.baseUrl,
+      generatePath: route.generatePath,
+      hasChatPath: !!String(route.chatPath || "").trim(),
+      modelId: requestedImageModel?.id || null,
+      bodyBytes: Number(req.headers["content-length"] || 0),
+    });
 
     delete requestBody.uiMode;
     delete requestBody.clientLiveTaskId;
@@ -3832,7 +3842,8 @@ app.post("/api/generate", generateLimiter, async (req, res) => {
     });
 
     const chatPath = String(route?.chatPath || "").trim();
-    const shouldUseChatSyncEndpoint = isSyncLine && chatPath.length > 0;
+    const shouldUseChatSyncEndpoint =
+      isSyncLine && chatPath.length > 0 && !shouldRunVisionaryInBackground;
     const upstreamUrl = shouldUseChatSyncEndpoint
       ? buildRouteUrl(route, chatPath, {
           model: requestBody.model,
@@ -3900,7 +3911,7 @@ app.post("/api/generate", generateLimiter, async (req, res) => {
       },
     });
 
-    if (shouldRunVisionaryInBackground && !shouldUseChatSyncEndpoint) {
+    if (shouldRunVisionaryInBackground) {
       console.log("[Generate] Visionary background task mode:", {
         routeId: route.id,
         routeMode: route.mode,
