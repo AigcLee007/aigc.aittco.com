@@ -5,6 +5,7 @@ import { useHistoryStore } from '../store/historyStore'; // If needed for loggin
 import { editImage } from '../../services/geminiService';
 import { arrangeNodes } from '../../src/utils/layout';
 import { getProxiedImageUrl } from '../../src/utils/mediaProxy';
+import { revokeDownloadObjectUrlLater } from '../../src/utils/downloadObjectUrl';
 import { AppStatus } from '../../types';
 import JSZip from 'jszip';
 import { saveAs } from 'file-saver';
@@ -96,7 +97,7 @@ export const useCanvasOperations = () => {
         const filename = (node.prompt ? node.prompt.slice(0, 20).replace(/[^a-z0-9]/gi, '_').trim() : (isVideo ? 'video' : 'image')) + `_${node.id}.${ext}`;
         link.download = filename;
         document.body.appendChild(link); link.click(); document.body.removeChild(link);
-        if (isBlob) URL.revokeObjectURL(href);
+        if (isBlob) revokeDownloadObjectUrlLater(href);
       } catch (err) {
         console.error("Failed to download asset", err);
         const link = document.createElement('a'); link.href = node.src; link.target = "_blank"; 

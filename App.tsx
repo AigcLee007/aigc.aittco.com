@@ -33,6 +33,7 @@ import { useGenerationLogic } from "./src/hooks/useGenerationLogic";
 import { useFileDrop } from "./src/hooks/useFileDrop";
 import { useGlobalPolling } from "./src/hooks/useGlobalPolling";
 import { getProxiedImageUrl } from "./src/utils/mediaProxy";
+import { revokeDownloadObjectUrlLater } from "./src/utils/downloadObjectUrl";
 
 const App: React.FC = () => {
   const currentPath =
@@ -380,7 +381,7 @@ const App: React.FC = () => {
           document.body.appendChild(link);
           link.click();
           document.body.removeChild(link);
-          setTimeout(() => URL.revokeObjectURL(href), 800);
+          revokeDownloadObjectUrlLater(href);
           return;
         }
 

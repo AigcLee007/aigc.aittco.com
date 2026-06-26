@@ -6,6 +6,7 @@ import { assetStorage } from '../services/assetStorage';
 import { arrangeNodes } from '../utils/layout';
 import { getLocalLine4ThumbnailUrl } from '../utils/generatedImageStorage';
 import { getProxiedImageUrl } from '../utils/mediaProxy';
+import { revokeDownloadObjectUrlLater } from '../utils/downloadObjectUrl';
 import { NodeData, ToolMode } from '../../types';
 
 type AutoDownloadItem = {
@@ -69,7 +70,7 @@ const flushAutoDownloadQueue = async () => {
             const ext = inferExt(item.src, blob.type);
             const href = URL.createObjectURL(blob);
             triggerDownload(href, `${seq}_${filenameBase}_${item.id || Date.now()}.${ext}`);
-            setTimeout(() => URL.revokeObjectURL(href), 1000);
+            revokeDownloadObjectUrlLater(href);
         } else {
             triggerDownload(item.src, `${seq}_${filenameBase}_${item.id || Date.now()}.png`);
         }
