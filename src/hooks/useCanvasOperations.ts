@@ -4,6 +4,7 @@ import { useSelectionStore } from '../store/selectionStore';
 import { useHistoryStore } from '../store/historyStore'; // If needed for logging
 import { editImage } from '../../services/geminiService';
 import { arrangeNodes } from '../../src/utils/layout';
+import { getProxiedImageUrl } from '../../src/utils/mediaProxy';
 import { AppStatus } from '../../types';
 import JSZip from 'jszip';
 import { saveAs } from 'file-saver';
@@ -82,8 +83,9 @@ export const useCanvasOperations = () => {
     if (node && node.src) {
       try {
         let href = node.src; let isBlob = false;
-        if (node.src.startsWith('http')) {
-          const response = await fetch(node.src);
+        if (node.src.startsWith('http') || node.src.startsWith('/api/proxy/image?url=')) {
+          const response = await fetch(getProxiedImageUrl(node.src));
+          if (!response.ok) throw new Error(`Download failed with HTTP ${response.status}`);
           const blob = await response.blob();
           href = URL.createObjectURL(blob); isBlob = true;
         }
@@ -150,7 +152,8 @@ export const useCanvasOperations = () => {
       const zip = new JSZip();
       const promises = imageNodes.map(async (node, idx) => {
         try {
-          const response = await fetch(node.src!);
+          const response = await fetch(getProxiedImageUrl(node.src!));
+          if (!response.ok) throw new Error(`Download failed with HTTP ${response.status}`);
           const blob = await response.blob();
           const cleanPrompt = (node.prompt || 'image').slice(0, 30).replace(/[^a-z0-9]/gi, '_').trim();
           const ext = blob.type.split('/')[1] || 'png';

@@ -5035,33 +5035,55 @@ app.get("/api/proxy/image", async (req, res) => {
   if (!imageUrl) return res.status(400).send("Url is required");
 
   // Validate URL to prevent arbitrary proxying if possible, or at least check protocol
-  if (!imageUrl.startsWith('http')) {
+  if (!String(imageUrl).startsWith('http')) {
     return res.status(400).send("Invalid URL protocol");
   }
 
   try {
-    console.log("[Image Proxy] Fetching:", imageUrl.substring(0, 100) + "...");
-    const response = await requestWithRetry(
+    const targetUrl = String(imageUrl);
+    console.log("[Image Proxy] Fetching:", targetUrl.substring(0, 140) + "...");
+    const upstream = await requestWithRetry(
       () =>
-        axios.get(imageUrl, {
-          responseType: 'arraybuffer',
-          timeout: 30000,
+        axios.get(targetUrl, {
+          responseType: "stream",
+          timeout: 120000,
+          maxRedirects: 5,
           httpsAgent: SHARED_HTTPS_AGENT,
+          validateStatus: (status) => status >= 200 && status < 500,
           headers: {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36'
-          }
+            "User-Agent":
+              "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+            Accept: "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+            "Accept-Encoding": "identity",
+            Referer: "https://visionary.beer/",
+          },
         }),
       { retries: 2, delayMs: 400, label: "image-proxy" },
     );
 
-    const contentType = response.headers['content-type'] || 'image/jpeg';
-    res.setHeader('Content-Type', contentType);
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    // Buffer is better for res.send
-    res.send(Buffer.from(response.data));
+    if (upstream.status < 200 || upstream.status >= 300) {
+      console.error("[Image Proxy] Upstream status:", upstream.status, targetUrl.substring(0, 140));
+      return res.status(upstream.status).send(`Failed to proxy image: upstream HTTP ${upstream.status}`);
+    }
+
+    const contentType = upstream.headers["content-type"] || "image/jpeg";
+    res.setHeader("Content-Type", contentType);
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
+    res.setHeader("Cache-Control", "private, max-age=600");
+    if (upstream.headers["content-length"]) {
+      res.setHeader("Content-Length", upstream.headers["content-length"]);
+    }
+    upstream.data.on("error", (streamError) => {
+      console.error("[Image Proxy] Stream error:", streamError.message);
+      if (!res.headersSent) res.status(502).end();
+      else res.destroy(streamError);
+    });
+    upstream.data.pipe(res);
   } catch (error) {
-    console.error("[Image Proxy] Error:", error.message);
-    res.status(500).send("Failed to proxy image: " + error.message);
+    const status = error.response?.status || 500;
+    console.error("[Image Proxy] Error:", error.message, "status=", status);
+    res.status(status >= 400 && status < 600 ? status : 500).send("Failed to proxy image: " + error.message);
   }
 });
 
