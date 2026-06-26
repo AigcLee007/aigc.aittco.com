@@ -3744,6 +3744,7 @@ app.post("/api/generate", generateLimiter, async (req, res) => {
       }
     };
 
+    const shouldRunVisionaryInBackground = isVisionaryImageRoute(route);
     const isSyncLine = requestBody.isSync === true || routeMode === "sync";
     if (isSyncLine) {
       delete requestBody.isSync;
@@ -3872,7 +3873,7 @@ app.post("/api/generate", generateLimiter, async (req, res) => {
       billingCharge = await reservePoints(billingAccount.accountId, pointCost, {
         action: "generate",
         routeId: route.id,
-        mode: isSyncLine ? "sync" : route.mode,
+        mode: shouldRunVisionaryInBackground ? "background" : isSyncLine ? "sync" : route.mode,
         model: requestBody.model,
         modelId: requestedImageModel?.id || null,
       });
@@ -3894,12 +3895,17 @@ app.post("/api/generate", generateLimiter, async (req, res) => {
       status: "PENDING",
       meta: {
         transport: route.transport,
-        routeMode: isSyncLine ? "sync" : route.mode,
+        routeMode: shouldRunVisionaryInBackground ? "background" : isSyncLine ? "sync" : route.mode,
         clientLiveTaskIds,
       },
     });
 
-    if (isVisionaryImageRoute(route) && isSyncLine && !shouldUseChatSyncEndpoint) {
+    if (shouldRunVisionaryInBackground && !shouldUseChatSyncEndpoint) {
+      console.log("[Generate] Visionary background task mode:", {
+        routeId: route.id,
+        routeMode: route.mode,
+        model: requestBody.model,
+      });
       const localJobId = createLocalImageJobId();
       localTaskId = buildImageTaskToken(route.id, localJobId);
       setLocalImageJob(localJobId, {
@@ -4030,7 +4036,7 @@ app.post("/api/generate", generateLimiter, async (req, res) => {
             aspectRatio: requestBody.aspect_ratio || null,
             meta: mergeGeneratedAssetMeta({
               transport: route.transport,
-              routeMode: "sync",
+              routeMode: "background",
               upstreamStatus: settledStatus,
               settled: "visionary_background_job",
             }, persistedResult),
