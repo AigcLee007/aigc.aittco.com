@@ -38,11 +38,6 @@ const extractBase64 = (dataUrl: string) => {
     return dataUrl;
 };
 
-const isUsableResultUrl = (value: unknown): value is string => {
-    if (typeof value !== 'string') return false;
-    return value.startsWith('http') || value.startsWith('data:') || value.startsWith('/');
-};
-
 // Recursive function to find ALL URLs in the object
 function findAllUrlsInObject(obj: any, results: string[] = []) {
     if (!obj) return;
@@ -54,13 +49,13 @@ function findAllUrlsInObject(obj: any, results: string[] = []) {
 
     if (typeof obj !== 'object') return;
 
-    if (obj.output && isUsableResultUrl(obj.output)) {
+    if (obj.output && typeof obj.output === 'string' && (obj.output.startsWith('http') || obj.output.startsWith('data:'))) {
         results.push(obj.output);
     }
-    else if (obj.url && isUsableResultUrl(obj.url)) {
+    else if (obj.url && typeof obj.url === 'string' && (obj.url.startsWith('http') || obj.url.startsWith('data:'))) {
         results.push(obj.url);
     }
-    else if (obj.image_url && isUsableResultUrl(obj.image_url)) {
+    else if (obj.image_url && typeof obj.image_url === 'string' && (obj.image_url.startsWith('http') || obj.image_url.startsWith('data:'))) {
         results.push(obj.image_url);
     }
 

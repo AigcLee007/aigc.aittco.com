@@ -46,7 +46,6 @@ import ImageModelIcon from './ImageModelIcon';
 import {
   extractErrorMessage,
 } from '../src/utils/errorDebug';
-import { getProxiedImageUrl } from '../src/utils/mediaProxy';
 
 // Branding Icons are now in Logos.tsx
 
@@ -538,7 +537,7 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
           if (loadedCount === srcs.length) renderCollage();
         };
         img.onerror = () => { hasError = true; reject(new Error("加载参考图失败")); };
-        img.src = getProxiedImageUrl(src);
+        img.src = src;
         loadedImages.push(img);
       });
       const renderCollage = () => {
@@ -1473,7 +1472,7 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
             }
             // Priority 4: HTTP/HTTPS URL (external images)
             else if (imgRef.src.startsWith('http')) {
-              const response = await fetch(getProxiedImageUrl(imgRef.src));
+              const response = await fetch(imgRef.src);
               if (!response.ok) {
                 throw new Error(`Failed to fetch: ${response.status}`);
               }
