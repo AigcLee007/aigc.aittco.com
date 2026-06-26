@@ -46,6 +46,7 @@ COPY billingStore.mysql.cjs ./
 COPY billingReportUtils.cjs ./
 COPY pointMath.cjs ./
 COPY generatedAssetService.cjs ./
+COPY localImageJobState.cjs ./
 COPY generationRecordStore.cjs ./
 COPY generationRecordStore.file.cjs ./
 COPY generationRecordStore.mysql.cjs ./

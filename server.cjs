@@ -111,6 +111,9 @@ const {
   persistGeneratedImageResults,
   LINE4_LOCAL_STORAGE_ROOT,
 } = require("./generatedAssetService.cjs");
+const {
+  buildVisionaryPollingJobPatch,
+} = require("./localImageJobState.cjs");
 const { toPointNumber } = require("./pointMath.cjs");
 
 // Logger Configuration
@@ -3982,17 +3985,14 @@ app.post("/api/generate", generateLimiter, async (req, res) => {
                 settledPayload = record;
                 settledStatus = extractResultStatus(record);
                 resultUrls = extractResultUrlsFromPayload(record);
-                setLocalImageJob(localJobId, {
-                  upstreamTaskId,
-                  status: String(record.status || "processing").toLowerCase(),
-                  progress: record.progress ?? 0,
-                  responseData: {
-                    ...record,
-                    id: localTaskId,
-                    task_id: localTaskId,
-                    upstream_id: upstreamTaskId,
-                  },
-                });
+                setLocalImageJob(
+                  localJobId,
+                  buildVisionaryPollingJobPatch({
+                    record,
+                    localTaskId,
+                    upstreamTaskId,
+                  }),
+                );
                 if (["SUCCEEDED", "SUCCESS", "COMPLETED"].includes(settledStatus)) break;
                 if (["FAILED", "FAILURE", "ERROR", "CANCELLED", "CANCELED"].includes(settledStatus)) {
                   throw new Error(
