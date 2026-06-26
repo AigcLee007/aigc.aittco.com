@@ -1,4 +1,5 @@
 import { Stroke } from '../../types';
+import { getProxiedImageUrl } from './mediaProxy';
 
 // ==================== 即梦/Z-image 分辨率映射表 ====================
 // 即梦4.5支持2K/4K，即梦5.0支持2K/3K，z-image-turbo支持1K/2K/4K
@@ -262,7 +263,7 @@ export const getBase64FromUrl = async (url: string): Promise<string> => {
         return url;
     }
     try {
-        const response = await fetch(url);
+        const response = await fetch(getProxiedImageUrl(url));
         const blob = await response.blob();
         return new Promise((resolve, reject) => {
             const reader = new FileReader();
