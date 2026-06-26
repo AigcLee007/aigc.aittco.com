@@ -32,6 +32,7 @@ import { useImageProcessor } from "./src/hooks/useImageProcessor";
 import { useGenerationLogic } from "./src/hooks/useGenerationLogic";
 import { useFileDrop } from "./src/hooks/useFileDrop";
 import { useGlobalPolling } from "./src/hooks/useGlobalPolling";
+import { getProxiedImageUrl } from "./src/utils/mediaProxy";
 
 const App: React.FC = () => {
   const currentPath =
@@ -365,7 +366,7 @@ const App: React.FC = () => {
             src.startsWith("/api/")
               ? src
               : src.startsWith("http")
-                ? `/api/proxy/image?url=${encodeURIComponent(src)}`
+                ? getProxiedImageUrl(src)
                 : src;
           const res = await fetch(fetchUrl);
           if (res.ok) blob = await res.blob();

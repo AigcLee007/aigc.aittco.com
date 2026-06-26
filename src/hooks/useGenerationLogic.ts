@@ -5,6 +5,7 @@ import { useHistoryStore } from '../store/historyStore';
 import { assetStorage } from '../services/assetStorage';
 import { arrangeNodes } from '../utils/layout';
 import { getLocalLine4ThumbnailUrl } from '../utils/generatedImageStorage';
+import { getProxiedImageUrl } from '../utils/mediaProxy';
 import { NodeData, ToolMode } from '../../types';
 
 type AutoDownloadItem = {
@@ -30,10 +31,7 @@ const inferExt = (src: string, mime?: string) => {
     return 'png';
 };
 
-const resolveFetchUrl = (src: string) => {
-    if (src.startsWith('http')) return `/api/proxy/image?url=${encodeURIComponent(src)}`;
-    return src;
-};
+const resolveFetchUrl = (src: string) => getProxiedImageUrl(src);
 
 const triggerDownload = (href: string, filename: string) => {
     const link = document.createElement('a');
@@ -242,6 +240,7 @@ export const useGenerationLogic = () => {
         // 1) Show result immediately with original URL first.
         // Avoid blocking first paint on local proxy latency.
         const displaySrc = rawSrc;
+        const canvasSafeSrc = getProxiedImageUrl(rawSrc);
         const thumbnailSrc = isVideo ? undefined : getLocalLine4ThumbnailUrl(displaySrc) || undefined;
 
         updateNode(id, {
@@ -277,7 +276,7 @@ export const useGenerationLogic = () => {
               updateNode(id, { height: latestNode.width * aspectRatio }, true);
             }
           };
-          img.src = displaySrc;
+          img.src = canvasSafeSrc;
         }
 
         // 3) Persist asset in background (best effort), then backfill node/history.
@@ -289,9 +288,7 @@ export const useGenerationLogic = () => {
         if (shouldCache) {
           void (async () => {
             try {
-              const fetchUrl = rawSrc.startsWith('http')
-                ? `/api/proxy/image?url=${encodeURIComponent(rawSrc)}`
-                : rawSrc;
+              const fetchUrl = getProxiedImageUrl(rawSrc);
               const res = await fetch(fetchUrl);
               if (!res.ok) return;
               const blob = await res.blob();

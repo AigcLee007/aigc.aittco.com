@@ -5,6 +5,7 @@ import useImage from 'use-image';
 import { NodeData, Point, Stroke, ToolMode } from '../types';
 import { useCanvasStore } from '../src/store/canvasStore';
 import { formatShortTime } from '../src/utils/timeFormat';
+import { getProxiedImageUrl, getRawImageUrlFromProxy, isProxiedImageUrl } from '../src/utils/mediaProxy';
 
 interface CanvasNodeProps {
   node: NodeData;
@@ -161,30 +162,19 @@ const ImageNode: React.FC<{ node: NodeData; progress: number; statusText: string
   statusText,
   onLoad,
 }) => {
-  const getCanvasImageSrc = (src: string) => {
-    if (!src) return '';
-    if (src.startsWith('http')) return `/api/proxy/image?url=${encodeURIComponent(src)}`;
-    return src;
-  };
-
-  const [source, setSource] = useState(getCanvasImageSrc(node.src || ''));
+  const [source, setSource] = useState(getProxiedImageUrl(node.src || ''));
   const [image, status] = useImage(source, 'anonymous');
 
   useEffect(() => {
-    setSource(getCanvasImageSrc(node.src || ''));
+    setSource(getProxiedImageUrl(node.src || ''));
   }, [node.src]);
 
   const fallbackToRaw = () => {
-    if (!source.startsWith('/api/proxy/image?url=')) return;
+    if (!isProxiedImageUrl(source)) return;
     if (source.includes('visionary.beer')) return;
-    try {
-      const url = new URL(source, window.location.origin);
-      const raw = url.searchParams.get('url');
-      if (raw) {
-        setSource(raw);
-      }
-    } catch {
-      // ignore
+    const raw = getRawImageUrlFromProxy(source);
+    if (raw) {
+      setSource(raw);
     }
   };
 
