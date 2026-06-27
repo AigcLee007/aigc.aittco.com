@@ -1,5 +1,6 @@
 ﻿import { getAuthorizedBillingHeaders } from '../src/services/accountIdentity';
 
+import { unwrapMiswrappedImageUrl } from '../src/utils/mediaProxy';
 import { formatPoint } from '../src/utils/pointFormat';
 
 // API configuration
@@ -68,6 +69,14 @@ function findAllUrlsInObject(obj: any, results: string[] = []) {
         }
     }
 }
+
+const normalizeImageResultValue = (value: unknown): string | null => {
+    if (typeof value !== 'string') return null;
+    const trimmed = unwrapMiswrappedImageUrl(value);
+    if (!trimmed) return null;
+    if (trimmed.startsWith('http') || trimmed.startsWith('data:') || trimmed.startsWith('/')) return trimmed;
+    return `data:image/png;base64,${trimmed}`;
+};
 
 function findStatusInObject(obj: any): string | null {
     if (!obj || typeof obj !== 'object') return null;
@@ -232,7 +241,7 @@ export const generateImage = async (
         return resJson.data
             .map((item: any) => {
                 if (item?.url) return item.url;
-                if (item?.b64_json) return `data:image/png;base64,${item.b64_json}`;
+                if (item?.b64_json) return normalizeImageResultValue(item.b64_json);
                 return null;
             })
             .filter((item: string | null): item is string => Boolean(item));

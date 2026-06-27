@@ -470,9 +470,14 @@ const ensureDataUriImage = (value) => {
   const mimeType = guessDataUriMimeType(compact);
   return `data:${mimeType};base64,${compact}`;
 };
+const unwrapMiswrappedImageUrl = (value = "") => {
+  const trimmed = String(value || "").trim();
+  const match = trimmed.match(/^data:image\/[^;,]+;base64,(https?:\/\/[\s\S]+)$/i);
+  return match ? match[1].trim() : trimmed;
+};
 const normalizeImageResultValue = (value) => {
   if (typeof value !== "string") return "";
-  const trimmed = value.trim();
+  const trimmed = unwrapMiswrappedImageUrl(value);
   if (!trimmed) return "";
   if (isUsableResultUrl(trimmed)) return trimmed;
   return `data:image/png;base64,${trimmed}`;
@@ -1037,7 +1042,7 @@ const collectResultUrls = (value, bucket = []) => {
   if (!value) return bucket;
 
   if (typeof value === "string") {
-    const trimmed = value.trim();
+    const trimmed = unwrapMiswrappedImageUrl(value);
     if (isUsableResultUrl(trimmed)) {
       bucket.push(trimmed);
     }

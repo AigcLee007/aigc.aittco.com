@@ -12,6 +12,7 @@ import {
   DEFAULT_ERROR_MESSAGE,
   extractErrorMessage,
 } from '../src/utils/errorDebug';
+import { unwrapMiswrappedImageUrl } from '../src/utils/mediaProxy';
 
 const API_BASE_URL =
   typeof window !== 'undefined' && window.location.hostname === 'localhost'
@@ -137,7 +138,7 @@ const isUsableResultUrl = (value: unknown): value is string => {
 
 export const normalizeImageResultValue = (value: unknown): string | null => {
   if (typeof value !== 'string') return null;
-  const trimmed = value.trim();
+  const trimmed = unwrapMiswrappedImageUrl(value);
   if (!trimmed) return null;
   if (isUsableResultUrl(trimmed)) return trimmed;
   return `data:image/png;base64,${trimmed}`;

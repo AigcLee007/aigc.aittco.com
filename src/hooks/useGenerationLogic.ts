@@ -5,7 +5,7 @@ import { useHistoryStore } from '../store/historyStore';
 import { assetStorage } from '../services/assetStorage';
 import { arrangeNodes } from '../utils/layout';
 import { getLocalLine4ThumbnailUrl } from '../utils/generatedImageStorage';
-import { getProxiedImageUrl } from '../utils/mediaProxy';
+import { getProxiedImageUrl, unwrapMiswrappedImageUrl } from '../utils/mediaProxy';
 import { revokeDownloadObjectUrlLater } from '../utils/downloadObjectUrl';
 import { NodeData, ToolMode } from '../../types';
 
@@ -227,7 +227,7 @@ export const useGenerationLogic = () => {
         // Detect video EARLY from original src (before proxy changes URL to blob:)
         const currentNodes0 = useCanvasStore.getState().nodes;
         const currentNode0 = currentNodes0.find(n => n.id === id);
-        const rawSrc = src;
+        const rawSrc = unwrapMiswrappedImageUrl(src);
         const isVideo = rawSrc.toLowerCase().endsWith('.mp4') 
             || rawSrc.toLowerCase().includes('format=mp4')
             || rawSrc.toLowerCase().includes('/video/')

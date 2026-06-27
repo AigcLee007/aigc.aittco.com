@@ -19,4 +19,12 @@ describe('media proxy helpers', () => {
     expect(getProxiedImageUrl('/uploads/image.png')).toBe('/uploads/image.png');
     expect(getProxiedImageUrl('data:image/png;base64,abc')).toBe('data:image/png;base64,abc');
   });
+
+  it('proxies http URLs that were incorrectly wrapped as data URLs', () => {
+    const url = 'https://visionary.beer/api/generations/id/image?token=abc';
+
+    expect(getProxiedImageUrl(`data:image/png;base64,${url}`)).toBe(
+      `/api/proxy/image?url=${encodeURIComponent(url)}`,
+    );
+  });
 });

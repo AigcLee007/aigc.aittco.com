@@ -36,6 +36,26 @@ let lastCleanupAt = 0;
 let cleanupPromise = null;
 
 const trim = (value = "") => String(value || "").trim();
+const unwrapMiswrappedImageUrl = (value = "") => {
+  const trimmed = trim(value);
+  const match = trimmed.match(/^data:image\/[^;,]+;base64,(https?:\/\/[\s\S]+)$/i);
+  return match ? match[1].trim() : trimmed;
+};
+const isUsableResultUrl = (value = "") => {
+  const trimmed = trim(value);
+  return (
+    trimmed.startsWith("http://") ||
+    trimmed.startsWith("https://") ||
+    trimmed.startsWith("data:") ||
+    trimmed.startsWith("/")
+  );
+};
+const normalizeImageResultValue = (value = "") => {
+  const trimmed = unwrapMiswrappedImageUrl(value);
+  if (!trimmed) return "";
+  if (isUsableResultUrl(trimmed)) return trimmed;
+  return `data:image/png;base64,${trimmed}`;
+};
 const sanitizeSegment = (value = "unknown") =>
   trim(value)
     .replace(/[^a-zA-Z0-9._-]+/g, "-")
@@ -45,7 +65,7 @@ const dedupe = (items = []) =>
   Array.from(
     new Set(
       (Array.isArray(items) ? items : [])
-        .map((item) => trim(item))
+        .map((item) => normalizeImageResultValue(item))
         .filter(Boolean),
     ),
   );
@@ -274,10 +294,11 @@ const persistOne = async ({ source, context }) => {
 };
 
 const rewritePayload = (value, replacements) => {
-  if (!value || replacements.size === 0) return value;
+  if (!value) return value;
 
   if (typeof value === "string") {
-    return replacements.get(value) || value;
+    const normalized = normalizeImageResultValue(value);
+    return replacements.get(normalized) || normalized;
   }
 
   if (Array.isArray(value)) {
@@ -292,12 +313,11 @@ const rewritePayload = (value, replacements) => {
   }
 
   if (typeof value.b64_json === "string") {
-    const dataUrl = `data:image/png;base64,${value.b64_json.trim()}`;
+    const dataUrl = normalizeImageResultValue(value.b64_json);
     const storedUrl = replacements.get(dataUrl);
-    if (storedUrl) {
-      next.url = storedUrl;
-      next.image_url = next.image_url || storedUrl;
-    }
+    next.b64_json = storedUrl || dataUrl;
+    next.url = storedUrl || (isUsableResultUrl(dataUrl) ? dataUrl : next.url);
+    next.image_url = next.image_url || next.url;
   }
 
   return next;

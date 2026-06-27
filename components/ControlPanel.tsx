@@ -2,7 +2,7 @@
 import { AppStatus, NodeData, ToolMode } from '../types';
 import { useSelectionStore, type ReferenceImage } from '../src/store/selectionStore';
 import { useCanvasStore } from '../src/store/canvasStore';
-import { editImageApi, generateImageApi, generateGeminiImage } from '../services/api';
+import { editImageApi, generateImageApi, generateGeminiImage, normalizeImageResultValue } from '../services/api';
 import { generateVideo } from '../services/videoService';
 import { checkBalance } from '../services/geminiService';
 import { assetStorage } from '../src/services/assetStorage';
@@ -1178,7 +1178,10 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
             else if (res.data && Array.isArray(res.data)) {
                res.data.forEach((item: any) => {
                   if (item.url) generatedImages.push(item.url);
-                  else if (item.b64_json) generatedImages.push(`data:image/png;base64,${item.b64_json}`);
+                  else if (item.b64_json) {
+                    const normalized = normalizeImageResultValue(item.b64_json);
+                    if (normalized) generatedImages.push(normalized);
+                  }
                });
             }
 
@@ -1236,13 +1239,13 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
                   if (isGrok && placeholderIds.length === 1 && res.data.length > 1) {
                     const item = res.data[res.data.length - 1];
                     if (item?.url) onUpdateGeneration(placeholderIds[0], item.url);
-                    else if (item?.b64_json) onUpdateGeneration(placeholderIds[0], `data:image/png;base64,${item.b64_json}`);
+                    else if (item?.b64_json) onUpdateGeneration(placeholderIds[0], normalizeImageResultValue(item.b64_json));
                     else onUpdateGeneration(placeholderIds[0], null, GENERATION_FALLBACK_MESSAGE);
                   } else {
                     placeholderIds.forEach((pid, idx) => {
                       const item = res.data[idx];
                       if (item?.url) onUpdateGeneration(pid, item.url);
-                      else if (item?.b64_json) onUpdateGeneration(pid, `data:image/png;base64,${item.b64_json}`);
+                      else if (item?.b64_json) onUpdateGeneration(pid, normalizeImageResultValue(item.b64_json));
                       else onUpdateGeneration(pid, null, GENERATION_FALLBACK_MESSAGE);
                     });
                   }
@@ -1387,13 +1390,13 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
                 if (isGrokModel && placeholderIds.length === 1 && res.data.length > 1) {
                   const item = res.data[res.data.length - 1];
                   if (item?.url) onUpdateGeneration(placeholderIds[0], item.url);
-                  else if (item?.b64_json) onUpdateGeneration(placeholderIds[0], `data:image/png;base64,${item.b64_json}`);
+                  else if (item?.b64_json) onUpdateGeneration(placeholderIds[0], normalizeImageResultValue(item.b64_json));
                   else onUpdateGeneration(placeholderIds[0], null, GENERATION_FALLBACK_MESSAGE);
                 } else {
                   placeholderIds.forEach((pid, idx) => {
                     const item = res.data[idx];
                     if (item?.url) onUpdateGeneration(pid, item.url);
-                    else if (item?.b64_json) onUpdateGeneration(pid, `data:image/png;base64,${item.b64_json}`);
+                    else if (item?.b64_json) onUpdateGeneration(pid, normalizeImageResultValue(item.b64_json));
                     else onUpdateGeneration(pid, null, GENERATION_FALLBACK_MESSAGE);
                   });
                 }

@@ -15,7 +15,7 @@ import { AppStatus, NodeData } from '../types';
 import { useCanvasStore } from '../src/store/canvasStore';
 import { useSelectionStore } from '../src/store/selectionStore';
 import { renderMaskToDataURL } from '../src/utils/imageUtils';
-import { editImageApi } from '../services/api';
+import { editImageApi, normalizeImageResultValue } from '../services/api';
 import ModelSelector, { type ModelOption } from './ModelSelector';
 import DropUpSelect from './DropUpSelect';
 import ImageModelIcon from './ImageModelIcon';
@@ -203,7 +203,7 @@ const resolveImmediateEditUrl = (result: {
     const first = result.data[0];
     if (first?.url) return first.url;
     if (typeof first?.b64_json === 'string') {
-      return `data:image/png;base64,${first.b64_json}`;
+      return normalizeImageResultValue(first.b64_json);
     }
   }
   return null;

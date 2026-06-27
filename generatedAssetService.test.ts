@@ -62,4 +62,24 @@ describe('generated asset persistence routing', () => {
     expect(result.payload.results[0].url).toBe(result.resultUrls[0]);
     expect(result.previewUrl).toMatch(/^\/generated-assets\/line4\/thumb\//);
   });
+
+  it('normalizes http URLs incorrectly wrapped as base64 data URLs before rewriting payloads', async () => {
+    const url = 'https://visionary.beer/api/generations/id/image?token=abc';
+
+    const result = await persistGeneratedImageResults({
+      payload: {
+        data: [{ b64_json: `data:image/png;base64,${url}` }],
+      },
+      resultUrls: [`data:image/png;base64,${url}`],
+      context: {
+        routeId: LOCAL_LINE4_ROUTE_ID,
+        userId: 'test-user',
+        taskId: 'test-task',
+      },
+    });
+
+    expect(result.resultUrls).toEqual([url]);
+    expect(result.payload.data[0].b64_json).toBe(url);
+    expect(result.payload.url).toBe(url);
+  });
 });
