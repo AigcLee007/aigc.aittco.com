@@ -134,6 +134,10 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
     videoAspectRatio, setVideoAspectRatio,
     videoDuration, setVideoDuration,
     videoHd, setVideoHd,
+    videoReferenceMode,
+    setVideoReferenceMode,
+    videoReferenceUrl,
+    setVideoReferenceUrl,
     imageModel, setImageModel,
     imageLine, setImageLine,
     gptImageQuality,
@@ -149,6 +153,13 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
     if (error) setError(null);
   }, [panelMode, videoModel, imageModel]);
 
+  useEffect(() => {
+    if (!isSoraV3Video) {
+      if (videoReferenceMode !== 'images') setVideoReferenceMode('images');
+      if (videoReferenceUrl) setVideoReferenceUrl('');
+    }
+  }, [isSoraV3Video, setVideoReferenceMode, setVideoReferenceUrl, videoReferenceMode, videoReferenceUrl]);
+
   // Optimize: only listen to nodes list, ignore canvasState (pan/zoom)
   const { nodes, updateNode } = useCanvasStore();
   const { addLog } = useHistoryStore();
@@ -161,6 +172,7 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
   const selectedImageModelConfig = getImageModelById(imageModel);
   const selectedVideoRoute = getSelectedVideoRoute(videoModel, videoLine);
   const selectedVideoModelConfig = getVideoModelById(videoModel);
+  const isSoraV3Video = selectedVideoModelConfig.id === 'sora-v3-pro' || selectedVideoModelConfig.id === 'sora-v3-fast';
 
   // State moved to store: const [prompt, setPrompt] = useState('')
   const [error, setError] = useState<string | null>(null);
@@ -1437,6 +1449,8 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
             .map((idx) => referenceImages[idx])
             .filter((img): img is ReferenceImage => Boolean(img))
         : referenceImages;
+    const referenceMode = isSoraV3Video ? videoReferenceMode : 'images';
+    const referenceVideoUrl = isSoraV3Video ? String(videoReferenceUrl || '').trim() : '';
 
     // Auto-append ratio argument to prompt for model compatibility (double safety)
     const promptWithRatio = `${parsedPrompt} --ar ${videoAspectRatio}`;
@@ -1566,7 +1580,9 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
         routeId: selectedVideoRoute.id,
         aspect_ratio: videoAspectRatio,
         hd: videoHd,
-        duration: videoDuration
+        duration: videoDuration,
+        videoReference: referenceVideoUrl || undefined,
+        referenceMode,
       });
       onUpdateGeneration(pid, videoUrl);
     } catch (err: any) {
@@ -1695,7 +1711,12 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
     { label: '5:4', value: '5:4' }
   ];
   const maxReferenceImages = isVideoMode
-    ? getVideoModelMaxReferenceImages(selectedVideoModelConfig.id)
+    ? getVideoModelMaxReferenceImages(
+        selectedVideoModelConfig.id,
+        (selectedVideoModelConfig.id === 'sora-v3-pro' || selectedVideoModelConfig.id === 'sora-v3-fast')
+          ? videoReferenceMode
+          : undefined,
+      )
     : (imageModel === 'gpt-image-2' ? 16 : 10);
   const promptReferenceMentionState = useMemo(() => {
     const referenceTagRegex = /@图\s*([1-9]\d*)/gi;

@@ -1,4 +1,4 @@
-import axios from 'axios';
+﻿import axios from 'axios';
 import { getAuthorizedBillingHeaders } from '../src/services/accountIdentity';
 import { AppError, extractErrorMessage } from '../src/utils/errorDebug';
 
@@ -39,6 +39,24 @@ const VEO_FIRST_LAST_MODELS = new Set([
   'veo3.1-fast-4k',
 ]);
 
+const SORA_V3_MODELS = new Set(['sora-v3-pro', 'sora-v3-fast']);
+type SoraV3ReferenceMode = 'images' | 'frames';
+
+const normalizeReferenceVideoUrl = (value?: string | null) => {
+  const trimmed = String(value || '').trim();
+  return trimmed || undefined;
+};
+
+export const getPublicVideoResolution = (model: string, hd?: boolean) => {
+  if (model === 'sora2') return '720p';
+  if (SORA_V3_MODELS.has(model)) return hd ? '720p' : '480p';
+  if (model === 'kling-video-3.0' || model === 'kling-video-o3-omni') {
+    return hd === false ? '720p' : '1080p';
+  }
+  if (model === 'veo31-fast') return hd === false ? '720p' : '1080p';
+  return hd ? '1080p' : '720p';
+};
+
 export const normalizeVideoReferences = (images: string[] | undefined) => {
   const refs = (Array.isArray(images) ? images : [])
     .map((value) => {
@@ -50,6 +68,9 @@ export const normalizeVideoReferences = (images: string[] | undefined) => {
     .filter(Boolean);
   return Array.from(new Set(refs));
 };
+
+export const getSoraVideoReferences = (images: string[] | undefined) =>
+  Array.from(new Set((Array.isArray(images) ? images : []).map((value) => String(value || '').trim()).filter(Boolean)));
 
 export const getVideoReferenceLimit = (model: string) => {
   const normalized = String(model || '').trim().toLowerCase();
@@ -63,9 +84,34 @@ export const getVideoReferenceLimit = (model: string) => {
   return 1;
 };
 
-export const buildVideoReferencePayload = (model: string, images: string[] | undefined) => {
+export const buildVideoReferencePayload = (
+  model: string,
+  images: string[] | undefined,
+  options?: {
+    videoReference?: string;
+    referenceMode?: SoraV3ReferenceMode;
+  },
+) => {
   const normalizedModel = String(model || '').trim().toLowerCase();
   const refs = normalizeVideoReferences(images);
+
+  if (normalizedModel === 'sora-v3-pro' || normalizedModel === 'sora-v3-fast') {
+    const payload: Record<string, any> = {};
+    const videoReference = normalizeReferenceVideoUrl(options?.videoReference);
+    if (videoReference) {
+      payload.video_reference = videoReference;
+    }
+    if (options?.referenceMode === 'frames') {
+      if (refs[0]) payload.start_frame = refs[0];
+      if (refs[1]) payload.end_frame = refs[1];
+      return payload;
+    }
+    if (refs.length > 0) {
+      payload.image_urls = refs.slice(0, getVideoReferenceLimit(normalizedModel));
+    }
+    return payload;
+  }
+
   if (refs.length === 0) return {};
 
   if (normalizedModel === 'veo3.1-fast' || normalizedModel === 'veo3.1-pro' || normalizedModel === 'veo3.1-pro-4k' || normalizedModel === 'veo3.1-fast-4k') {
@@ -79,8 +125,6 @@ export const buildVideoReferencePayload = (model: string, images: string[] | und
     normalizedModel === 'kling-video-3.0' ||
     normalizedModel === 'kling-video-o3-omni' ||
     normalizedModel === 'sora2' ||
-    normalizedModel === 'sora-v3-pro' ||
-    normalizedModel === 'sora-v3-fast' ||
     normalizedModel === 'veo31-fast' ||
     normalizedModel.includes('components')
   ) {
@@ -119,7 +163,7 @@ export const pollVideoTask = async (
     const pollInterval = setInterval(async () => {
       if (Date.now() - startTime > maxDuration) {
         clearInterval(pollInterval);
-        reject(new Error('任务等待超时'));
+        reject(new Error('浠诲姟绛夊緟瓒呮椂'));
         return;
       }
 
@@ -154,20 +198,20 @@ export const pollVideoTask = async (
           if (outputUrl) {
             resolve(outputUrl);
           } else {
-            reject(new Error('任务已完成但未返回视频地址'));
+            reject(new Error('浠诲姟宸插畬鎴愪絾鏈繑鍥炶棰戝湴鍧€'));
           }
           return;
         }
 
         if (status === 'failed' || status === 'failure' || status === 'error') {
           clearInterval(pollInterval);
-          reject(new Error(String(failReason || '视频生成失败')));
+          reject(new Error(String(failReason || '瑙嗛鐢熸垚澶辫触')));
           return;
         }
 
         if (progressStr === '100%' && !outputUrl) {
           clearInterval(pollInterval);
-          reject(new Error(String(failReason || '视频生成失败')));
+          reject(new Error(String(failReason || '瑙嗛鐢熸垚澶辫触')));
           return;
         }
 
@@ -185,14 +229,14 @@ export const pollVideoTask = async (
         console.warn('Poll error', err);
         if (err.response && err.response.status === 404) {
           clearInterval(pollInterval);
-          reject(new Error('任务不存在或已过期'));
+          reject(new Error('锟斤拷锟今不达拷锟节伙拷锟窖癸拷锟斤拷'));
           return;
         }
 
         errorCount++;
         if (errorCount > 20) {
           clearInterval(pollInterval);
-          reject(toAppError(err, '查询任务失败，请稍后重试'));
+          reject(toAppError(err, '鏌ヨ浠诲姟澶辫触锛岃绋嶅悗閲嶈瘯'));
         }
       }
     }, 3000);
@@ -210,6 +254,8 @@ export const generateVideo = async (
     aspect_ratio?: string;
     hd?: boolean;
     duration?: string;
+    videoReference?: string;
+    referenceMode?: SoraV3ReferenceMode;
   },
 ): Promise<string> => {
   try {
@@ -221,9 +267,23 @@ export const generateVideo = async (
     if (PUBLIC_VIDEO_API_MODELS.has(normalizedModel)) {
       payload.aspect_ratio = options?.aspect_ratio || '16:9';
       payload.duration = Number.parseInt(String(options?.duration || '5'), 10);
-      payload.resolution = normalizedModel === 'veo31-fast' ? (options?.hd === false ? '720p' : '1080p') : normalizedModel === 'sora2' || normalizedModel === 'sora-v3-pro' || normalizedModel === 'sora-v3-fast' ? '720p' : options?.hd === false ? '720p' : '1080p';
+      payload.resolution = getPublicVideoResolution(normalizedModel, options?.hd);
       payload.generate_audio = true;
-      Object.assign(payload, buildVideoReferencePayload(normalizedModel, images));
+
+      if (SORA_V3_MODELS.has(normalizedModel)) {
+        Object.assign(
+          payload,
+          buildVideoReferencePayload(normalizedModel, images, {
+            videoReference: options?.videoReference,
+            referenceMode: options?.referenceMode,
+          }),
+        );
+      } else if (normalizedModel === 'sora2' || normalizedModel === 'kling-video-3.0' || normalizedModel === 'kling-video-o3-omni' || normalizedModel === 'veo31-fast') {
+        const refs = normalizeVideoReferences(images);
+        if (refs.length > 0) {
+          payload.image_urls = refs.slice(0, getVideoReferenceLimit(normalizedModel));
+        }
+      }
     } else if (model.startsWith('veo')) {
       const durationNum = Number.parseInt(String(options?.duration ?? '8'), 10);
       const normalizedDuration = Number.isFinite(durationNum) ? durationNum : 8;
@@ -306,11 +366,14 @@ export const generateVideo = async (
 
     const taskId = response?.data?.id || response?.data?.task_id || response?.data?.data?.task_id;
     if (!taskId) {
-      throw new Error('未返回任务 ID');
+      throw new Error('鏈繑鍥炰换锟?ID');
     }
 
     return pollVideoTask(apiKey, taskId, onProgress);
   } catch (error: any) {
-    throw toAppError(error, '视频生成请求失败');
+    throw toAppError(error, '瑙嗛鐢熸垚璇锋眰澶辫触');
   }
 };
+
+
+

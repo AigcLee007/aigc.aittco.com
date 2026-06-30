@@ -31,6 +31,8 @@ export interface VideoModelCatalogShape {
   models: VideoModelConfig[];
 }
 
+export type VideoReferenceMode = 'images' | 'frames';
+
 const API_BASE_URL =
   typeof window !== 'undefined' && window.location.hostname === 'localhost'
     ? 'http://localhost:3355/api'
@@ -179,8 +181,19 @@ export const getDefaultVideoAspectRatioForModel = (modelId?: string) =>
   getVideoModelById(modelId).defaultAspectRatio || getVideoModelAspectRatioOptions(modelId)[0] || '16:9';
 export const getDefaultVideoDurationForModel = (modelId?: string) =>
   getVideoModelById(modelId).defaultDuration || getVideoModelDurationOptions(modelId)[0] || '4';
-export const getVideoModelMaxReferenceImages = (modelId?: string) =>
-  Math.max(0, Number(getVideoModelById(modelId).maxReferenceImages || 1));
+export const getVideoModelMaxReferenceImages = (
+  modelId?: string,
+  referenceMode?: VideoReferenceMode,
+) => {
+  const modelIdValue = String(modelId || '').trim().toLowerCase();
+  if (
+    referenceMode === 'frames' &&
+    (modelIdValue === 'sora-v3-pro' || modelIdValue === 'sora-v3-fast')
+  ) {
+    return 2;
+  }
+  return Math.max(0, Number(getVideoModelById(modelId).maxReferenceImages || 1));
+};
 export const getVideoModelReferenceLabels = (modelId?: string) => getVideoModelById(modelId).referenceLabels || [];
 export const getVideoModelSupportsHd = (modelId?: string) => getVideoModelById(modelId).supportsHd === true;
 export const getVideoModelDefaultHd = (modelId?: string) => getVideoModelById(modelId).defaultHd === true;

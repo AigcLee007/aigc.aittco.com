@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo } from 'react';
+﻿import React, { useEffect, useMemo } from 'react';
 import { Sparkles } from 'lucide-react';
 import { useSelectionStore } from '../src/store/selectionStore';
 import ModelSelector from './ModelSelector';
@@ -12,13 +12,12 @@ import {
   getVideoModelById,
   getVideoModelDisplayCost,
   getVideoModelDurationOptions,
-  getVideoModelOptions,
+  getVideoModelMaxReferenceImages,
   getVideoModelPointCostPerSecond,
   getVideoModelPricingMode,
   getVideoModelSupportsHd,
 } from '../src/config/videoModels';
 import {
-  canUseDirectUserApiKeyForVideoModel,
   getVisibleVideoModels,
   getVideoRouteOptions,
   getVideoRoutesByRouteFamily,
@@ -47,6 +46,10 @@ export const VideoFormConfig: React.FC<VideoFormConfigProps> = ({
     setVideoDuration,
     videoHd,
     setVideoHd,
+    videoReferenceMode,
+    setVideoReferenceMode,
+    videoReferenceUrl,
+    setVideoReferenceUrl,
   } = useSelectionStore();
 
   const visibleVideoModels = useMemo(() => {
@@ -81,6 +84,11 @@ export const VideoFormConfig: React.FC<VideoFormConfigProps> = ({
   const ratioOptions = getVideoModelAspectRatioOptions(currentModel.id);
   const durationOptions = getVideoModelDurationOptions(currentModel.id);
   const supportsHd = getVideoModelSupportsHd(currentModel.id);
+  const supportsVideoReference = currentModel.id === 'sora-v3-pro' || currentModel.id === 'sora-v3-fast';
+  const maxReferenceImages = getVideoModelMaxReferenceImages(
+    currentModel.id,
+    supportsVideoReference && videoReferenceMode === 'frames' ? 'frames' : 'images',
+  );
   const showLineSelector = availableRoutes.length > 1;
   const isGrokModel = currentModel.id.startsWith('grok');
 
@@ -110,6 +118,13 @@ export const VideoFormConfig: React.FC<VideoFormConfigProps> = ({
     if (supportsHd || !videoHd) return;
     setVideoHd(false);
   }, [setVideoHd, supportsHd, videoHd]);
+
+  useEffect(() => {
+    if (!supportsVideoReference) {
+      if (videoReferenceMode !== 'images') setVideoReferenceMode('images');
+      if (videoReferenceUrl) setVideoReferenceUrl('');
+    }
+  }, [supportsVideoReference, videoReferenceMode, videoReferenceUrl, setVideoReferenceMode, setVideoReferenceUrl]);
 
   const modelOptions = visibleVideoModels.map((model) => ({
     value: model.id,
@@ -175,12 +190,52 @@ export const VideoFormConfig: React.FC<VideoFormConfigProps> = ({
             />
             {restrictToDirectKeyCompatible && (
               <div className="mt-1 text-[10px] leading-4 text-cyan-300">
-                此处仅展示支持直连 API Key 的线路。
+                这里只显示支持直连 API Key 的线路。
               </div>
             )}
           </div>
         )}
       </div>
+
+      {supportsVideoReference && (
+        <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3 space-y-2">
+          <div className="flex items-center justify-between gap-2">
+            <label className="block text-[10px] text-gray-500">参考模式</label>
+            <div className="inline-flex rounded-md border border-white/10 bg-black/20 p-0.5">
+              {(['images', 'frames'] as const).map((mode) => (
+                <button
+                  key={mode}
+                  type="button"
+                  onClick={() => setVideoReferenceMode(mode)}
+                  className={`px-2 py-1 text-[10px] ${
+                    videoReferenceMode === mode
+                      ? 'rounded bg-white/10 text-white'
+                      : 'text-gray-400'
+                  }`}
+                >
+                  {mode === 'images' ? '参考图' : '首尾帧'}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div>
+            <label className="block text-[10px] text-gray-500">
+              {videoReferenceMode === 'frames' ? '参考视频 URL' : '参考视频 URL（可选）'}
+            </label>
+            <input
+              value={videoReferenceUrl}
+              onChange={(e) => setVideoReferenceUrl(e.target.value)}
+              placeholder="https://..."
+              className="mt-1 w-full rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-sm text-white outline-none"
+            />
+          </div>
+          <div className="text-[10px] text-gray-400">
+            {videoReferenceMode === 'frames'
+              ? `首尾帧模式下最多支持 ${maxReferenceImages} 张图片`
+              : `参考图模式下最多支持 ${maxReferenceImages} 张图片`}
+          </div>
+        </div>
+      )}
 
       <div>
         <div className="mb-1 flex items-center justify-between">

@@ -39,6 +39,8 @@ interface SelectionStore {
   videoAspectRatio: string;
   videoDuration: string;
   videoHd: boolean;
+  videoReferenceMode: 'images' | 'frames';
+  videoReferenceUrl: string;
   brushSize: number;
   brushColor: string;
   imageLine: string;
@@ -84,6 +86,8 @@ interface SelectionStore {
   setVideoAspectRatio: (ratio: string) => void;
   setVideoDuration: (duration: string) => void;
   setVideoHd: (hd: boolean) => void;
+  setVideoReferenceMode: (mode: 'images' | 'frames') => void;
+  setVideoReferenceUrl: (url: string) => void;
   setBrushSize: (size: number) => void;
   setBrushColor: (color: string) => void;
   setImageLine: (line: string) => void;
@@ -244,6 +248,8 @@ export const useSelectionStore = create<SelectionStore>()(
       videoAspectRatio: '16:9',
       videoDuration: '4',
       videoHd: false,
+      videoReferenceMode: 'images',
+      videoReferenceUrl: '',
       brushSize: 40,
       brushColor: '#A855F7', // Purple default
       imageLine: 'line1',
@@ -321,6 +327,8 @@ export const useSelectionStore = create<SelectionStore>()(
       setVideoAspectRatio: (val) => set(state => { state.videoAspectRatio = val; }),
       setVideoDuration: (val) => set(state => { state.videoDuration = val; }),
       setVideoHd: (val) => set(state => { state.videoHd = val; }),
+      setVideoReferenceMode: (val) => set(state => { state.videoReferenceMode = val; }),
+      setVideoReferenceUrl: (val) => set(state => { state.videoReferenceUrl = val; }),
       setBrushSize: (val) => set(state => { state.brushSize = val; }),
       setBrushColor: (val) => set(state => { state.brushColor = val; }),
       setImageLine: (val) => set(state => { state.imageLine = val; }),
@@ -605,6 +613,8 @@ export const useSelectionStore = create<SelectionStore>()(
         videoAspectRatio: state.videoAspectRatio,
         videoDuration: state.videoDuration,
         videoHd: state.videoHd,
+        videoReferenceMode: state.videoReferenceMode,
+        videoReferenceUrl: state.videoReferenceUrl,
         brushSize: state.brushSize,
         brushColor: state.brushColor,
         panelMode: state.panelMode,
@@ -623,6 +633,8 @@ export const useSelectionStore = create<SelectionStore>()(
           ...currentState,
           ...persisted,
           referenceImages: sanitizePersistedReferenceImages(persisted?.referenceImages || []),
+          videoReferenceMode: persisted?.videoReferenceMode === 'frames' ? 'frames' : 'images',
+          videoReferenceUrl: String(persisted?.videoReferenceUrl || '').trim(),
         };
       },
     }
