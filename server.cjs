@@ -8,6 +8,10 @@ const winston = require("winston");
 const fs = require("fs");
 const FormData = require("form-data");
 const https = require("https");
+const {
+  VIDEO_REFERENCE_UPLOAD_DIR,
+  validateVideoReferenceUpload,
+} = require("./videoReferenceUpload.cjs");
 
 const localEnvPath = path.join(__dirname, ".env");
 if (typeof process.loadEnvFile === "function" && fs.existsSync(localEnvPath)) {
@@ -6300,6 +6304,43 @@ app.post("/api/announcement/images", async (req, res) => {
   } catch (error) {
     console.error("[Announcement] Upload Image Error:", error);
     return res.status(500).json({ error: "公告图片上传失败" });
+  }
+});
+
+app.post("/api/video-reference/upload", async (req, res) => {
+  try {
+    await requireAuthUser(req);
+
+    const parsed = validateVideoReferenceUpload(req.body?.video);
+    fs.mkdirSync(VIDEO_REFERENCE_UPLOAD_DIR, { recursive: true });
+
+    const originalName = String(req.body?.filename || '').trim().toLowerCase();
+    const safeBase = originalName
+      .replace(/\.[a-z0-9]+$/i, '')
+      .replace(/[^a-z0-9._-]+/gi, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 80) || 'reference-video';
+    const filename = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}-${safeBase}.${parsed.ext}`;
+    const filePath = path.join(VIDEO_REFERENCE_UPLOAD_DIR, filename);
+
+    fs.writeFileSync(filePath, parsed.buffer);
+
+    return res.json({
+      success: true,
+      url: `/uploads/video-references/${filename}`,
+    });
+  } catch (error) {
+    if (error instanceof AuthError) {
+      return res.status(error.code === "AUTH_LOGIN_REQUIRED" ? 401 : 403).json({
+        error: error.message,
+      });
+    }
+    const message = String(error?.message || '参考视频上传失败').trim();
+    const isValidationError =
+      message.includes('参考视频格式无效') || message.includes('参考视频不能超过');
+    return res.status(isValidationError ? 400 : 500).json({
+      error: message || '参考视频上传失败',
+    });
   }
 });
 // Public announcement list returns active items only; admin can request all items with `all=1`.

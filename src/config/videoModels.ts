@@ -195,6 +195,21 @@ export const getVideoModelMaxReferenceImages = (
   return Math.max(0, Number(getVideoModelById(modelId).maxReferenceImages || 1));
 };
 export const getVideoModelReferenceLabels = (modelId?: string) => getVideoModelById(modelId).referenceLabels || [];
+export const getVideoReferenceThumbnailLabel = (
+  modelId: string | undefined,
+  referenceMode: VideoReferenceMode | undefined,
+  index: number,
+) => {
+  const normalizedId = String(modelId || '').trim().toLowerCase();
+  if (
+    referenceMode === 'frames' &&
+    (normalizedId === 'sora-v3-pro' || normalizedId === 'sora-v3-fast')
+  ) {
+    if (index === 0) return '首帧';
+    if (index === 1) return '尾帧';
+  }
+  return getVideoModelReferenceLabels(modelId)?.[index] || `图${index + 1}`;
+};
 export const getVideoModelSupportsHd = (modelId?: string) => getVideoModelById(modelId).supportsHd === true;
 export const getVideoModelDefaultHd = (modelId?: string) => getVideoModelById(modelId).defaultHd === true;
 export const getVideoModelPricingMode = (modelId?: string) => getVideoModelById(modelId).pricingMode || 'fixed';

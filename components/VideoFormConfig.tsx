@@ -1,9 +1,10 @@
 ﻿import React, { useEffect, useMemo } from 'react';
-import { Sparkles } from 'lucide-react';
+import { Loader2, Sparkles, Upload } from 'lucide-react';
 import { useSelectionStore } from '../src/store/selectionStore';
 import ModelSelector from './ModelSelector';
 import DropUpSelect from './DropUpSelect';
 import { GoogleLogo } from './Logos';
+import { uploadVideoReferenceFile } from '../src/services/videoReferenceUpload';
 import {
   DEFAULT_VIDEO_MODEL_ID,
   getDefaultVideoAspectRatioForModel,
@@ -34,6 +35,8 @@ export const VideoFormConfig: React.FC<VideoFormConfigProps> = ({
 }) => {
   useVideoModelCatalog();
   useVideoRouteCatalog();
+  const videoReferenceInputRef = React.useRef<HTMLInputElement | null>(null);
+  const [isUploadingReferenceVideo, setIsUploadingReferenceVideo] = React.useState(false);
 
   const {
     videoModel,
@@ -139,6 +142,24 @@ export const VideoFormConfig: React.FC<VideoFormConfigProps> = ({
   const pointCostPerSecond = getVideoModelPointCostPerSecond(currentModel.id);
   const estimatedCost = getVideoModelDisplayCost(currentModel.id, videoDuration);
 
+  const handleSelectReferenceVideo = async (
+    event: React.ChangeEvent<HTMLInputElement>,
+  ) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+
+    try {
+      setIsUploadingReferenceVideo(true);
+      const uploadedUrl = await uploadVideoReferenceFile(file);
+      setVideoReferenceUrl(uploadedUrl);
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : '参考视频上传失败');
+    } finally {
+      setIsUploadingReferenceVideo(false);
+    }
+  };
+
   if (visibleVideoModels.length === 0) {
     return (
       <div className="rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3 text-xs leading-6 text-gray-400">
@@ -199,34 +220,37 @@ export const VideoFormConfig: React.FC<VideoFormConfigProps> = ({
 
       {supportsVideoReference && (
         <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3 space-y-2">
-          <div className="flex items-center justify-between gap-2">
-            <label className="block text-[10px] text-gray-500">参考模式</label>
-            <div className="inline-flex rounded-md border border-white/10 bg-black/20 p-0.5">
-              {(['images', 'frames'] as const).map((mode) => (
-                <button
-                  key={mode}
-                  type="button"
-                  onClick={() => setVideoReferenceMode(mode)}
-                  className={`px-2 py-1 text-[10px] ${
-                    videoReferenceMode === mode
-                      ? 'rounded bg-white/10 text-white'
-                      : 'text-gray-400'
-                  }`}
-                >
-                  {mode === 'images' ? '参考图' : '首尾帧'}
-                </button>
-              ))}
-            </div>
-          </div>
           <div>
-            <label className="block text-[10px] text-gray-500">
-              {videoReferenceMode === 'frames' ? '参考视频 URL' : '参考视频 URL（可选）'}
-            </label>
+            <div className="flex items-center justify-between gap-2">
+              <label className="block text-[10px] text-gray-500">
+                {videoReferenceMode === 'frames' ? '参考视频 URL' : '参考视频 URL（可选）'}
+              </label>
+              <button
+                type="button"
+                onClick={() => videoReferenceInputRef.current?.click()}
+                disabled={isUploadingReferenceVideo}
+                className="inline-flex items-center gap-1 rounded-md border border-white/10 bg-black/20 px-2 py-1 text-[10px] text-blue-300 transition-colors hover:border-white/20 hover:text-blue-200 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {isUploadingReferenceVideo ? (
+                  <Loader2 size={11} className="animate-spin" />
+                ) : (
+                  <Upload size={11} />
+                )}
+                {isUploadingReferenceVideo ? '上传中' : '上传视频'}
+              </button>
+            </div>
             <input
               value={videoReferenceUrl}
               onChange={(e) => setVideoReferenceUrl(e.target.value)}
               placeholder="https://..."
               className="mt-1 w-full rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-sm text-white outline-none"
+            />
+            <input
+              ref={videoReferenceInputRef}
+              type="file"
+              accept="video/mp4,video/webm,video/quicktime,.mp4,.webm,.mov"
+              className="hidden"
+              onChange={handleSelectReferenceVideo}
             />
           </div>
           <div className="text-[10px] text-gray-400">

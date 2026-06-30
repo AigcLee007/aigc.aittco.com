@@ -37,7 +37,7 @@ import {
 import {
   getVideoModelById,
   getVideoModelMaxReferenceImages,
-  getVideoModelReferenceLabels,
+  getVideoReferenceThumbnailLabel,
 } from '../src/config/videoModels';
 import { getSelectedVideoRoute, getVideoModelNameForRoute } from '../src/config/videoRoutes';
 import { useVideoModelCatalog } from '../src/hooks/useVideoModelCatalog';
@@ -1990,12 +1990,30 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
                      DEBUG: Max={isVideoMode ? (VIDEO_LOSS_CONFIG[videoModel as any]?.max) : 10} / Count={referenceImages.length}
                   </div> */}
 
-                <div className="flex items-center justify-between mb-2">
-                  <div className="flex items-center gap-2">
+                <div className="flex items-center justify-between mb-2 gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
                     <span className="text-xs text-gray-400">参考图</span>
                     <span className="inline-flex items-center rounded-md border border-blue-400/35 bg-blue-500/15 px-1.5 py-[1px] text-[10px] font-medium text-blue-200">
                       {referenceImages.length}/{maxReferenceImages}
                     </span>
+                    {isVideoMode && isSoraV3Video && (
+                      <div className="inline-flex rounded-md border border-white/10 bg-black/20 p-0.5">
+                        {(['images', 'frames'] as const).map((mode) => (
+                          <button
+                            key={mode}
+                            type="button"
+                            onClick={() => setVideoReferenceMode(mode)}
+                            className={`px-2 py-1 text-[10px] transition-colors ${
+                              videoReferenceMode === mode
+                                ? 'rounded bg-white/10 text-white'
+                                : 'text-gray-400 hover:text-gray-200'
+                            }`}
+                          >
+                            {mode === 'images' ? '参考图' : '首尾帧'}
+                          </button>
+                        ))}
+                      </div>
+                    )}
                   </div>
                   <div className="flex items-center gap-1">
                     <button onClick={() => panelFileInputRef.current?.click()} className={`${isMobile ? 'text-sm min-h-9 px-2' : 'text-xs'} text-blue-400 hover:text-blue-300 flex items-center gap-1 rounded-lg touch-manipulation active:scale-[0.98]`}>
@@ -2016,8 +2034,12 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
                 <div className="flex gap-2 overflow-x-auto pb-1 pr-1 sleek-scroll-x">
                   {referenceImages.map((item, idx) => {
                     const label = isVideoMode
-                      ? getVideoModelReferenceLabels(selectedVideoModelConfig.id)?.[idx]
-                      : null;
+                      ? getVideoReferenceThumbnailLabel(
+                          selectedVideoModelConfig.id,
+                          isSoraV3Video ? videoReferenceMode : 'images',
+                          idx,
+                        )
+                      : `图${idx + 1}`;
                     const isPromptLinked = promptReferenceMentionState.validIndexSet.has(idx);
 
                     return (
@@ -2055,7 +2077,7 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
                           ? 'bg-purple-500/88 border-purple-100/55 shadow-[0_2px_8px_rgba(139,92,246,0.45)]'
                           : 'bg-black/72 border-white/15'
                       }`}>
-                        {label || `图${idx + 1}`}
+                        {label}
                       </div>
                     </div>
                   )})}
