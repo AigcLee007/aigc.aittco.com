@@ -46,6 +46,7 @@ COPY billingStore.mysql.cjs ./
 COPY billingReportUtils.cjs ./
 COPY pointMath.cjs ./
 COPY generatedAssetService.cjs ./
+COPY videoReferenceUpload.cjs ./
 COPY generationRecordStore.cjs ./
 COPY generationRecordStore.file.cjs ./
 COPY generationRecordStore.mysql.cjs ./
@@ -54,7 +55,7 @@ COPY config ./config
 COPY scripts ./scripts
 
 # Create runtime directories used by announcements/uploads
-RUN mkdir -p /app/uploads/announcements
+RUN mkdir -p /app/uploads/announcements /app/uploads/video-references
 
 # Expose port
 EXPOSE 3365
