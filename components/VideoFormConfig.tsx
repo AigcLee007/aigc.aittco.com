@@ -262,27 +262,27 @@ export const VideoFormConfig: React.FC<VideoFormConfigProps> = ({
       )}
 
       <div>
-        <div className="mb-1 flex items-center justify-between">
+        <div className="mb-1 flex items-center justify-between gap-2">
           <label className="block text-[10px] text-gray-500">视频模型</label>
           <span className="text-[10px] font-medium text-yellow-300">
             {isPerSecondPricing
               ? `${pointCostPerSecond} 金币/s · 预计 ${estimatedCost} 金币`
               : `预计 ${estimatedCost} 金币`}
           </span>
-          {supportsHd && (
-            <label className="flex cursor-pointer items-center gap-1.5">
-              <input
-                type="checkbox"
-                checked={videoHd}
-                onChange={(event) => setVideoHd(event.target.checked)}
-                className="h-3 w-3 rounded border-gray-600 bg-gray-700 text-purple-600 focus:ring-purple-500"
-              />
-              <span className="text-[10px] font-medium text-purple-300">
-                {isGrokModel ? '1080P 高清' : '高清模式'}
-              </span>
-            </label>
-          )}
         </div>
+        {supportsHd && (
+          <label className="mb-2 flex cursor-pointer items-center justify-end gap-1.5">
+            <input
+              type="checkbox"
+              checked={videoHd}
+              onChange={(event) => setVideoHd(event.target.checked)}
+              className="h-3 w-3 rounded border-gray-600 bg-gray-700 text-purple-600 focus:ring-purple-500"
+            />
+            <span className="text-[10px] font-medium text-purple-300">
+              {isGrokModel ? '1080P 高清' : '高清模式'}
+            </span>
+          </label>
+        )}
 
         <ModelSelector
           dropUp
