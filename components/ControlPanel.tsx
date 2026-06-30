@@ -153,13 +153,6 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
     if (error) setError(null);
   }, [panelMode, videoModel, imageModel]);
 
-  useEffect(() => {
-    if (!isSoraV3Video) {
-      if (videoReferenceMode !== 'images') setVideoReferenceMode('images');
-      if (videoReferenceUrl) setVideoReferenceUrl('');
-    }
-  }, [isSoraV3Video, setVideoReferenceMode, setVideoReferenceUrl, videoReferenceMode, videoReferenceUrl]);
-
   // Optimize: only listen to nodes list, ignore canvasState (pan/zoom)
   const { nodes, updateNode } = useCanvasStore();
   const { addLog } = useHistoryStore();
@@ -173,6 +166,13 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
   const selectedVideoRoute = getSelectedVideoRoute(videoModel, videoLine);
   const selectedVideoModelConfig = getVideoModelById(videoModel);
   const isSoraV3Video = selectedVideoModelConfig.id === 'sora-v3-pro' || selectedVideoModelConfig.id === 'sora-v3-fast';
+
+  useEffect(() => {
+    if (!isSoraV3Video) {
+      if (videoReferenceMode !== 'images') setVideoReferenceMode('images');
+      if (videoReferenceUrl) setVideoReferenceUrl('');
+    }
+  }, [isSoraV3Video, setVideoReferenceMode, setVideoReferenceUrl, videoReferenceMode, videoReferenceUrl]);
 
   // State moved to store: const [prompt, setPrompt] = useState('')
   const [error, setError] = useState<string | null>(null);
