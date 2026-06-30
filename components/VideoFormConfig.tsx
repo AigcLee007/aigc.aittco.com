@@ -19,6 +19,7 @@ import {
 } from '../src/config/videoModels';
 import {
   canUseDirectUserApiKeyForVideoModel,
+  getVisibleVideoModels,
   getVideoRouteOptions,
   getVideoRoutesByRouteFamily,
 } from '../src/config/videoRoutes';
@@ -48,14 +49,12 @@ export const VideoFormConfig: React.FC<VideoFormConfigProps> = ({
     setVideoHd,
   } = useSelectionStore();
 
-  const visibleVideoModels = useMemo(
-    () =>
-      getVideoModelOptions().filter((model) => {
-        if (model.isActive === false) return false;
-        return restrictToDirectKeyCompatible ? canUseDirectUserApiKeyForVideoModel(model.id) : true;
-      }),
-    [restrictToDirectKeyCompatible],
-  );
+  const visibleVideoModels = useMemo(() => {
+    if (restrictToDirectKeyCompatible) {
+      return getVisibleVideoModels({ directKeyOnly: true });
+    }
+    return getVisibleVideoModels();
+  }, [restrictToDirectKeyCompatible]);
 
   const currentModel =
     visibleVideoModels.find((model) => model.id === videoModel) ||

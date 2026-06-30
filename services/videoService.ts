@@ -23,6 +23,75 @@ const buildVideoRequestHeaders = async (
   ...buildAuthHeaders(apiKey),
 });
 
+const PUBLIC_VIDEO_API_MODELS = new Set([
+  'kling-video-3.0',
+  'kling-video-o3-omni',
+  'sora2',
+  'sora-v3-pro',
+  'sora-v3-fast',
+  'veo31-fast',
+]);
+
+const VEO_FIRST_LAST_MODELS = new Set([
+  'veo3.1-fast',
+  'veo3.1-pro',
+  'veo3.1-pro-4k',
+  'veo3.1-fast-4k',
+]);
+
+export const normalizeVideoReferences = (images: string[] | undefined) => {
+  const refs = (Array.isArray(images) ? images : [])
+    .map((value) => {
+      const trimmed = String(value || '').trim();
+      if (!trimmed) return '';
+      if (/^(https?:\/\/|data:image\/)/i.test(trimmed)) return trimmed;
+      return `data:image/jpeg;base64,${trimmed}`;
+    })
+    .filter(Boolean);
+  return Array.from(new Set(refs));
+};
+
+export const getVideoReferenceLimit = (model: string) => {
+  const normalized = String(model || '').trim().toLowerCase();
+  if (normalized === 'kling-video-3.0') return 1;
+  if (normalized === 'kling-video-o3-omni') return 7;
+  if (normalized === 'sora2') return 1;
+  if (normalized === 'sora-v3-pro' || normalized === 'sora-v3-fast') return 4;
+  if (normalized === 'veo31-fast') return 1;
+  if (normalized === 'veo3.1-fast' || normalized === 'veo3.1-pro' || normalized === 'veo3.1-pro-4k' || normalized === 'veo3.1-fast-4k') return 2;
+  if (normalized.includes('components')) return 3;
+  return 1;
+};
+
+export const buildVideoReferencePayload = (model: string, images: string[] | undefined) => {
+  const normalizedModel = String(model || '').trim().toLowerCase();
+  const refs = normalizeVideoReferences(images);
+  if (refs.length === 0) return {};
+
+  if (normalizedModel === 'veo3.1-fast' || normalizedModel === 'veo3.1-pro' || normalizedModel === 'veo3.1-pro-4k' || normalizedModel === 'veo3.1-fast-4k') {
+    return {
+      start_frame: refs[0],
+      ...(refs[1] ? { end_frame: refs[1] } : {}),
+    };
+  }
+
+  if (
+    normalizedModel === 'kling-video-3.0' ||
+    normalizedModel === 'kling-video-o3-omni' ||
+    normalizedModel === 'sora2' ||
+    normalizedModel === 'sora-v3-pro' ||
+    normalizedModel === 'sora-v3-fast' ||
+    normalizedModel === 'veo31-fast' ||
+    normalizedModel.includes('components')
+  ) {
+    return {
+      image_urls: refs.slice(0, getVideoReferenceLimit(normalizedModel)),
+    };
+  }
+
+  return { image_urls: refs.slice(0, 1) };
+};
+
 const toAppError = (error: any, fallback: string) =>
   new AppError(
     extractErrorMessage(error?.response?.data) || extractErrorMessage(error) || fallback,
@@ -148,14 +217,14 @@ export const generateVideo = async (
     if (options?.modelId) payload.modelId = options.modelId;
     if (options?.routeId) payload.routeId = options.routeId;
     const normalizedModel = String(model || '').toLowerCase();
-    const veoFirstLastModels = new Set([
-      'veo3.1-fast',
-      'veo3.1-pro',
-      'veo3.1-pro-4k',
-      'veo3.1-fast-4k',
-    ]);
 
-    if (model.startsWith('veo')) {
+    if (PUBLIC_VIDEO_API_MODELS.has(normalizedModel)) {
+      payload.aspect_ratio = options?.aspect_ratio || '16:9';
+      payload.duration = Number.parseInt(String(options?.duration || '5'), 10);
+      payload.resolution = normalizedModel === 'veo31-fast' ? (options?.hd === false ? '720p' : '1080p') : normalizedModel === 'sora2' || normalizedModel === 'sora-v3-pro' || normalizedModel === 'sora-v3-fast' ? '720p' : options?.hd === false ? '720p' : '1080p';
+      payload.generate_audio = true;
+      Object.assign(payload, buildVideoReferencePayload(normalizedModel, images));
+    } else if (model.startsWith('veo')) {
       const durationNum = Number.parseInt(String(options?.duration ?? '8'), 10);
       const normalizedDuration = Number.isFinite(durationNum) ? durationNum : 8;
       const is4kLike = /4k/i.test(model) || model === 'veo3.1-pro';
@@ -174,28 +243,34 @@ export const generateVideo = async (
 
       // Components family keeps multi-image capability.
       if (normalizedModel.includes('components')) {
-        if (images && images.length > 0) {
-          payload.input_config.image = images[0];
-          payload.image = images[0];
+        const refs = normalizeVideoReferences(images);
+        if (refs.length > 0) {
+          payload.input_config.image = refs[0];
+          payload.image = refs[0];
         }
-        if (images && images.length > 1) {
-          payload.images = images;
+        if (refs.length > 1) {
+          payload.images = refs.slice(0, getVideoReferenceLimit(normalizedModel));
+          payload.image_urls = payload.images;
         }
-      } else if (veoFirstLastModels.has(normalizedModel)) {
+      } else if (VEO_FIRST_LAST_MODELS.has(normalizedModel)) {
         // Explicit first/last-frame models.
-        if (images && images.length > 0) {
-          payload.input_config.image = images[0];
-          payload.image = images[0];
+        const refs = normalizeVideoReferences(images);
+        if (refs.length > 0) {
+          payload.input_config.image = refs[0];
+          payload.image = refs[0];
+          payload.start_frame = refs[0];
         }
-        if (images && images.length > 1) {
-          payload.input_config.last_frame = images[1];
-          payload.last_frame = images[1];
-          payload.images = [images[0], images[1]];
+        if (refs.length > 1) {
+          payload.input_config.last_frame = refs[1];
+          payload.last_frame = refs[1];
+          payload.end_frame = refs[1];
+          payload.images = [refs[0], refs[1]];
         }
       } else if (images && images.length > 0) {
         // Fallback: single reference image.
-        payload.input_config.image = images[0];
-        payload.image = images[0];
+        const refs = normalizeVideoReferences(images);
+        payload.input_config.image = refs[0];
+        payload.image = refs[0];
       }
     } else if (model.startsWith('grok-video')) {
       Object.assign(payload, options);
@@ -208,13 +283,16 @@ export const generateVideo = async (
       if (options?.duration) {
         payload.duration = parseInt(options.duration, 10);
       }
-      if (images && images.length > 0) {
-        payload.images = [images[0]];
+      const refs = normalizeVideoReferences(images);
+      if (refs.length > 0) {
+        payload.images = [refs[0]];
+        payload.image = refs[0];
       }
     } else {
       Object.assign(payload, options);
-      if (images && images.length > 0) {
-        payload.image = images[0];
+      const refs = normalizeVideoReferences(images);
+      if (refs.length > 0) {
+        payload.image = refs[0];
       }
     }
 

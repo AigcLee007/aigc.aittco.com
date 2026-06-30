@@ -154,6 +154,33 @@ export const getVideoRouteById = (routeId?: string): VideoRouteConfig => {
 export const getVideoRoutesByRouteFamily = (routeFamily: string): VideoRouteConfig[] =>
   VIDEO_ROUTES().filter((route) => route.routeFamily === routeFamily);
 
+export const hasSelectableVideoRoutes = (
+  routes: VideoRouteConfig[],
+  { directKeyOnly = false }: { directKeyOnly?: boolean } = {},
+) =>
+  Array.isArray(routes) &&
+  routes.some((route) => {
+    if (route.isActive === false) return false;
+    return directKeyOnly ? route.allowUserApiKeyWithoutLogin === true : true;
+  });
+
+export const hasActiveVideoRoutesForModel = (
+  videoModel: string,
+  { directKeyOnly = false }: { directKeyOnly?: boolean } = {},
+) => {
+  const modelConfig = getVideoModelById(videoModel);
+  const routeFamily = String(modelConfig?.routeFamily || '').trim();
+  if (!routeFamily) return false;
+  return hasSelectableVideoRoutes(getVideoRoutesByRouteFamily(routeFamily), { directKeyOnly });
+};
+
+export const getVisibleVideoModels = (
+  { directKeyOnly = false }: { directKeyOnly?: boolean } = {},
+) =>
+  getVideoModelOptions().filter(
+    (model) => model.isActive !== false && hasActiveVideoRoutesForModel(model.id, { directKeyOnly }),
+  );
+
 const buildUserFacingVideoRouteLabel = (line: string, fallbackLabel?: string) => {
   const normalizedLine = String(line || '').trim().toLowerCase();
   const lineMatch = normalizedLine.match(/^line\s*([0-9]+)$/i);
