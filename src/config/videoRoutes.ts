@@ -1,5 +1,5 @@
 ﻿import videoRouteCatalog from '../../config/videoRoutes.json';
-import { getVideoModelById } from './videoModels';
+import { getVideoModelById, getVideoModelOptions } from './videoModels';
 import { roundNonNegativePoint } from '../utils/pointFormat';
 
 export type VideoRouteTransport = 'openai-video';
