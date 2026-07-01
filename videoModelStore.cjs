@@ -97,6 +97,18 @@ const mapRowToModel = (row) => ({
   updatedAt: row.updated_at ? fromDbDateTime(row.updated_at) : null,
 });
 
+const normalizePublicVideoModelFlags = (model) => {
+  if (!model) return model;
+  const modelId = trimToString(model.id).toLowerCase();
+  if (modelId === 'sora-v3-pro' || modelId === 'sora-v3-fast') {
+    return {
+      ...model,
+      supportsHd: true,
+    };
+  }
+  return model;
+};
+
 const buildCatalogFromModels = (models, { includeInactive = false } = {}) => {
   const visibleModels = includeInactive ? [...models] : models.filter((model) => model.isActive !== false);
   const sortedModels = [...visibleModels].sort((left, right) => {
@@ -213,7 +225,7 @@ const getVideoModelCatalog = async ({ includeInactive = false } = {}) => {
   const [rows] = await pool.execute(
     `SELECT * FROM video_models ${includeInactive ? "" : "WHERE is_active = 1"} ORDER BY sort_order ASC, label ASC, model_id ASC`,
   );
-  return buildCatalogFromModels((rows || []).map((row) => mapRowToModel(row)), { includeInactive });
+  return buildCatalogFromModels((rows || []).map((row) => normalizePublicVideoModelFlags(mapRowToModel(row))), { includeInactive });
 };
 
 const getVideoModelById = async (modelId, { includeInactive = true } = {}) => {
@@ -229,7 +241,7 @@ const getVideoModelById = async (modelId, { includeInactive = true } = {}) => {
     `SELECT * FROM video_models WHERE model_id = ? ${includeInactive ? "" : "AND is_active = 1"} LIMIT 1`,
     [modelIdValue],
   );
-  return rows?.[0] ? mapRowToModel(rows[0]) : null;
+  return rows?.[0] ? normalizePublicVideoModelFlags(mapRowToModel(rows[0])) : null;
 };
 
 const getVideoModelByRequestModel = async (requestModel, { includeInactive = true } = {}) => {
@@ -245,7 +257,7 @@ const getVideoModelByRequestModel = async (requestModel, { includeInactive = tru
     `SELECT * FROM video_models WHERE (model_id = ? OR request_model = ?) ${includeInactive ? "" : "AND is_active = 1"} ORDER BY sort_order ASC LIMIT 1`,
     [requestModelValue, requestModelValue],
   );
-  return rows?.[0] ? mapRowToModel(rows[0]) : null;
+  return rows?.[0] ? normalizePublicVideoModelFlags(mapRowToModel(rows[0])) : null;
 };
 
 const requireMySqlVideoModelManagement = async () => {
