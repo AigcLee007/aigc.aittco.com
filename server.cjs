@@ -12,6 +12,9 @@ const {
   VIDEO_REFERENCE_UPLOAD_DIR,
   validateVideoReferenceUpload,
 } = require("./videoReferenceUpload.cjs");
+const {
+  normalizeVideoFramePayloadUrls,
+} = require("./videoFrameUpload.cjs");
 
 const localEnvPath = path.join(__dirname, ".env");
 if (typeof process.loadEnvFile === "function" && fs.existsSync(localEnvPath)) {
@@ -5661,6 +5664,11 @@ app.post("/api/video/generate", generateLimiter, async (req, res) => {
       keys: Object.keys(requestBody),
       has_image_url: !!requestBody.image_url,
       has_image: !!requestBody.image,
+      has_start_frame: !!requestBody.start_frame,
+      has_end_frame: !!requestBody.end_frame,
+      has_video_reference: !!requestBody.video_reference,
+      start_frame_prefix: requestBody.start_frame ? String(requestBody.start_frame).slice(0, 32) : null,
+      end_frame_prefix: requestBody.end_frame ? String(requestBody.end_frame).slice(0, 32) : null,
       prompt: requestBody.prompt,
       model: requestBody.model,
       options: {
@@ -5678,11 +5686,15 @@ app.post("/api/video/generate", generateLimiter, async (req, res) => {
       model: requestBody.model,
       prompt: requestBody.prompt?.substring(0, 50) + "...",
       hasImage: !!requestBody.image_url || !!requestBody.image,
+      hasStartFrame: !!requestBody.start_frame,
+      hasEndFrame: !!requestBody.end_frame,
+      hasVideoReference: !!requestBody.video_reference,
     });
 
     // ---- Grok Video compatibility mapping ----
     // Grok upstream expects different field names, so normalize the request body before forwarding it.
     const upstreamBody = { ...requestBody };
+    normalizeVideoFramePayloadUrls(upstreamBody, req);
     if (upstreamBody.model && String(upstreamBody.model).startsWith('grok-video')) {
       // aspect_ratio -> ratio
       if (upstreamBody.aspect_ratio !== undefined) {
@@ -5703,6 +5715,14 @@ app.post("/api/video/generate", generateLimiter, async (req, res) => {
         delete upstreamBody.image_url;
       }
       console.log("[Video Generate] Grok remapped body:", JSON.stringify(Object.keys(upstreamBody)));
+    }
+
+    if (upstreamBody.start_frame || upstreamBody.end_frame || upstreamBody.video_reference) {
+      console.log("[Video Generate] Reference media prepared:", {
+        startFramePrefix: upstreamBody.start_frame ? String(upstreamBody.start_frame).slice(0, 48) : null,
+        endFramePrefix: upstreamBody.end_frame ? String(upstreamBody.end_frame).slice(0, 48) : null,
+        videoReferencePrefix: upstreamBody.video_reference ? String(upstreamBody.video_reference).slice(0, 48) : null,
+      });
     }
 
     generationRecord = await buildGenerationRecordPayload({
