@@ -332,6 +332,7 @@ const shouldPersistRoute = (context = {}) => {
   return (
     routeId === LOCAL_LINE4_ROUTE_ID ||
     routeLine === "line4" ||
+    routeBaseUrl.includes("kuaiaiapi.com") ||
     routeBaseUrl.includes("visionary.beer") ||
     routeGeneratePath.includes("/openapi/v1/images/generations")
   );
