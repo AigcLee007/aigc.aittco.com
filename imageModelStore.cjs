@@ -200,15 +200,16 @@ const ensureImageModelSchema = async () => {
       }
 
       await withTransaction(async (connection) => {
-        const [countRows] = await connection.execute(
-          "SELECT COUNT(*) AS total FROM image_models",
+        const [existingRows] = await connection.execute(
+          "SELECT model_id FROM image_models",
         );
-        if (Number(countRows?.[0]?.total || 0) > 0) {
-          return;
-        }
-
+        const existingModelIds = new Set(
+          (Array.isArray(existingRows) ? existingRows : []).map((row) =>
+            trimToString(row.model_id),
+          ),
+        );
         const nowDb = toDbDateTime();
-        const rows = buildStaticRows();
+        const rows = buildStaticRows().filter((row) => !existingModelIds.has(row.model_id));
         for (const row of rows) {
           await connection.execute(
             `
