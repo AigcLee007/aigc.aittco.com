@@ -318,6 +318,7 @@ const ensureImageRouteSchema = async () => {
             );
           },
         );
+        const nowDb = toDbDateTime();
         for (const row of rows) {
           await connection.execute(
             `

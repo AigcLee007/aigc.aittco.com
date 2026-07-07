@@ -65,21 +65,31 @@ describe('generated asset persistence routing', () => {
 
   it('normalizes http URLs incorrectly wrapped as base64 data URLs before rewriting payloads', async () => {
     const url = 'https://visionary.beer/api/generations/id/image?token=abc';
+    const originalDownloadTimeout = process.env.GENERATED_ASSET_DOWNLOAD_TIMEOUT_MS;
+    process.env.GENERATED_ASSET_DOWNLOAD_TIMEOUT_MS = '1000';
 
-    const result = await persistGeneratedImageResults({
-      payload: {
-        data: [{ b64_json: `data:image/png;base64,${url}` }],
-      },
-      resultUrls: [`data:image/png;base64,${url}`],
-      context: {
-        routeId: LOCAL_LINE4_ROUTE_ID,
-        userId: 'test-user',
-        taskId: 'test-task',
-      },
-    });
+    try {
+      const result = await persistGeneratedImageResults({
+        payload: {
+          data: [{ b64_json: `data:image/png;base64,${url}` }],
+        },
+        resultUrls: [`data:image/png;base64,${url}`],
+        context: {
+          routeId: LOCAL_LINE4_ROUTE_ID,
+          userId: 'test-user',
+          taskId: 'test-task',
+        },
+      });
 
-    expect(result.resultUrls).toEqual([url]);
-    expect(result.payload.data[0].b64_json).toBe(url);
-    expect(result.payload.url).toBe(url);
+      expect(result.resultUrls).toEqual([url]);
+      expect(result.payload.data[0].b64_json).toBe(url);
+      expect(result.payload.url).toBe(url);
+    } finally {
+      if (originalDownloadTimeout === undefined) {
+        delete process.env.GENERATED_ASSET_DOWNLOAD_TIMEOUT_MS;
+      } else {
+        process.env.GENERATED_ASSET_DOWNLOAD_TIMEOUT_MS = originalDownloadTimeout;
+      }
+    }
   });
 });
