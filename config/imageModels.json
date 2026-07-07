@@ -60,6 +60,26 @@
       "isActive": true,
       "isDefaultModel": false,
       "sortOrder": 1
+    },
+    {
+      "id": "nano-banana-2-lite",
+      "label": "Nano Banana 2-Lite",
+      "description": "Nano Banana 2-Lite image generation",
+      "modelFamily": "nano-banana-2-lite",
+      "routeFamily": "nano-banana-2-lite",
+      "requestModel": "gemini-3.1-flash-image-preview",
+      "selectorCost": 5,
+      "iconKind": "banana",
+      "panelLayout": "nano-banana",
+      "sizeBehavior": "passthrough",
+      "defaultSize": "1k",
+      "sizeOptions": ["1k"],
+      "extraAspectRatios": [],
+      "showSizeSelector": true,
+      "supportsCustomRatio": true,
+      "isActive": true,
+      "isDefaultModel": false,
+      "sortOrder": 2
     }
   ]
 }
