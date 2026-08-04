@@ -21,6 +21,7 @@ generation-records.json
 announcement.json
 uploads/
 storage/
+.worktrees/
 .tmp-*.png
 tmp_*.png
 tmp_fix_*.ps1
