@@ -16,4 +16,17 @@ describe("image route store schema seeding", () => {
       "static route seeding must define nowDb before using it for created_at/updated_at",
     );
   });
+
+  it("normalizes mapped VISON routes through the compatibility layer", () => {
+    const source = fs.readFileSync(path.join(__dirname, "imageRouteStore.cjs"), "utf8");
+
+    assert.ok(
+      source.includes('require("./imageRouteCompatibility.cjs")'),
+      "image route store must load the compatibility layer",
+    );
+    assert.ok(
+      source.includes("normalizeImageRouteCompatibility({"),
+      "mapped database routes must pass through the compatibility layer",
+    );
+  });
 });

@@ -1,4 +1,7 @@
 const staticCatalog = require("./config/imageRoutes.json");
+const {
+  normalizeImageRouteCompatibility,
+} = require("./imageRouteCompatibility.cjs");
 const { toNonNegativePoint } = require("./pointMath.cjs");
 const {
   fromDbDateTime,
@@ -138,34 +141,35 @@ const getMergedSizeOverrides = (row) => ({
   ...normalizeSizeOverrides(row.size_overrides),
 });
 
-const mapRowToRoute = (row, { includeSecrets = false } = {}) => ({
-  id: trimToString(row.route_id),
-  label: trimToString(row.label || row.route_id),
-  description: trimToString(row.description || ""),
-  modelFamily: trimToString(row.model_family || "default"),
-  line: trimToString(row.line_value || "default"),
-  transport: trimToString(row.transport || "openai-image"),
-  mode: trimToString(row.mode || "async"),
-  baseUrl: trimTrailingSlash(row.base_url || ""),
-  generatePath: trimToString(row.generate_path || "/v1/images/generations"),
-  taskPath: trimToString(row.task_path || ""),
-  editPath: trimToString(row.edit_path || ""),
-  chatPath: trimToString(row.chat_path || ""),
-  upstreamModel: trimToString(row.upstream_model || ""),
-  useRequestModel: parseBoolean(row.use_request_model, false),
-  allowUserApiKeyWithoutLogin: parseBoolean(row.allow_user_api_key_without_login, false),
-  apiKeyEnv: trimToString(row.api_key_env || ""),
-  pointCost: parsePoint(row.point_cost, 0),
-  sizeOverrides: getMergedSizeOverrides(row),
-  sortOrder: parseInteger(row.sort_order, 0),
-  isActive: parseBoolean(row.is_active, true),
-  isDefaultRoute: parseBoolean(row.is_default_route, false),
-  isDefaultNanoBananaLine: parseBoolean(row.is_default_nano_banana_line, false),
-  hasApiKey: Boolean(trimToString(row.api_key || "")),
-  createdAt: row.created_at ? fromDbDateTime(row.created_at) : null,
-  updatedAt: row.updated_at ? fromDbDateTime(row.updated_at) : null,
-  ...(includeSecrets ? { apiKey: trimToString(row.api_key || "") } : {}),
-});
+const mapRowToRoute = (row, { includeSecrets = false } = {}) =>
+  normalizeImageRouteCompatibility({
+    id: trimToString(row.route_id),
+    label: trimToString(row.label || row.route_id),
+    description: trimToString(row.description || ""),
+    modelFamily: trimToString(row.model_family || "default"),
+    line: trimToString(row.line_value || "default"),
+    transport: trimToString(row.transport || "openai-image"),
+    mode: trimToString(row.mode || "async"),
+    baseUrl: trimTrailingSlash(row.base_url || ""),
+    generatePath: trimToString(row.generate_path || "/v1/images/generations"),
+    taskPath: trimToString(row.task_path || ""),
+    editPath: trimToString(row.edit_path || ""),
+    chatPath: trimToString(row.chat_path || ""),
+    upstreamModel: trimToString(row.upstream_model || ""),
+    useRequestModel: parseBoolean(row.use_request_model, false),
+    allowUserApiKeyWithoutLogin: parseBoolean(row.allow_user_api_key_without_login, false),
+    apiKeyEnv: trimToString(row.api_key_env || ""),
+    pointCost: parsePoint(row.point_cost, 0),
+    sizeOverrides: getMergedSizeOverrides(row),
+    sortOrder: parseInteger(row.sort_order, 0),
+    isActive: parseBoolean(row.is_active, true),
+    isDefaultRoute: parseBoolean(row.is_default_route, false),
+    isDefaultNanoBananaLine: parseBoolean(row.is_default_nano_banana_line, false),
+    hasApiKey: Boolean(trimToString(row.api_key || "")),
+    createdAt: row.created_at ? fromDbDateTime(row.created_at) : null,
+    updatedAt: row.updated_at ? fromDbDateTime(row.updated_at) : null,
+    ...(includeSecrets ? { apiKey: trimToString(row.api_key || "") } : {}),
+  });
 
 const buildCatalogFromRoutes = (routes, { includeInactive = false } = {}) => {
   const visibleRoutes = includeInactive
