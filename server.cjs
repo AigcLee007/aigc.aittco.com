@@ -119,6 +119,9 @@ const {
   LINE4_LOCAL_STORAGE_ROOT,
 } = require("./generatedAssetService.cjs");
 const { toPointNumber } = require("./pointMath.cjs");
+const {
+  getGeminiSingleImageRequestError,
+} = require("./imageRequestCount.cjs");
 
 // Logger Configuration
 const logger = winston.createLogger({
@@ -3388,22 +3391,10 @@ app.post("/api/generate", generateLimiter, async (req, res) => {
     delete requestBody.clientLiveTaskId;
     delete requestBody.clientLiveTaskIds;
     const routeMode = String(route?.mode || "").trim().toLowerCase();
-    const geminiRequestedCount = Math.max(
-      1,
-      Number.parseInt(
-        String(
-          requestBody.n ||
-            requestBody.candidateCount ||
-            requestBody.generationConfig?.candidateCount ||
-            requestBody.generationConfig?.candidate_count ||
-            1,
-        ),
-        10,
-      ) || 1,
-    );
-    if (isGeminiNativeRoute(route) && geminiRequestedCount > 1) {
+    const geminiMultiImageError = getGeminiSingleImageRequestError(requestBody);
+    if (isGeminiNativeRoute(route) && geminiMultiImageError) {
       return res.status(400).json({
-        error: "当前 Gemini 原生线路暂仅支持 1 张图片，请先选择 1 张生成。",
+        error: geminiMultiImageError,
       });
     }
     const pointCost = shouldUseBilling ? getRoutePointCost(route, requestBody.n, requestBody) : 0;
@@ -5492,6 +5483,13 @@ app.post("/api/gemini/generate", generateLimiter, async (req, res) => {
 
     if (!route || !isGeminiNativeRoute(route)) {
       return sendUserFacingGenerationError(res, 400, new Error("Gemini 图片线路不存在、已停用或不支持当前请求，请联系管理员"));
+    }
+
+    const geminiMultiImageError = getGeminiSingleImageRequestError(requestBody);
+    if (geminiMultiImageError) {
+      return res.status(400).json({
+        error: geminiMultiImageError,
+      });
     }
 
     billingAccount = await requireBillingAccount(req);
