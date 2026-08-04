@@ -46,6 +46,7 @@ import ImageModelIcon from './ImageModelIcon';
 import {
   extractErrorMessage,
 } from '../src/utils/errorDebug';
+import { buildPerImageRequestPlan } from '../src/utils/perImageRequestPlan';
 
 // Branding Icons are now in Logos.tsx
 
@@ -1084,95 +1085,97 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
 
       // Gemini native sync-only path.
       if (shouldUseGeminiNativeSync) {
-        const placeholderIds = onInitGenerations(quantity, currentPrompt, effectiveRatio);
         const mapSize = (s: string) => {
           const normalized = String(s || '1k').trim().toUpperCase();
           return /^\d+K$/.test(normalized) ? normalized : '1K';
         };
+        const attempts = buildPerImageRequestPlan(quantity).map((attempt) => {
+          const [placeholderId] = onInitGenerations(1, currentPrompt, effectiveRatio);
+          return { ...attempt, placeholderId };
+        });
 
-        const executeGeminiCall = async () => {
-          try {
-            const parts: any[] = [{ text: currentPrompt }];
-            
-            if (effectiveReferenceImages.length > 0) {
-              const srcs = effectiveReferenceImages.map(r => r.src);
-              for (const src of srcs) {
-                // Get clean base64 data (without prefix)
-                let base64Data = '';
-                let mimeType = 'image/jpeg';
-                
-                if (src.startsWith('data:')) {
-                  const match = src.match(/^data:([^;]+);base64,(.+)$/);
-                  if (match) {
-                    mimeType = match[1];
-                    base64Data = match[2];
-                  }
-                } else {
-                  // If it's a URL or blob URL, we need to fetch it first
-                  try {
-                    const res = await fetch(src);
-                    const blob = await res.blob();
-                    mimeType = blob.type;
-                    const reader = new FileReader();
-                    base64Data = await new Promise((resolve) => {
-                      reader.onloadend = () => {
-                        const result = reader.result as string;
-                        resolve(result.split(',')[1]);
-                      };
-                      reader.readAsDataURL(blob);
-                    });
-                  } catch (e) {
-                      console.error("Failed to fetch reference image for Gemini native call", e);
-                  }
-                }
+        const prepareGeminiParts = async () => {
+          const parts: any[] = [{ text: currentPrompt }];
+          const srcs = effectiveReferenceImages.map((reference) => reference.src);
 
-                if (base64Data) {
-                  parts.push({
-                    inlineData: {
-                      mimeType: mimeType,
-                      data: base64Data
-                    }
-                  });
-                }
+          for (const src of srcs) {
+            let base64Data = '';
+            let mimeType = 'image/jpeg';
+
+            if (src.startsWith('data:')) {
+              const match = src.match(/^data:([^;]+);base64,(.+)$/);
+              if (match) {
+                mimeType = match[1];
+                base64Data = match[2];
+              }
+            } else {
+              try {
+                const response = await fetch(src);
+                const blob = await response.blob();
+                mimeType = blob.type;
+                const reader = new FileReader();
+                base64Data = await new Promise((resolve) => {
+                  reader.onloadend = () => {
+                    const result = reader.result as string;
+                    resolve(result.split(',')[1]);
+                  };
+                  reader.readAsDataURL(blob);
+                });
+              } catch (error) {
+                console.error('Failed to fetch reference image for Gemini native call', error);
               }
             }
 
+            if (base64Data) {
+              parts.push({
+                inlineData: {
+                  mimeType,
+                  data: base64Data,
+                },
+              });
+            }
+          }
+
+          return parts;
+        };
+
+        const executeGeminiCall = async (
+          attempt: (typeof attempts)[number],
+          parts: any[],
+        ) => {
+          try {
             const payload: any = {
               model: modelName,
               modelId: selectedImageModelConfig.id,
-              prompt: currentPrompt, // Added as fallback for proxy validation
+              prompt: currentPrompt,
               aspect_ratio: effectiveRatio,
               image_size: mapSize(imageSize),
               routeId: selectedImageRoute.id,
               strict_native_config: true,
-              n: quantity,
+              n: attempt.n,
               contents: [
                 {
-                  role: "user",
-                  parts: parts
-                }
+                  role: 'user',
+                  parts,
+                },
               ],
               generationConfig: {
                 imageConfig: {
                   aspectRatio: effectiveRatio,
-                  imageSize: mapSize(imageSize)
+                  imageSize: mapSize(imageSize),
                 },
-                candidateCount: quantity
-              }
+                candidateCount: attempt.candidateCount,
+              },
             };
 
             const res: any = await generateGeminiImage(apiKey, payload);
-            console.log("[Gemini Native] Response received:", res);
-            
             const generatedImages: string[] = [];
-            
-            // 1. Handle native Gemini format (candidates array)
+
             if (res.candidates && Array.isArray(res.candidates)) {
               res.candidates.forEach((cand: any) => {
                 const parts = cand.content?.parts;
                 if (parts && Array.isArray(parts)) {
                   parts.forEach((part: any) => {
-                    // Handle both camelCase and snake_case
                     const inlineData = part.inlineData || part.inline_data;
                     if (inlineData && inlineData.data) {
                       const mimeType = inlineData.mimeType || inlineData.mime_type || 'image/png';
@@ -1181,45 +1184,42 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
                   });
                 }
               });
-            } 
-            // 2. Handle proxy format ({success: true, images: [...]})
-            else if (res.images && Array.isArray(res.images)) {
+            } else if (res.images && Array.isArray(res.images)) {
               generatedImages.push(...res.images);
-            }
-            // 3. Handle OpenAI-like format ({data: [{url: ...}]})
-            else if (res.data && Array.isArray(res.data)) {
-               res.data.forEach((item: any) => {
-                  if (item.url) generatedImages.push(item.url);
-                  else if (item.b64_json) {
-                    const normalized = normalizeImageResultValue(item.b64_json);
-                    if (normalized) generatedImages.push(normalized);
-                  }
-               });
-            }
-
-            if (generatedImages.length > 0) {
-              generatedImages.forEach((imgData, idx) => {
-                if (placeholderIds[idx]) {
-                  onUpdateGeneration(placeholderIds[idx], imgData);
+            } else if (res.data && Array.isArray(res.data)) {
+              res.data.forEach((item: any) => {
+                if (item.url) generatedImages.push(item.url);
+                else if (item.b64_json) {
+                  const normalized = normalizeImageResultValue(item.b64_json);
+                  if (normalized) generatedImages.push(normalized);
                 }
               });
-              // Fail remaining placeholders if any
-              if (generatedImages.length < quantity) {
-                for (let i = generatedImages.length; i < quantity; i++) {
-                   onUpdateGeneration(placeholderIds[i], null, GENERATION_FALLBACK_MESSAGE);
-                }
-              }
-            } else {
-              throw new Error(GENERATION_FALLBACK_MESSAGE);
             }
-          } catch (err: any) {
-            console.error("Gemini Native Call Error:", err);
-            const nextError = toDisplayGenerationError(err);
-            placeholderIds.forEach(pid => onUpdateGeneration(pid, null, nextError));
+
+            const image = generatedImages[0];
+            if (!image) throw new Error(GENERATION_FALLBACK_MESSAGE);
+            onUpdateGeneration(attempt.placeholderId, image);
+          } catch (error: any) {
+            console.error('Gemini Native Call Error:', error);
+            onUpdateGeneration(
+              attempt.placeholderId,
+              null,
+              toDisplayGenerationError(error),
+            );
           }
         };
 
-        executeGeminiCall();
+        void (async () => {
+          try {
+            const parts = await prepareGeminiParts();
+            await Promise.all(attempts.map((attempt) => executeGeminiCall(attempt, parts)));
+          } catch (error: any) {
+            const message = toDisplayGenerationError(error);
+            attempts.forEach(({ placeholderId }) => {
+              onUpdateGeneration(placeholderId, null, message);
+            });
+          }
+        })();
       } else if (effectiveReferenceImages.length > 0) {
         // Extract srcs from ReferenceImage objects
 	        const refSrcs = effectiveReferenceImages.map(r => r.src);
