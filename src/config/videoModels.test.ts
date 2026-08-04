@@ -41,5 +41,15 @@ describe('PixelHub video catalog', () => {
       'sora-v3-pro-line1',
       'veo31-fast-line1',
     ]);
+
+    for (const targetModel of targetCatalog.models) {
+      expect(modelCatalog.models.find((model) => model.id === targetModel.id))
+        .toEqual(targetModel);
+    }
+
+    for (const targetRoute of targetCatalog.routes) {
+      expect(routeCatalog.routes.find((route) => route.id === targetRoute.id))
+        .toEqual(targetRoute);
+    }
   });
 });
