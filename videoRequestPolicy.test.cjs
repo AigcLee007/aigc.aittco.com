@@ -75,5 +75,18 @@ describe('normalizePixelHubVideoRequest', () => {
       prompt: 'test', aspectRatio: '16:9', resolution: '720p', duration: 4,
       referenceImages: Array.from({ length: 6 }, (_, index) => `https://app.test/${index}.jpg`), referenceVideos: [],
     }, 'gemini-omni-flash'), /image/i);
+    assert.throws(() => request({
+      prompt: 'test', aspectRatio: '16:9', resolution: '720p', duration: 4,
+      referenceImages: Array.from({ length: 5 }, (_, index) => `https://app.test/${index}.jpg`),
+      referenceVideos: ['https://app.test/video.mp4', 'https://app.test/video-2.mp4'],
+    }, 'gemini-omni-flash'), /video|total/i);
+  });
+
+  it('rejects models outside the active PixelHub catalog', () => {
+    assert.throws(() => normalizePixelHubVideoRequest({
+      body: { prompt: 'test', aspectRatio: '16:9', resolution: '720p', duration: 4, referenceImages: [], referenceVideos: [] },
+      model: { ...model('gemini-omni-flash'), id: 'other-model', requestModel: 'other-model' },
+      upstreamModel: 'other-model',
+    }), /upstream model/i);
   });
 });

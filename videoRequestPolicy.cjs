@@ -1,4 +1,6 @@
 const { toNonNegativePoint } = require('./pointMath.cjs');
+const targetCatalog = require('./config/pixelhubVideoCatalog.json');
+const TARGET_MODEL_IDS = new Set((targetCatalog.models || []).map((model) => String(model.id || '')));
 
 const badRequest = (message) => {
   const error = new Error(message);
@@ -44,6 +46,7 @@ const requirePromptLength = (prompt, maxLength) => {
 
 const normalizePixelHubVideoRequest = ({ body = {}, model, upstreamModel }) => {
   if (!model || typeof model !== 'object') throw badRequest('video model is required');
+  if (!TARGET_MODEL_IDS.has(String(model.id || ''))) throw badRequest('upstream model does not match the selected model');
   const prompt = String(body.prompt || '').trim();
   const aspectRatio = String(body.aspectRatio || '').trim();
   const resolution = String(body.resolution || '').trim().toLowerCase();
