@@ -1,0 +1,79 @@
+const assert = require('assert');
+const catalog = require('./config/pixelhubVideoCatalog.json');
+const { normalizePixelHubVideoRequest } = require('./videoRequestPolicy.cjs');
+
+const model = (id) => catalog.models.find((item) => item.id === id);
+const request = (body, modelId) => normalizePixelHubVideoRequest({
+  body,
+  model: model(modelId),
+  upstreamModel: model(modelId).requestModel,
+});
+
+describe('normalizePixelHubVideoRequest', () => {
+  it('builds Gemini references and charges one point per second', () => {
+    const result = request({
+      prompt: 'city at night', aspectRatio: '16:9', resolution: '1080p', duration: 10,
+      referenceImages: ['https://app.test/a.jpg'], referenceVideos: ['https://app.test/a.mp4'],
+    }, 'gemini-omni-flash');
+    assert.strictEqual(result.pointCost, 10);
+    assert.deepStrictEqual(result.upstreamBody, {
+      model: 'gemini-omni-flash', prompt: 'city at night', aspect_ratio: '16:9', duration: 10,
+      resolution: '1080p', generate_audio: true, reference_image_urls: ['https://app.test/a.jpg'],
+      reference_videos: ['https://app.test/a.mp4'],
+    });
+  });
+
+  it('builds Sora references and charges ten points per second', () => {
+    const result = request({
+      prompt: 'portrait motion', aspectRatio: '1:1', resolution: '720p', duration: 15,
+      referenceImages: ['https://app.test/1.jpg'], referenceVideos: ['https://app.test/1.mp4'],
+    }, 'sora-v3-pro');
+    assert.strictEqual(result.pointCost, 150);
+    assert.deepStrictEqual(result.upstreamBody.reference_image_urls, ['https://app.test/1.jpg']);
+    assert.deepStrictEqual(result.upstreamBody.reference_videos, ['https://app.test/1.mp4']);
+  });
+
+  it('maps Veo references to ordered frame URLs', () => {
+    const result = request({
+      prompt: 'camera move', aspectRatio: '9:16', resolution: '1080p', duration: 4,
+      referenceImages: ['https://app.test/start.jpg', 'https://app.test/end.jpg'], referenceVideos: [],
+    }, 'veo31-fast');
+    assert.strictEqual(result.pointCost, 2);
+    assert.deepStrictEqual(result.upstreamBody.image_urls, ['https://app.test/start.jpg', 'https://app.test/end.jpg']);
+    assert.ok(!('reference_videos' in result.upstreamBody));
+  });
+
+  it('rejects unsupported values and legacy request fields before billing', () => {
+    assert.throws(() => request({
+      prompt: 'test', aspectRatio: '1:1', resolution: '720p', duration: 4,
+      referenceImages: [], referenceVideos: [],
+    }, 'gemini-omni-flash'), /aspect ratio/i);
+    assert.throws(() => request({
+      prompt: 'test', aspectRatio: '16:9', resolution: '720p', duration: 4.5,
+      referenceImages: [], referenceVideos: [],
+    }, 'gemini-omni-flash'), /integer/i);
+    assert.throws(() => request({
+      prompt: 'test', aspectRatio: '16:9', resolution: '720p', duration: 4,
+      referenceImages: [], referenceVideos: [], hd: true,
+    }, 'gemini-omni-flash'), /not supported/i);
+  });
+
+  it('rejects bad references, unsupported video, prompt, and count overflow', () => {
+    assert.throws(() => request({
+      prompt: 'test', aspectRatio: '16:9', resolution: '1080p', duration: 4,
+      referenceImages: ['data:image/png;base64,abc'], referenceVideos: [],
+    }, 'gemini-omni-flash'), /http/i);
+    assert.throws(() => request({
+      prompt: 'test', aspectRatio: '16:9', resolution: '1080p', duration: 4,
+      referenceImages: [], referenceVideos: ['https://app.test/v.mp4'],
+    }, 'veo31-fast'), /video/i);
+    assert.throws(() => request({
+      prompt: 'x'.repeat(2501), aspectRatio: '16:9', resolution: '720p', duration: 4,
+      referenceImages: [], referenceVideos: [],
+    }, 'sora-v3-pro'), /prompt/i);
+    assert.throws(() => request({
+      prompt: 'test', aspectRatio: '16:9', resolution: '720p', duration: 4,
+      referenceImages: Array.from({ length: 6 }, (_, index) => `https://app.test/${index}.jpg`), referenceVideos: [],
+    }, 'gemini-omni-flash'), /image/i);
+  });
+});
