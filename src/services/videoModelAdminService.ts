@@ -34,11 +34,18 @@ export interface AdminVideoModelPayload {
   pricingMode?: 'fixed' | 'per_second';
   pointCostPerSecond?: number;
   maxReferenceImages?: number;
+  maxReferenceVideos?: number;
+  maxTotalReferences?: number;
+  referenceImageMode?: 'style' | 'general' | 'frames';
+  supportsVideoReference?: boolean;
   referenceLabels?: string[];
   defaultAspectRatio?: string;
   aspectRatioOptions?: string[];
+  defaultResolution?: string;
+  resolutionOptions?: string[];
   defaultDuration?: string;
   durationOptions?: string[];
+  promptMaxLength?: number | null;
   supportsHd?: boolean;
   defaultHd?: boolean;
   isActive?: boolean;

@@ -12,11 +12,18 @@ export interface VideoModelConfig {
   pricingMode?: 'fixed' | 'per_second';
   pointCostPerSecond?: number;
   maxReferenceImages?: number;
+  maxReferenceVideos?: number;
+  maxTotalReferences?: number;
+  referenceImageMode?: 'style' | 'general' | 'frames';
+  supportsVideoReference?: boolean;
   referenceLabels?: string[];
   defaultAspectRatio?: string;
   aspectRatioOptions?: string[];
+  defaultResolution?: string;
+  resolutionOptions?: string[];
   defaultDuration?: string;
   durationOptions?: string[];
+  promptMaxLength?: number | null;
   supportsHd?: boolean;
   defaultHd?: boolean;
   isActive?: boolean;
@@ -69,11 +76,22 @@ const normalizeModel = (model: Partial<VideoModelConfig> = {}): VideoModelConfig
   pricingMode: model.pricingMode === 'per_second' ? 'per_second' : 'fixed',
   pointCostPerSecond: roundNonNegativePoint(model.pointCostPerSecond || 0, 0),
   maxReferenceImages: Math.max(0, Number(model.maxReferenceImages || 1)),
+  maxReferenceVideos: Math.max(0, Number(model.maxReferenceVideos || 0)),
+  maxTotalReferences: Math.max(0, Number(model.maxTotalReferences || model.maxReferenceImages || 1)),
+  referenceImageMode: ['style', 'general', 'frames'].includes(String(model.referenceImageMode || 'general'))
+    ? model.referenceImageMode
+    : 'general',
+  supportsVideoReference: model.supportsVideoReference === true,
   referenceLabels: normalizeStringArray(model.referenceLabels || []),
   defaultAspectRatio: String(model.defaultAspectRatio || '16:9').trim(),
   aspectRatioOptions: normalizeStringArray(model.aspectRatioOptions || ['16:9', '9:16']),
+  defaultResolution: String(model.defaultResolution || '720p').trim(),
+  resolutionOptions: normalizeStringArray(model.resolutionOptions || ['720p']),
   defaultDuration: String(model.defaultDuration || '4').trim(),
   durationOptions: normalizeStringArray(model.durationOptions || ['4', '6', '8']),
+  promptMaxLength: model.promptMaxLength === null || model.promptMaxLength === undefined
+    ? null
+    : Math.max(0, Number(model.promptMaxLength) || 0),
   supportsHd: model.supportsHd === true,
   defaultHd: model.defaultHd === true,
   isActive: model.isActive !== false,
@@ -177,6 +195,18 @@ export const getVideoModelById = (modelId?: string): VideoModelConfig => {
 export const getVideoModelOptions = () => VIDEO_MODELS();
 export const getVideoModelAspectRatioOptions = (modelId?: string) => getVideoModelById(modelId).aspectRatioOptions || ['16:9', '9:16'];
 export const getVideoModelDurationOptions = (modelId?: string) => getVideoModelById(modelId).durationOptions || ['4', '6', '8'];
+export const getVideoModelResolutionOptions = (modelId?: string) =>
+  getVideoModelById(modelId).resolutionOptions || ['720p'];
+export const getDefaultVideoResolutionForModel = (modelId?: string) =>
+  getVideoModelById(modelId).defaultResolution || getVideoModelResolutionOptions(modelId)[0] || '720p';
+export const getVideoModelMaxReferenceVideos = (modelId?: string) =>
+  Math.max(0, Number(getVideoModelById(modelId).maxReferenceVideos || 0));
+export const getVideoModelMaxTotalReferences = (modelId?: string) =>
+  Math.max(0, Number(getVideoModelById(modelId).maxTotalReferences || 0));
+export const getVideoModelReferenceImageMode = (modelId?: string) =>
+  getVideoModelById(modelId).referenceImageMode || 'general';
+export const getVideoModelSupportsVideoReference = (modelId?: string) =>
+  getVideoModelById(modelId).supportsVideoReference === true;
 export const getDefaultVideoAspectRatioForModel = (modelId?: string) =>
   getVideoModelById(modelId).defaultAspectRatio || getVideoModelAspectRatioOptions(modelId)[0] || '16:9';
 export const getDefaultVideoDurationForModel = (modelId?: string) =>

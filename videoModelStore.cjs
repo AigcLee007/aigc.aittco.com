@@ -20,6 +20,14 @@ const parseInteger = (value, fallback = 0) => {
 const parseDecimal = (value, fallback = 0) => {
   return toNonNegativePoint(value, fallback);
 };
+const parseNullableInteger = (value) => {
+  if (value === null || value === undefined || trimToString(value) === "") return null;
+  return Math.max(0, parseInteger(value, 0));
+};
+const normalizeReferenceImageMode = (value) => {
+  const normalized = trimToString(value || "general").toLowerCase();
+  return ["style", "general", "frames"].includes(normalized) ? normalized : "general";
+};
 const normalizeStringArray = (value = []) => {
   const input = Array.isArray(value)
     ? value
@@ -53,11 +61,18 @@ const normalizeStaticModel = (model, index) => ({
   pricing_mode: trimToString(model.pricingMode || "fixed") === "per_second" ? "per_second" : "fixed",
   point_cost_per_second: parseDecimal(model.pointCostPerSecond, 0),
   max_reference_images: Math.max(0, parseInteger(model.maxReferenceImages, 1)),
+  max_reference_videos: Math.max(0, parseInteger(model.maxReferenceVideos, 0)),
+  max_total_references: Math.max(0, parseInteger(model.maxTotalReferences, model.maxReferenceImages ?? 1)),
+  reference_image_mode: normalizeReferenceImageMode(model.referenceImageMode),
+  supports_video_reference: parseBoolean(model.supportsVideoReference, false),
   reference_labels_json: encodeJson(model.referenceLabels || []),
   default_aspect_ratio: trimToString(model.defaultAspectRatio || "16:9"),
   aspect_ratio_options_json: encodeJson(model.aspectRatioOptions || ["16:9", "9:16"]),
+  default_resolution: trimToString(model.defaultResolution || "720p"),
+  resolution_options_json: encodeJson(model.resolutionOptions || ["720p"]),
   default_duration: trimToString(model.defaultDuration || "4"),
   duration_options_json: encodeJson(model.durationOptions || ["4", "6", "8"]),
+  prompt_max_length: parseNullableInteger(model.promptMaxLength),
   supports_hd: parseBoolean(model.supportsHd, false),
   default_hd: parseBoolean(model.defaultHd, false),
   is_active: parseBoolean(model.isActive, true),
@@ -83,11 +98,18 @@ const mapRowToModel = (row) => ({
   pricingMode: trimToString(row.pricing_mode || "fixed") === "per_second" ? "per_second" : "fixed",
   pointCostPerSecond: parseDecimal(row.point_cost_per_second, 0),
   maxReferenceImages: Math.max(0, parseInteger(row.max_reference_images, 1)),
+  maxReferenceVideos: Math.max(0, parseInteger(row.max_reference_videos, 0)),
+  maxTotalReferences: Math.max(0, parseInteger(row.max_total_references, row.max_reference_images ?? 1)),
+  referenceImageMode: normalizeReferenceImageMode(row.reference_image_mode),
+  supportsVideoReference: parseBoolean(row.supports_video_reference, false),
   referenceLabels: parseJsonArray(row.reference_labels_json),
   defaultAspectRatio: trimToString(row.default_aspect_ratio || "16:9"),
   aspectRatioOptions: parseJsonArray(row.aspect_ratio_options_json),
+  defaultResolution: trimToString(row.default_resolution || "720p"),
+  resolutionOptions: parseJsonArray(row.resolution_options_json),
   defaultDuration: trimToString(row.default_duration || "4"),
   durationOptions: parseJsonArray(row.duration_options_json),
+  promptMaxLength: parseNullableInteger(row.prompt_max_length),
   supportsHd: parseBoolean(row.supports_hd, false),
   defaultHd: parseBoolean(row.default_hd, false),
   isActive: parseBoolean(row.is_active, true),
@@ -96,18 +118,6 @@ const mapRowToModel = (row) => ({
   createdAt: row.created_at ? fromDbDateTime(row.created_at) : null,
   updatedAt: row.updated_at ? fromDbDateTime(row.updated_at) : null,
 });
-
-const normalizePublicVideoModelFlags = (model) => {
-  if (!model) return model;
-  const modelId = trimToString(model.id).toLowerCase();
-  if (modelId === 'sora-v3-pro' || modelId === 'sora-v3-fast') {
-    return {
-      ...model,
-      supportsHd: true,
-    };
-  }
-  return model;
-};
 
 const buildCatalogFromModels = (models, { includeInactive = false } = {}) => {
   const visibleModels = includeInactive ? [...models] : models.filter((model) => model.isActive !== false);
@@ -149,11 +159,18 @@ const ensureVideoModelSchema = async () => {
           pricing_mode VARCHAR(24) NOT NULL DEFAULT 'fixed',
           point_cost_per_second DECIMAL(10,1) NOT NULL DEFAULT 0,
           max_reference_images INT NOT NULL DEFAULT 1,
+          max_reference_videos INT NOT NULL DEFAULT 0,
+          max_total_references INT NOT NULL DEFAULT 1,
+          reference_image_mode VARCHAR(24) NOT NULL DEFAULT 'general',
+          supports_video_reference TINYINT(1) NOT NULL DEFAULT 0,
           reference_labels_json LONGTEXT NOT NULL,
           default_aspect_ratio VARCHAR(16) NOT NULL DEFAULT '16:9',
           aspect_ratio_options_json LONGTEXT NOT NULL,
+          default_resolution VARCHAR(16) NOT NULL DEFAULT '720p',
+          resolution_options_json LONGTEXT NOT NULL,
           default_duration VARCHAR(16) NOT NULL DEFAULT '4',
           duration_options_json LONGTEXT NOT NULL,
+          prompt_max_length INT NULL,
           supports_hd TINYINT(1) NOT NULL DEFAULT 0,
           default_hd TINYINT(1) NOT NULL DEFAULT 0,
           is_active TINYINT(1) NOT NULL DEFAULT 1,
@@ -186,6 +203,13 @@ const ensureVideoModelSchema = async () => {
       };
       await ensureColumn("ALTER TABLE video_models ADD COLUMN pricing_mode VARCHAR(24) NOT NULL DEFAULT 'fixed' AFTER selector_cost");
       await ensureColumn("ALTER TABLE video_models ADD COLUMN point_cost_per_second DECIMAL(10,1) NOT NULL DEFAULT 0 AFTER pricing_mode");
+      await ensureColumn("ALTER TABLE video_models ADD COLUMN max_reference_videos INT NOT NULL DEFAULT 0 AFTER max_reference_images");
+      await ensureColumn("ALTER TABLE video_models ADD COLUMN max_total_references INT NOT NULL DEFAULT 1 AFTER max_reference_videos");
+      await ensureColumn("ALTER TABLE video_models ADD COLUMN reference_image_mode VARCHAR(24) NOT NULL DEFAULT 'general' AFTER max_total_references");
+      await ensureColumn("ALTER TABLE video_models ADD COLUMN supports_video_reference TINYINT(1) NOT NULL DEFAULT 0 AFTER reference_image_mode");
+      await ensureColumn("ALTER TABLE video_models ADD COLUMN default_resolution VARCHAR(16) NOT NULL DEFAULT '720p' AFTER aspect_ratio_options_json");
+      await ensureColumn("ALTER TABLE video_models ADD COLUMN resolution_options_json LONGTEXT NOT NULL AFTER default_resolution");
+      await ensureColumn("ALTER TABLE video_models ADD COLUMN prompt_max_length INT NULL AFTER duration_options_json");
 
       await withTransaction(async (connection) => {
         const nowDb = toDbDateTime();
@@ -193,16 +217,19 @@ const ensureVideoModelSchema = async () => {
           await connection.execute(
             `INSERT IGNORE INTO video_models (
               model_id,label,description,model_family,route_family,request_model,selector_cost,pricing_mode,point_cost_per_second,
-              max_reference_images,reference_labels_json,default_aspect_ratio,aspect_ratio_options_json,
-              default_duration,duration_options_json,supports_hd,default_hd,is_active,is_default_model,
+              max_reference_images,max_reference_videos,max_total_references,reference_image_mode,supports_video_reference,
+              reference_labels_json,default_aspect_ratio,aspect_ratio_options_json,default_resolution,resolution_options_json,
+              default_duration,duration_options_json,prompt_max_length,supports_hd,default_hd,is_active,is_default_model,
               sort_order,created_at,updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
               row.model_id, row.label, row.description, row.model_family, row.route_family, row.request_model,
               row.selector_cost, row.pricing_mode, row.point_cost_per_second,
-              row.max_reference_images, row.reference_labels_json, row.default_aspect_ratio,
-              row.aspect_ratio_options_json, row.default_duration, row.duration_options_json, row.supports_hd ? 1 : 0,
-              row.default_hd ? 1 : 0, row.is_active ? 1 : 0, row.is_default_model ? 1 : 0, row.sort_order, nowDb, nowDb,
+              row.max_reference_images, row.max_reference_videos, row.max_total_references, row.reference_image_mode,
+              row.supports_video_reference ? 1 : 0, row.reference_labels_json, row.default_aspect_ratio,
+              row.aspect_ratio_options_json, row.default_resolution, row.resolution_options_json, row.default_duration,
+              row.duration_options_json, row.prompt_max_length, row.supports_hd ? 1 : 0, row.default_hd ? 1 : 0,
+              row.is_active ? 1 : 0, row.is_default_model ? 1 : 0, row.sort_order, nowDb, nowDb,
             ],
           );
         }
@@ -225,7 +252,7 @@ const getVideoModelCatalog = async ({ includeInactive = false } = {}) => {
   const [rows] = await pool.execute(
     `SELECT * FROM video_models ${includeInactive ? "" : "WHERE is_active = 1"} ORDER BY sort_order ASC, label ASC, model_id ASC`,
   );
-  return buildCatalogFromModels((rows || []).map((row) => normalizePublicVideoModelFlags(mapRowToModel(row))), { includeInactive });
+  return buildCatalogFromModels((rows || []).map(mapRowToModel), { includeInactive });
 };
 
 const getVideoModelById = async (modelId, { includeInactive = true } = {}) => {
@@ -241,7 +268,7 @@ const getVideoModelById = async (modelId, { includeInactive = true } = {}) => {
     `SELECT * FROM video_models WHERE model_id = ? ${includeInactive ? "" : "AND is_active = 1"} LIMIT 1`,
     [modelIdValue],
   );
-  return rows?.[0] ? normalizePublicVideoModelFlags(mapRowToModel(rows[0])) : null;
+  return rows?.[0] ? mapRowToModel(rows[0]) : null;
 };
 
 const getVideoModelByRequestModel = async (requestModel, { includeInactive = true } = {}) => {
@@ -257,7 +284,7 @@ const getVideoModelByRequestModel = async (requestModel, { includeInactive = tru
     `SELECT * FROM video_models WHERE (model_id = ? OR request_model = ?) ${includeInactive ? "" : "AND is_active = 1"} ORDER BY sort_order ASC LIMIT 1`,
     [requestModelValue, requestModelValue],
   );
-  return rows?.[0] ? normalizePublicVideoModelFlags(mapRowToModel(rows[0])) : null;
+  return rows?.[0] ? mapRowToModel(rows[0]) : null;
 };
 
 const requireMySqlVideoModelManagement = async () => {
@@ -293,6 +320,14 @@ const validateModelPayload = (input = {}, { partial = false } = {}) => {
     next.point_cost_per_second = Math.max(0, parseDecimal(input.pointCostPerSecond, 0));
   }
   if (!partial || Object.prototype.hasOwnProperty.call(input, "maxReferenceImages")) next.max_reference_images = Math.max(0, parseInteger(input.maxReferenceImages, 1));
+  if (!partial || Object.prototype.hasOwnProperty.call(input, "maxReferenceVideos")) next.max_reference_videos = Math.max(0, parseInteger(input.maxReferenceVideos, 0));
+  if (!partial || Object.prototype.hasOwnProperty.call(input, "maxTotalReferences")) next.max_total_references = Math.max(0, parseInteger(input.maxTotalReferences, input.maxReferenceImages ?? 1));
+  if (!partial || Object.prototype.hasOwnProperty.call(input, "referenceImageMode")) {
+    const mode = trimToString(input.referenceImageMode || "general").toLowerCase();
+    if (mode && !["style", "general", "frames"].includes(mode)) throw new Error("Reference image mode must be style, general, or frames");
+    next.reference_image_mode = normalizeReferenceImageMode(mode);
+  }
+  if (!partial || Object.prototype.hasOwnProperty.call(input, "supportsVideoReference")) next.supports_video_reference = parseBoolean(input.supportsVideoReference, false) ? 1 : 0;
   if (!partial || Object.prototype.hasOwnProperty.call(input, "referenceLabels")) next.reference_labels_json = JSON.stringify(normalizeStringArray(input.referenceLabels));
   if (!partial || Object.prototype.hasOwnProperty.call(input, "defaultAspectRatio")) next.default_aspect_ratio = trimToString(input.defaultAspectRatio || "16:9") || "16:9";
   if (!partial || Object.prototype.hasOwnProperty.call(input, "aspectRatioOptions")) {
@@ -300,11 +335,33 @@ const validateModelPayload = (input = {}, { partial = false } = {}) => {
     if (!partial && values.length === 0) throw new Error("At least one aspect ratio option is required");
     next.aspect_ratio_options_json = JSON.stringify(values);
   }
+  if (!partial || Object.prototype.hasOwnProperty.call(input, "defaultResolution")) next.default_resolution = trimToString(input.defaultResolution || "720p") || "720p";
+  if (!partial || Object.prototype.hasOwnProperty.call(input, "resolutionOptions")) {
+    const values = normalizeStringArray(input.resolutionOptions);
+    if (!partial && values.length === 0) throw new Error("At least one resolution option is required");
+    next.resolution_options_json = JSON.stringify(values);
+  }
   if (!partial || Object.prototype.hasOwnProperty.call(input, "defaultDuration")) next.default_duration = trimToString(input.defaultDuration || "4") || "4";
   if (!partial || Object.prototype.hasOwnProperty.call(input, "durationOptions")) {
     const values = normalizeStringArray(input.durationOptions);
     if (!partial && values.length === 0) throw new Error("At least one duration option is required");
     next.duration_options_json = JSON.stringify(values);
+  }
+  if (!partial || Object.prototype.hasOwnProperty.call(input, "promptMaxLength")) next.prompt_max_length = parseNullableInteger(input.promptMaxLength);
+
+  if (!partial) {
+    const aspectRatios = parseJsonArray(next.aspect_ratio_options_json);
+    const resolutions = parseJsonArray(next.resolution_options_json);
+    const durations = parseJsonArray(next.duration_options_json);
+    if (!aspectRatios.includes(next.default_aspect_ratio)) throw new Error("Default aspect ratio must be in aspect ratio options");
+    if (!resolutions.includes(next.default_resolution)) throw new Error("Default resolution must be in resolution options");
+    if (!durations.includes(next.default_duration)) throw new Error("Default duration must be in duration options");
+    if (next.max_total_references < next.max_reference_images || next.max_total_references < next.max_reference_videos) {
+      throw new Error("Maximum total references must cover each reference limit");
+    }
+    if (next.reference_image_mode === "frames" && next.supports_video_reference) {
+      throw new Error("Frame reference models cannot support reference videos");
+    }
   }
   if (!partial || Object.prototype.hasOwnProperty.call(input, "supportsHd")) next.supports_hd = parseBoolean(input.supportsHd, false) ? 1 : 0;
   if (!partial || Object.prototype.hasOwnProperty.call(input, "defaultHd")) next.default_hd = parseBoolean(input.defaultHd, false) ? 1 : 0;
@@ -329,17 +386,21 @@ const createManagedVideoModel = async (input = {}) => {
     if (payload.is_default_model) await connection.execute("UPDATE video_models SET is_default_model = 0");
     await connection.execute(
       `INSERT INTO video_models (
-        model_id,label,description,model_family,route_family,request_model,selector_cost,pricing_mode,point_cost_per_second,max_reference_images,
-        reference_labels_json,default_aspect_ratio,aspect_ratio_options_json,default_duration,duration_options_json,
-        supports_hd,default_hd,is_active,is_default_model,sort_order,created_at,updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        model_id,label,description,model_family,route_family,request_model,selector_cost,pricing_mode,point_cost_per_second,
+        max_reference_images,max_reference_videos,max_total_references,reference_image_mode,supports_video_reference,
+        reference_labels_json,default_aspect_ratio,aspect_ratio_options_json,default_resolution,resolution_options_json,
+        default_duration,duration_options_json,prompt_max_length,supports_hd,default_hd,is_active,is_default_model,sort_order,created_at,updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         payload.model_id, payload.label, payload.description || null, payload.model_family, payload.route_family || "default",
         payload.request_model || null, payload.selector_cost || 0, payload.pricing_mode || "fixed", payload.point_cost_per_second || 0,
-        payload.max_reference_images ?? 1,
+        payload.max_reference_images ?? 1, payload.max_reference_videos ?? 0, payload.max_total_references ?? 1,
+        payload.reference_image_mode || "general", payload.supports_video_reference ?? 0,
         payload.reference_labels_json || JSON.stringify([]), payload.default_aspect_ratio || "16:9",
-        payload.aspect_ratio_options_json || JSON.stringify(["16:9", "9:16"]), payload.default_duration || "4",
-        payload.duration_options_json || JSON.stringify(["4", "6", "8"]), payload.supports_hd ?? 0, payload.default_hd ?? 0,
+        payload.aspect_ratio_options_json || JSON.stringify(["16:9", "9:16"]), payload.default_resolution || "720p",
+        payload.resolution_options_json || JSON.stringify(["720p"]), payload.default_duration || "4",
+        payload.duration_options_json || JSON.stringify(["4", "6", "8"]), payload.prompt_max_length ?? null,
+        payload.supports_hd ?? 0, payload.default_hd ?? 0,
         payload.is_active ?? 1, payload.is_default_model || 0, payload.sort_order || 0, nowDb, nowDb,
       ],
     );
