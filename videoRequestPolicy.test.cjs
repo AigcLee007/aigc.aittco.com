@@ -65,6 +65,13 @@ describe('normalizePixelHubVideoRequest', () => {
     assert.ok(!('reference_videos' in result.upstreamBody));
   });
 
+  it('rejects an unsupported aspect ratio before billing', () => {
+    assert.throws(() => request({
+      prompt: 'test', aspectRatio: '1:1', resolution: '720p', duration: 4,
+      referenceImages: [], referenceVideos: [],
+    }, 'gemini-omni-flash'), /aspect ratio/i);
+  });
+
   it('rejects an unsupported resolution before billing', () => {
     assert.throws(() => request({
       prompt: 'test', aspectRatio: '16:9', resolution: '4k', duration: 4,
