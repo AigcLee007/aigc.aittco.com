@@ -1,4 +1,5 @@
 const assert = require('assert');
+const fs = require('fs');
 const catalog = require('./config/pixelhubVideoCatalog.json');
 const { normalizePixelHubVideoRequest } = require('./videoRequestPolicy.cjs');
 
@@ -10,6 +11,16 @@ const request = (body, modelId) => normalizePixelHubVideoRequest({
 });
 
 describe('normalizePixelHubVideoRequest', () => {
+  it('materializes and validates video requests before reserving points', () => {
+    const source = fs.readFileSync('./server.cjs', 'utf8');
+    const endpointStart = source.indexOf('app.post("/api/video/generate"');
+    const endpointEnd = source.indexOf('// ==================== Video Task Polling', endpointStart);
+    const endpoint = source.slice(endpointStart, endpointEnd);
+    assert.ok(endpoint.indexOf('materializeVideoReferenceMedia(') < endpoint.indexOf('normalizePixelHubVideoRequest('));
+    assert.ok(endpoint.indexOf('normalizePixelHubVideoRequest(') < endpoint.indexOf('reservePoints('));
+    assert.ok(endpoint.includes('route.routeFamily !== requestedVideoModel.routeFamily'));
+    assert.ok(endpoint.indexOf('refundPoints(') > endpoint.indexOf('catch (error)'));
+  });
   it('builds Gemini references and charges one point per second', () => {
     const result = request({
       prompt: 'city at night', aspectRatio: '16:9', resolution: '1080p', duration: 10,

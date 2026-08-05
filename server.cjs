@@ -12,9 +12,8 @@ const {
   VIDEO_REFERENCE_UPLOAD_DIR,
   validateVideoReferenceUpload,
 } = require("./videoReferenceUpload.cjs");
-const {
-  normalizeVideoFramePayloadUrls,
-} = require("./videoFrameUpload.cjs");
+const { materializeVideoReferenceMedia } = require("./videoReferenceMedia.cjs");
+const { normalizePixelHubVideoRequest } = require("./videoRequestPolicy.cjs");
 
 const localEnvPath = path.join(__dirname, ".env");
 if (typeof process.loadEnvFile === "function" && fs.existsSync(localEnvPath)) {
@@ -545,12 +544,12 @@ const resolveRequestedImageModel = async (requestBody = {}) => {
   }
   return getImageModelByRequestModel(requestBody?.model, { includeInactive: true });
 };
-const resolveRequestedVideoModel = async (requestBody = {}) => {
+const resolveRequestedVideoModel = async (requestBody = {}, { includeInactive = false } = {}) => {
   const modelId = String(requestBody?.modelId || "").trim();
   if (modelId) {
-    return getVideoModelById(modelId, { includeInactive: true });
+    return getVideoModelById(modelId, { includeInactive });
   }
-  return getVideoModelByRequestModel(requestBody?.model, { includeInactive: true });
+  return getVideoModelByRequestModel(requestBody?.model, { includeInactive });
 };
 const EMERGENCY_ADMIN_API_KEYS = [
   process.env.BILLING_ADMIN_API_KEY,
@@ -5619,24 +5618,23 @@ app.post("/api/video/generate", generateLimiter, async (req, res) => {
     const fallbackAuthorization = req.headers["authorization"];
     const requestBody = { ...(req.body || {}) };
     const uiMode = normalizeGenerationUiMode(requestBody?.uiMode);
-    const route = await resolveVideoRoute(requestBody?.routeId);
-    const requestedVideoModel = await resolveRequestedVideoModel(requestBody);
-    if (!route) {
-      return sendUserFacingGenerationError(res, 400, new Error("视频线路不存在或已停用，请联系管理员"));
+    const route = await resolveVideoRoute(requestBody?.routeId, { includeInactive: false });
+    const requestedVideoModel = await resolveRequestedVideoModel(requestBody, { includeInactive: false });
+    if (!route || !requestedVideoModel) {
+      return sendUserFacingGenerationError(res, 400, new Error("视频模型或线路不存在、已停用，请联系管理员"));
+    }
+    if (route.routeFamily !== requestedVideoModel.routeFamily) {
+      return sendUserFacingGenerationError(res, 400, new Error("视频线路与所选模型不匹配"));
     }
 
-    const pointCost = getVideoPointCost(route, requestedVideoModel, requestBody);
+    const materializedBody = materializeVideoReferenceMedia(requestBody, req);
+    const { upstreamBody, pointCost } = normalizePixelHubVideoRequest({
+      body: materializedBody,
+      model: requestedVideoModel,
+      upstreamModel: route.upstreamModel || requestedVideoModel.requestModel || requestedVideoModel.id,
+    });
     billingAccount = await requireBillingAccount(req);
     chargeRouteId = route.id;
-
-    delete requestBody.routeId;
-    delete requestBody.modelId;
-    delete requestBody.uiMode;
-    requestBody.model = getRouteModelName(
-      route,
-      requestBody,
-      requestedVideoModel?.requestModel || requestBody.model,
-    );
 
     const userKey = getRouteAuthorization(route, fallbackAuthorization, {
       preferUserProvided: false,
@@ -5646,101 +5644,32 @@ app.post("/api/video/generate", generateLimiter, async (req, res) => {
       action: "video_generate",
       routeId: route.id,
       mode: route.mode,
-      model: requestBody.model,
+      model: upstreamBody.model,
       modelId: requestedVideoModel?.id || null,
-      duration: requestBody.duration || null,
+      duration: upstreamBody.duration,
       pricingMode: requestedVideoModel?.pricingMode || "fixed",
       pointCostPerSecond: requestedVideoModel?.pointCostPerSecond || null,
     });
 
-    // Detailed File Logging
-    const logEntry = {
-      timestamp: new Date().toISOString(),
-      type: "Video Request",
-      routeId: route.id,
-      modelId: requestedVideoModel?.id || null,
-      keys: Object.keys(requestBody),
-      has_image_url: !!requestBody.image_url,
-      has_image: !!requestBody.image,
-      has_start_frame: !!requestBody.start_frame,
-      has_end_frame: !!requestBody.end_frame,
-      has_video_reference: !!requestBody.video_reference,
-      start_frame_prefix: requestBody.start_frame ? String(requestBody.start_frame).slice(0, 32) : null,
-      end_frame_prefix: requestBody.end_frame ? String(requestBody.end_frame).slice(0, 32) : null,
-      prompt: requestBody.prompt,
-      model: requestBody.model,
-      options: {
-        aspect_ratio: requestBody.aspect_ratio,
-        hd: requestBody.hd,
-        duration: requestBody.duration,
-      },
-    };
-
-    logger.info(logEntry);
-
-    console.log("[Video Generate] Proxying request:", {
-      routeId: route.id,
-      modelId: requestedVideoModel?.id || null,
-      model: requestBody.model,
-      prompt: requestBody.prompt?.substring(0, 50) + "...",
-      hasImage: !!requestBody.image_url || !!requestBody.image,
-      hasStartFrame: !!requestBody.start_frame,
-      hasEndFrame: !!requestBody.end_frame,
-      hasVideoReference: !!requestBody.video_reference,
-    });
-
-    // ---- Grok Video compatibility mapping ----
-    // Grok upstream expects different field names, so normalize the request body before forwarding it.
-    const upstreamBody = { ...requestBody };
-    normalizeVideoFramePayloadUrls(upstreamBody, req);
-    if (upstreamBody.model && String(upstreamBody.model).startsWith('grok-video')) {
-      // aspect_ratio -> ratio
-      if (upstreamBody.aspect_ratio !== undefined) {
-        upstreamBody.ratio = upstreamBody.aspect_ratio;
-        delete upstreamBody.aspect_ratio;
-      }
-      // hd -> resolution (720P / 1080P)
-      upstreamBody.resolution = upstreamBody.hd ? '1080P' : '720P';
-      delete upstreamBody.hd;
-      // duration -> integer
-      if (upstreamBody.duration !== undefined) {
-        upstreamBody.duration = parseInt(upstreamBody.duration, 10);
-      }
-      // image / image_url -> images array
-      if (upstreamBody.image || upstreamBody.image_url) {
-        upstreamBody.images = [upstreamBody.image || upstreamBody.image_url];
-        delete upstreamBody.image;
-        delete upstreamBody.image_url;
-      }
-      console.log("[Video Generate] Grok remapped body:", JSON.stringify(Object.keys(upstreamBody)));
-    }
-
-    if (upstreamBody.start_frame || upstreamBody.end_frame || upstreamBody.video_reference) {
-      console.log("[Video Generate] Reference media prepared:", {
-        startFramePrefix: upstreamBody.start_frame ? String(upstreamBody.start_frame).slice(0, 48) : null,
-        endFramePrefix: upstreamBody.end_frame ? String(upstreamBody.end_frame).slice(0, 48) : null,
-        videoReferencePrefix: upstreamBody.video_reference ? String(upstreamBody.video_reference).slice(0, 48) : null,
-      });
-    }
 
     generationRecord = await buildGenerationRecordPayload({
       req,
       billingAccount,
       mediaType: "VIDEO",
       actionName: "video_generate",
-      prompt: requestBody.prompt,
+      prompt: upstreamBody.prompt,
       modelId: requestedVideoModel?.id || null,
-      modelName: requestedVideoModel?.label || requestBody.model,
+      modelName: requestedVideoModel?.label || upstreamBody.model,
       route,
       quantity: 1,
-      aspectRatio: requestBody.aspect_ratio || upstreamBody.ratio || null,
-      outputSize: upstreamBody.resolution || (requestBody.hd ? "1080P" : "720P"),
+      aspectRatio: upstreamBody.aspect_ratio,
+      outputSize: upstreamBody.resolution,
       uiMode,
       status: "PENDING",
       meta: {
         transport: route.transport,
         routeMode: route.mode,
-        duration: requestBody.duration || null,
+        duration: upstreamBody.duration,
         pricingMode: requestedVideoModel?.pricingMode || "fixed",
         pointCostPerSecond: requestedVideoModel?.pointCostPerSecond || null,
       },
@@ -5805,12 +5734,12 @@ app.post("/api/video/generate", generateLimiter, async (req, res) => {
     await completeGenerationRecordSuccessSafe({
       recordId: generationRecord?.id,
       resultUrls: extractResultUrlsFromPayload(response.data),
-      outputSize: upstreamBody.resolution || (requestBody.hd ? "1080P" : "720P"),
-      aspectRatio: requestBody.aspect_ratio || upstreamBody.ratio || null,
+      outputSize: upstreamBody.resolution,
+      aspectRatio: upstreamBody.aspect_ratio,
       meta: {
         transport: route.transport,
         routeMode: route.mode,
-        duration: requestBody.duration || null,
+        duration: upstreamBody.duration,
       },
     });
 
