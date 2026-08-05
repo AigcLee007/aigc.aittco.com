@@ -10,6 +10,7 @@
     "server": "node server.cjs",
     "start": "concurrently \"npm run server\" \"npm run dev\"",
     "migrate:mysql": "node scripts/migrate-json-to-mysql.cjs",
+    "migrate:pixelhub-video": "node scripts/activate-pixelhub-video-models.cjs",
     "test": "vitest --run",
     "test:watch": "vitest"
   },
