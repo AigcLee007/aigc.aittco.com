@@ -1603,6 +1603,10 @@ const respondWithUserFacingGenerationError = (res, error, fallbackStatus = 500) 
     return sendUserFacingGenerationError(res, fallbackStatus, error);
   }
 
+  if (error?.status === 400) {
+    return sendUserFacingGenerationError(res, 400, error);
+  }
+
   if (error?.response?.status) {
     return sendUserFacingGenerationError(res, error.response.status, error);
   }

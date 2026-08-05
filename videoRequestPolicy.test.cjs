@@ -4,11 +4,12 @@ const catalog = require('./config/pixelhubVideoCatalog.json');
 const { normalizePixelHubVideoRequest } = require('./videoRequestPolicy.cjs');
 
 const model = (id) => catalog.models.find((item) => item.id === id);
-const request = (body, modelId) => normalizePixelHubVideoRequest({
+const requestWithModel = (body, selectedModel) => normalizePixelHubVideoRequest({
   body,
-  model: model(modelId),
-  upstreamModel: model(modelId).requestModel,
+  model: selectedModel,
+  upstreamModel: selectedModel.requestModel,
 });
+const request = (body, modelId) => requestWithModel(body, model(modelId));
 
 describe('normalizePixelHubVideoRequest', () => {
   it('materializes and validates video requests before reserving points', () => {
@@ -20,6 +21,16 @@ describe('normalizePixelHubVideoRequest', () => {
     assert.ok(endpoint.indexOf('normalizePixelHubVideoRequest(') < endpoint.indexOf('reservePoints('));
     assert.ok(endpoint.includes('route.routeFamily !== requestedVideoModel.routeFamily'));
     assert.ok(endpoint.indexOf('refundPoints(') > endpoint.indexOf('catch (error)'));
+  });
+  it('returns policy validation errors as HTTP 400', () => {
+    const source = fs.readFileSync('./server.cjs', 'utf8');
+    const helperStart = source.indexOf('const respondWithUserFacingGenerationError =');
+    const helperEnd = source.indexOf('const requestWithRetry =', helperStart);
+    const helper = source.slice(helperStart, helperEnd);
+    assert.match(
+      helper,
+      /if \(error\?\.status === 400\)\s*\{\s*return sendUserFacingGenerationError\(res, 400, error\);\s*\}/,
+    );
   });
   it('builds Gemini references and charges one point per second', () => {
     const result = request({
@@ -54,19 +65,43 @@ describe('normalizePixelHubVideoRequest', () => {
     assert.ok(!('reference_videos' in result.upstreamBody));
   });
 
-  it('rejects unsupported values and legacy request fields before billing', () => {
+  it('rejects an unsupported resolution before billing', () => {
     assert.throws(() => request({
-      prompt: 'test', aspectRatio: '1:1', resolution: '720p', duration: 4,
+      prompt: 'test', aspectRatio: '16:9', resolution: '4k', duration: 4,
       referenceImages: [], referenceVideos: [],
-    }, 'gemini-omni-flash'), /aspect ratio/i);
+    }, 'gemini-omni-flash'), /resolution/i);
+  });
+
+  it('rejects an integer duration that is unavailable for the model', () => {
     assert.throws(() => request({
-      prompt: 'test', aspectRatio: '16:9', resolution: '720p', duration: 4.5,
+      prompt: 'test', aspectRatio: '16:9', resolution: '720p', duration: 5,
       referenceImages: [], referenceVideos: [],
-    }, 'gemini-omni-flash'), /integer/i);
+    }, 'gemini-omni-flash'), /duration/i);
+  });
+
+  it('rejects a video quantity other than one', () => {
     assert.throws(() => request({
       prompt: 'test', aspectRatio: '16:9', resolution: '720p', duration: 4,
-      referenceImages: [], referenceVideos: [], hd: true,
-    }, 'gemini-omni-flash'), /not supported/i);
+      referenceImages: [], referenceVideos: [], quantity: 2,
+    }, 'gemini-omni-flash'), /quantity/i);
+  });
+
+  for (const field of ['video_reference', 'start_frame', 'end_frame', 'hd']) {
+    it(`rejects the legacy ${field} request field`, () => {
+      assert.throws(() => request({
+        prompt: 'test', aspectRatio: '16:9', resolution: '720p', duration: 4,
+        referenceImages: [], referenceVideos: [], [field]: field === 'hd' ? true : 'https://app.test/legacy',
+      }, 'gemini-omni-flash'), new RegExp(field, 'i'));
+    });
+  }
+
+  it('rejects a combined reference overflow independently of media-specific limits', () => {
+    const constrainedModel = { ...model('gemini-omni-flash'), maxTotalReferences: 2 };
+    assert.throws(() => requestWithModel({
+      prompt: 'test', aspectRatio: '16:9', resolution: '720p', duration: 4,
+      referenceImages: ['https://app.test/1.jpg', 'https://app.test/2.jpg'],
+      referenceVideos: ['https://app.test/1.mp4'],
+    }, constrainedModel), /total reference limit is 2/i);
   });
 
   it('rejects bad references, unsupported video, prompt, and count overflow', () => {
