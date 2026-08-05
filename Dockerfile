@@ -50,6 +50,9 @@ COPY pointMath.cjs ./
 COPY generatedAssetService.cjs ./
 COPY videoReferenceUpload.cjs ./
 COPY videoFrameUpload.cjs ./
+COPY videoRequestPolicy.cjs ./
+COPY videoReferenceMedia.cjs ./
+COPY pixelhubVideoMigration.cjs ./
 COPY generationRecordStore.cjs ./
 COPY generationRecordStore.file.cjs ./
 COPY generationRecordStore.mysql.cjs ./

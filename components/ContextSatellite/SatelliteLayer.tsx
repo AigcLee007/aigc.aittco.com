@@ -5,11 +5,21 @@ import { useCanvasOperations } from '../../src/hooks/useCanvasOperations';
 import { generateImageApi } from '../../services/api';
 import { generateVideo } from '../../services/videoService';
 import { getImageModelNameForRoute, getSelectedImageRoute } from '../../src/config/imageRoutes';
+import {
+  DEFAULT_VIDEO_MODEL_ID,
+  getDefaultVideoAspectRatioForModel,
+  getDefaultVideoDurationForModel,
+  getDefaultVideoResolutionForModel,
+  getVideoModelById,
+} from '../../src/config/videoModels';
+import { getSelectedVideoRoute } from '../../src/config/videoRoutes';
 import { PrompterPill } from './PrompterPill';
 import { SatelliteMenu } from './SatelliteMenu';
 import { NodeData } from '../../types';
 import { useImageRouteCatalog } from '../../src/hooks/useImageRouteCatalog';
 import { useImageModelCatalog } from '../../src/hooks/useImageModelCatalog';
+import { useVideoModelCatalog } from '../../src/hooks/useVideoModelCatalog';
+import { useVideoRouteCatalog } from '../../src/hooks/useVideoRouteCatalog';
 
 interface SatelliteLayerProps {
   onInitGenerations: (count: number, prompt: string, aspectRatio?: string, baseNode?: NodeData, type?: 'IMAGE' | 'VIDEO') => string[];
@@ -19,6 +29,8 @@ interface SatelliteLayerProps {
 export const SatelliteLayer: React.FC<SatelliteLayerProps> = ({ onInitGenerations, onUpdateGeneration }) => {
   useImageRouteCatalog();
   useImageModelCatalog();
+  useVideoModelCatalog();
+  useVideoRouteCatalog();
   const { nodes, canvasState } = useCanvasStore();
   const { selectedIds, apiKey, imageModel, imageLine } = useSelectionStore();
   const selectedImageRoute = getSelectedImageRoute(imageModel, imageLine);
@@ -27,6 +39,11 @@ export const SatelliteLayer: React.FC<SatelliteLayerProps> = ({ onInitGeneration
     imageLine,
     imageSize: '1k',
   });
+  const defaultVideoModel = getVideoModelById(DEFAULT_VIDEO_MODEL_ID());
+  const defaultVideoRoute = getSelectedVideoRoute(defaultVideoModel.id);
+  const defaultVideoAspectRatio = getDefaultVideoAspectRatioForModel(defaultVideoModel.id);
+  const defaultVideoResolution = getDefaultVideoResolutionForModel(defaultVideoModel.id);
+  const defaultVideoDuration = getDefaultVideoDurationForModel(defaultVideoModel.id);
 
   // Identify selection
   const selectedNodes = nodes.filter(n => selectedIds.includes(n.id));
@@ -53,10 +70,11 @@ export const SatelliteLayer: React.FC<SatelliteLayerProps> = ({ onInitGeneration
 
   // Handlers
   const handleGenerate = async (prompt: string, options: any) => {
-    const { mode, aspectRatio } = options; 
+    const { mode } = options;
+    const generationAspectRatio = mode === 'VIDEO' ? defaultVideoAspectRatio : options.aspectRatio;
     
     // T2I / T2V
-    const placeholderIds = onInitGenerations(1, prompt, aspectRatio, undefined, mode);
+    const placeholderIds = onInitGenerations(1, prompt, generationAspectRatio, undefined, mode);
     
     placeholderIds.forEach(pid => {
        if (mode === 'IMAGE') {
@@ -65,7 +83,7 @@ export const SatelliteLayer: React.FC<SatelliteLayerProps> = ({ onInitGeneration
               modelId: imageModel,
               prompt: prompt,
               size: '1k',
-              aspect_ratio: aspectRatio,
+              aspect_ratio: generationAspectRatio,
               n: 1,
               routeId: selectedImageRoute.id,
            };
@@ -74,9 +92,15 @@ export const SatelliteLayer: React.FC<SatelliteLayerProps> = ({ onInitGeneration
              .catch(err => onUpdateGeneration(pid, null, err.message));
        } else {
            // T2V
-           generateVideo(apiKey, 'veo3.1-fast', prompt, undefined, undefined, {
-              aspect_ratio: aspectRatio === '16:9' ? '16:9' : '9:16',
-              duration: '4'
+           generateVideo(apiKey, {
+              modelId: defaultVideoModel.id,
+              routeId: defaultVideoRoute.id,
+              prompt,
+              aspectRatio: defaultVideoAspectRatio,
+              resolution: defaultVideoResolution,
+              duration: defaultVideoDuration,
+              referenceImages: [],
+              referenceVideos: [],
            })
            .then(url => onUpdateGeneration(pid, url))
            .catch(err => onUpdateGeneration(pid, null, err.message));
@@ -93,10 +117,19 @@ export const SatelliteLayer: React.FC<SatelliteLayerProps> = ({ onInitGeneration
     if (action === 'animate' && primaryNode && primaryNode.type === 'IMAGE' && primaryNode.src) {
         // Quick Animate Logic
         const prompt = primaryNode.prompt || "Animate this image";
-        const placeholderIds = onInitGenerations(1, prompt, '16:9', primaryNode, 'VIDEO');
+        const placeholderIds = onInitGenerations(1, prompt, defaultVideoAspectRatio, primaryNode, 'VIDEO');
         const pid = placeholderIds[0];
         
-        generateVideo(apiKey, 'veo3.1-fast', prompt, [primaryNode.src], undefined, { duration: '4', aspect_ratio: '16:9' })
+        generateVideo(apiKey, {
+          modelId: defaultVideoModel.id,
+          routeId: defaultVideoRoute.id,
+          prompt,
+          aspectRatio: defaultVideoAspectRatio,
+          resolution: defaultVideoResolution,
+          duration: defaultVideoDuration,
+          referenceImages: [primaryNode.src],
+          referenceVideos: [],
+        })
             .then(url => onUpdateGeneration(pid, url))
             .catch(err => onUpdateGeneration(pid, null, err.message));
     }

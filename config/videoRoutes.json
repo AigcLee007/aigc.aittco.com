@@ -1,6 +1,25 @@
 {
-  "defaultRouteId": "veo3.1-fast-line1",
+  "defaultRouteId": "gemini-omni-flash-line1",
   "routes": [
+    {
+      "id": "gemini-omni-flash-line1",
+      "label": "Line 1",
+      "description": "PixelHub Gemini Omni Flash",
+      "routeFamily": "gemini-omni-flash",
+      "line": "line1",
+      "transport": "openai-video",
+      "mode": "async",
+      "baseUrl": "https://api.pixellelabs.com",
+      "generatePath": "/v1/videos",
+      "taskPath": "/v1/videos/{taskId}",
+      "upstreamModel": "gemini-omni-flash",
+      "allowUserApiKeyWithoutLogin": false,
+      "apiKeyEnv": "PIXELHUB_GEMINI_OMNI_FLASH_KEY",
+      "pointCost": 4,
+      "isActive": true,
+      "isDefaultRoute": true,
+      "sortOrder": 0
+    },
     {
       "id": "veo3.1-fast-line1",
       "label": "线路一",
@@ -16,7 +35,8 @@
       "allowUserApiKeyWithoutLogin": false,
       "apiKeyEnv": "VIDEO_ROUTE_DEFAULT_KEY",
       "pointCost": 5,
-      "isDefaultRoute": true
+      "isActive": false,
+      "isDefaultRoute": false
     },
     {
       "id": "grok-video-3-line1",
@@ -33,7 +53,8 @@
       "allowUserApiKeyWithoutLogin": false,
       "apiKeyEnv": "VIDEO_ROUTE_DEFAULT_KEY",
       "pointCost": 12.5,
-      "isDefaultRoute": true
+      "isActive": false,
+      "isDefaultRoute": false
     },
     {
       "id": "kling-video-3.0-line1",
@@ -51,7 +72,8 @@
       "apiKeyEnv": "VEDIO_ROUTE_pixellelabs_KEY",
       "pointCost": 5,
       "sortOrder": 10,
-      "isDefaultRoute": true
+      "isActive": false,
+      "isDefaultRoute": false
     },
     {
       "id": "kling-video-o3-omni-line1",
@@ -69,7 +91,8 @@
       "apiKeyEnv": "VEDIO_ROUTE_pixellelabs_KEY",
       "pointCost": 5,
       "sortOrder": 11,
-      "isDefaultRoute": true
+      "isActive": false,
+      "isDefaultRoute": false
     },
     {
       "id": "sora2-line1",
@@ -87,12 +110,13 @@
       "apiKeyEnv": "VEDIO_ROUTE_pixellelabs_KEY",
       "pointCost": 8,
       "sortOrder": 12,
-      "isDefaultRoute": true
+      "isActive": false,
+      "isDefaultRoute": false
     },
     {
       "id": "sora-v3-pro-line1",
       "label": "Line 1",
-      "description": "Sora V3 Pro public API route",
+      "description": "PixelHub Sora V3 Pro",
       "routeFamily": "sora-v3-pro",
       "line": "line1",
       "transport": "openai-video",
@@ -102,9 +126,10 @@
       "taskPath": "/v1/videos/{taskId}",
       "upstreamModel": "sora-v3-pro",
       "allowUserApiKeyWithoutLogin": false,
-      "apiKeyEnv": "VEDIO_ROUTE_pixellelabs_KEY",
-      "pointCost": 50,
-      "sortOrder": 13,
+      "apiKeyEnv": "PIXELHUB_SORA_V3_PRO_KEY",
+      "pointCost": 40,
+      "sortOrder": 1,
+      "isActive": true,
       "isDefaultRoute": true
     },
     {
@@ -123,12 +148,13 @@
       "apiKeyEnv": "VEDIO_ROUTE_pixellelabs_KEY",
       "pointCost": 35,
       "sortOrder": 14,
-      "isDefaultRoute": true
+      "isActive": false,
+      "isDefaultRoute": false
     },
     {
       "id": "veo31-fast-line1",
       "label": "Line 1",
-      "description": "Veo 31 Fast public API route",
+      "description": "PixelHub Veo 3.1 Fast",
       "routeFamily": "veo31-fast",
       "line": "line1",
       "transport": "openai-video",
@@ -138,9 +164,10 @@
       "taskPath": "/v1/videos/{taskId}",
       "upstreamModel": "veo31-fast",
       "allowUserApiKeyWithoutLogin": false,
-      "apiKeyEnv": "VEDIO_ROUTE_pixellelabs_KEY",
-      "pointCost": 6,
-      "sortOrder": 15,
+      "apiKeyEnv": "PIXELHUB_VEO31_FAST_KEY",
+      "pointCost": 2,
+      "sortOrder": 2,
+      "isActive": true,
       "isDefaultRoute": true
     },
     {
@@ -158,7 +185,8 @@
       "allowUserApiKeyWithoutLogin": false,
       "apiKeyEnv": "VIDEO_ROUTE_DEFAULT_KEY",
       "pointCost": 7.5,
-      "isDefaultRoute": true
+      "isActive": false,
+      "isDefaultRoute": false
     },
     {
       "id": "veo3.1-pro-line1",
@@ -175,7 +203,8 @@
       "allowUserApiKeyWithoutLogin": false,
       "apiKeyEnv": "VIDEO_ROUTE_DEFAULT_KEY",
       "pointCost": 25,
-      "isDefaultRoute": true
+      "isActive": false,
+      "isDefaultRoute": false
     },
     {
       "id": "veo3.1-fast-4k-line1",
@@ -192,7 +221,8 @@
       "allowUserApiKeyWithoutLogin": false,
       "apiKeyEnv": "VIDEO_ROUTE_DEFAULT_KEY",
       "pointCost": 50,
-      "isDefaultRoute": true
+      "isActive": false,
+      "isDefaultRoute": false
     },
     {
       "id": "veo3.1-fast-components-4k-line1",
@@ -209,7 +239,8 @@
       "allowUserApiKeyWithoutLogin": false,
       "apiKeyEnv": "VIDEO_ROUTE_DEFAULT_KEY",
       "pointCost": 50,
-      "isDefaultRoute": true
+      "isActive": false,
+      "isDefaultRoute": false
     },
     {
       "id": "veo3.1-pro-4k-line1",
@@ -226,7 +257,8 @@
       "allowUserApiKeyWithoutLogin": false,
       "apiKeyEnv": "VIDEO_ROUTE_DEFAULT_KEY",
       "pointCost": 50,
-      "isDefaultRoute": true
+      "isActive": false,
+      "isDefaultRoute": false
     }
   ]
 }
