@@ -2,6 +2,12 @@ import { describe, expect, it } from 'vitest';
 import targetCatalog from '../../config/pixelhubVideoCatalog.json';
 import modelCatalog from '../../config/videoModels.json';
 import routeCatalog from '../../config/videoRoutes.json';
+import {
+  getVideoModelDisplayCost,
+  getVideoModelMaxReferenceVideos,
+  getVideoModelReferenceImageMode,
+  getVideoModelResolutionOptions,
+} from './videoModels';
 
 const targetModelIds = [
   'gemini-omni-flash',
@@ -98,5 +104,14 @@ describe('PixelHub video catalog', () => {
       expect(routeCatalog.routes.find((route) => route.id === targetRoute.id))
         .toEqual(targetRoute);
     }
+  });
+
+  it('reads model controls and pricing from active capabilities', () => {
+    expect(getVideoModelResolutionOptions('sora-v3-pro')).toEqual(['720p']);
+    expect(getVideoModelResolutionOptions('veo31-fast')).toEqual(['720p', '1080p']);
+    expect(getVideoModelMaxReferenceVideos('gemini-omni-flash')).toBe(1);
+    expect(getVideoModelMaxReferenceVideos('sora-v3-pro')).toBe(3);
+    expect(getVideoModelReferenceImageMode('veo31-fast')).toBe('frames');
+    expect(getVideoModelDisplayCost('veo31-fast', '4')).toBe(2);
   });
 });

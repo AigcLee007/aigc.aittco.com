@@ -1,5 +1,5 @@
-﻿import React, { useEffect, useMemo } from 'react';
-import { Loader2, Sparkles, Upload } from 'lucide-react';
+import React, { useEffect, useMemo } from 'react';
+import { Loader2, Upload, X } from 'lucide-react';
 import { useSelectionStore } from '../src/store/selectionStore';
 import ModelSelector from './ModelSelector';
 import DropUpSelect from './DropUpSelect';
@@ -9,295 +9,121 @@ import {
   DEFAULT_VIDEO_MODEL_ID,
   getDefaultVideoAspectRatioForModel,
   getDefaultVideoDurationForModel,
+  getDefaultVideoResolutionForModel,
   getVideoModelAspectRatioOptions,
   getVideoModelById,
   getVideoModelDisplayCost,
   getVideoModelDurationOptions,
   getVideoModelMaxReferenceImages,
+  getVideoModelMaxReferenceVideos,
   getVideoModelPointCostPerSecond,
   getVideoModelPricingMode,
-  getVideoModelSupportsHd,
+  getVideoModelReferenceImageMode,
+  getVideoModelSupportsVideoReference,
+  getVideoModelResolutionOptions,
 } from '../src/config/videoModels';
-import {
-  getVisibleVideoModels,
-  getVideoRouteOptions,
-  getVideoRoutesByRouteFamily,
-} from '../src/config/videoRoutes';
+import { getVisibleVideoModels, getVideoRouteOptions, getVideoRoutesByRouteFamily } from '../src/config/videoRoutes';
 import { useVideoModelCatalog } from '../src/hooks/useVideoModelCatalog';
 import { useVideoRouteCatalog } from '../src/hooks/useVideoRouteCatalog';
 
-interface VideoFormConfigProps {
-  restrictToDirectKeyCompatible?: boolean;
-}
+interface VideoFormConfigProps { restrictToDirectKeyCompatible?: boolean; }
 
-export const VideoFormConfig: React.FC<VideoFormConfigProps> = ({
-  restrictToDirectKeyCompatible = false,
-}) => {
+export const VideoFormConfig: React.FC<VideoFormConfigProps> = ({ restrictToDirectKeyCompatible = false }) => {
   useVideoModelCatalog();
   useVideoRouteCatalog();
   const videoReferenceInputRef = React.useRef<HTMLInputElement | null>(null);
   const [isUploadingReferenceVideo, setIsUploadingReferenceVideo] = React.useState(false);
-
   const {
-    videoModel,
-    setVideoModel,
-    videoLine,
-    setVideoLine,
-    videoAspectRatio,
-    setVideoAspectRatio,
-    videoDuration,
-    setVideoDuration,
-    videoHd,
-    setVideoHd,
-    videoReferenceMode,
-    setVideoReferenceMode,
-    videoReferenceUrl,
-    setVideoReferenceUrl,
+    videoModel, setVideoModel, videoLine, setVideoLine, videoAspectRatio, setVideoAspectRatio,
+    videoDuration, setVideoDuration, videoResolution, setVideoResolution, videoReferenceVideos,
+    addVideoReferenceVideo, removeVideoReferenceVideo,
   } = useSelectionStore();
 
-  const visibleVideoModels = useMemo(() => {
-    if (restrictToDirectKeyCompatible) {
-      return getVisibleVideoModels({ directKeyOnly: true });
-    }
-    return getVisibleVideoModels();
-  }, [restrictToDirectKeyCompatible]);
-
-  const currentModel =
-    visibleVideoModels.find((model) => model.id === videoModel) ||
-    visibleVideoModels[0] ||
-    getVideoModelById(videoModel);
-
+  const visibleVideoModels = useMemo(
+    () => getVisibleVideoModels({ directKeyOnly: restrictToDirectKeyCompatible }),
+    [restrictToDirectKeyCompatible],
+  );
+  const currentModel = visibleVideoModels.find((model) => model.id === videoModel) || visibleVideoModels[0] || getVideoModelById(videoModel);
   const availableRoutes = useMemo(
-    () =>
-      getVideoRoutesByRouteFamily(currentModel.routeFamily).filter((route) => {
-        if (route.isActive === false) return false;
-        return restrictToDirectKeyCompatible ? route.allowUserApiKeyWithoutLogin === true : true;
-      }),
+    () => getVideoRoutesByRouteFamily(currentModel.routeFamily).filter((route) => route.isActive !== false && (!restrictToDirectKeyCompatible || route.allowUserApiKeyWithoutLogin === true)),
     [currentModel.routeFamily, restrictToDirectKeyCompatible],
   );
-
-  const routeOptions = useMemo(
-    () =>
-      getVideoRouteOptions(currentModel.id, {
-        directKeyOnly: restrictToDirectKeyCompatible,
-      }),
-    [currentModel.id, restrictToDirectKeyCompatible],
-  );
-
+  const routeOptions = useMemo(() => getVideoRouteOptions(currentModel.id, { directKeyOnly: restrictToDirectKeyCompatible }), [currentModel.id, restrictToDirectKeyCompatible]);
   const ratioOptions = getVideoModelAspectRatioOptions(currentModel.id);
   const durationOptions = getVideoModelDurationOptions(currentModel.id);
-  const supportsHd = getVideoModelSupportsHd(currentModel.id);
-  const supportsVideoReference = currentModel.id === 'sora-v3-pro' || currentModel.id === 'sora-v3-fast';
-  const maxReferenceImages = getVideoModelMaxReferenceImages(
-    currentModel.id,
-    supportsVideoReference && videoReferenceMode === 'frames' ? 'frames' : 'images',
-  );
+  const resolutionOptions = getVideoModelResolutionOptions(currentModel.id);
+  const supportsVideoReference = getVideoModelSupportsVideoReference(currentModel.id);
+  const referenceImageMode = getVideoModelReferenceImageMode(currentModel.id);
+  const maxReferenceImages = getVideoModelMaxReferenceImages(currentModel.id);
+  const maxReferenceVideos = getVideoModelMaxReferenceVideos(currentModel.id);
+  const maxTotalReferences = getVideoModelById(currentModel.id).maxTotalReferences ?? maxReferenceImages + maxReferenceVideos;
   const showLineSelector = availableRoutes.length > 1;
-  const isGrokModel = currentModel.id.startsWith('grok');
 
   useEffect(() => {
-    if (visibleVideoModels.length === 0) return;
-    if (visibleVideoModels.some((model) => model.id === videoModel)) return;
-    setVideoModel(visibleVideoModels[0]?.id || DEFAULT_VIDEO_MODEL_ID());
+    if (visibleVideoModels.length && !visibleVideoModels.some((model) => model.id === videoModel)) setVideoModel(visibleVideoModels[0].id);
   }, [setVideoModel, videoModel, visibleVideoModels]);
-
   useEffect(() => {
-    if (availableRoutes.length === 0) return;
-    if (availableRoutes.some((route) => route.line === videoLine)) return;
-    setVideoLine(availableRoutes[0].line);
+    if (availableRoutes.length && !availableRoutes.some((route) => route.line === videoLine)) setVideoLine(availableRoutes[0].line);
   }, [availableRoutes, setVideoLine, videoLine]);
-
   useEffect(() => {
-    if (ratioOptions.includes(videoAspectRatio)) return;
-    setVideoAspectRatio(getDefaultVideoAspectRatioForModel(currentModel.id));
+    if (!ratioOptions.includes(videoAspectRatio)) setVideoAspectRatio(getDefaultVideoAspectRatioForModel(currentModel.id));
   }, [currentModel.id, ratioOptions, setVideoAspectRatio, videoAspectRatio]);
-
   useEffect(() => {
-    if (durationOptions.includes(videoDuration)) return;
-    setVideoDuration(getDefaultVideoDurationForModel(currentModel.id));
+    if (!durationOptions.includes(videoDuration)) setVideoDuration(getDefaultVideoDurationForModel(currentModel.id));
   }, [currentModel.id, durationOptions, setVideoDuration, videoDuration]);
-
   useEffect(() => {
-    if (supportsHd || !videoHd) return;
-    setVideoHd(false);
-  }, [setVideoHd, supportsHd, videoHd]);
-
+    if (!resolutionOptions.includes(videoResolution)) setVideoResolution(getDefaultVideoResolutionForModel(currentModel.id));
+  }, [currentModel.id, resolutionOptions, setVideoResolution, videoResolution]);
   useEffect(() => {
-    if (!supportsVideoReference) {
-      if (videoReferenceMode !== 'images') setVideoReferenceMode('images');
-      if (videoReferenceUrl) setVideoReferenceUrl('');
-    }
-  }, [supportsVideoReference, videoReferenceMode, videoReferenceUrl, setVideoReferenceMode, setVideoReferenceUrl]);
+    if (videoReferenceVideos.length > maxReferenceVideos) videoReferenceVideos.slice(maxReferenceVideos).forEach((_, index) => removeVideoReferenceVideo(maxReferenceVideos + index));
+  }, [maxReferenceVideos, removeVideoReferenceVideo, videoReferenceVideos]);
 
   const modelOptions = visibleVideoModels.map((model) => ({
-    value: model.id,
-    label: model.label,
-    cost: getVideoModelDisplayCost(
-      model.id,
-      model.id === currentModel.id ? videoDuration : model.defaultDuration,
-    ),
-    icon: model.id.startsWith('grok') ? <Sparkles size={14} /> : <GoogleLogo />,
+    value: model.id, label: model.label,
+    cost: getVideoModelDisplayCost(model.id, model.id === currentModel.id ? videoDuration : model.defaultDuration),
+    icon: <GoogleLogo />,
   }));
   const isPerSecondPricing = getVideoModelPricingMode(currentModel.id) === 'per_second';
   const pointCostPerSecond = getVideoModelPointCostPerSecond(currentModel.id);
   const estimatedCost = getVideoModelDisplayCost(currentModel.id, videoDuration);
 
-  const handleSelectReferenceVideo = async (
-    event: React.ChangeEvent<HTMLInputElement>,
-  ) => {
-    const file = event.target.files?.[0];
+  const handleSelectReferenceVideo = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files || []);
     event.target.value = '';
-    if (!file) return;
-
+    if (!files.length) return;
+    if (videoReferenceVideos.length + files.length > maxReferenceVideos) {
+      window.alert(`当前模型最多支持 ${maxReferenceVideos} 个参考视频`);
+      return;
+    }
     try {
       setIsUploadingReferenceVideo(true);
-      const uploadedUrl = await uploadVideoReferenceFile(file);
-      setVideoReferenceUrl(uploadedUrl);
+      for (const file of files) {
+        const url = await uploadVideoReferenceFile(file);
+        addVideoReferenceVideo({ id: `${Date.now()}-${file.name}`, url, name: file.name });
+      }
     } catch (error) {
       window.alert(error instanceof Error ? error.message : '参考视频上传失败');
-    } finally {
-      setIsUploadingReferenceVideo(false);
-    }
+    } finally { setIsUploadingReferenceVideo(false); }
   };
 
-  if (visibleVideoModels.length === 0) {
-    return (
-      <div className="rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3 text-xs leading-6 text-gray-400">
-        当前没有可用于直连 API Key 的视频模型。
-      </div>
-    );
-  }
+  if (!visibleVideoModels.length) return <div className="rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3 text-xs leading-6 text-gray-400">当前没有可用的视频模型。</div>;
 
-  return (
-    <div className="flex flex-col gap-3">
-      <div className={`grid ${showLineSelector ? 'grid-cols-3' : 'grid-cols-2'} gap-2`}>
-        <div>
-          <label className="mb-1 block text-[10px] text-gray-500">画面比例</label>
-          <DropUpSelect
-            value={videoAspectRatio}
-            onChange={(value) => setVideoAspectRatio(value)}
-            options={ratioOptions.map((value) => ({
-              value,
-              label:
-                value === '16:9'
-                  ? '16:9（横屏）'
-                  : value === '9:16'
-                    ? '9:16（竖屏）'
-                    : value,
-            }))}
-            showRectMarker
-          />
-        </div>
-
-        <div>
-          <label className="mb-1 block text-[10px] text-gray-500">时长</label>
-          <DropUpSelect
-            value={videoDuration}
-            onChange={(value) => setVideoDuration(value)}
-            options={durationOptions.map((value) => ({
-              value,
-              label: `${value}s`,
-            }))}
-          />
-        </div>
-
-        {showLineSelector && (
-          <div>
-            <label className="mb-1 block text-[10px] text-gray-500">线路</label>
-            <DropUpSelect
-              value={videoLine}
-              onChange={(value) => setVideoLine(value)}
-              options={routeOptions}
-            />
-            {restrictToDirectKeyCompatible && (
-              <div className="mt-1 text-[10px] leading-4 text-cyan-300">
-                这里只显示支持直连 API Key 的线路。
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-
-      {supportsVideoReference && (
-        <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3 space-y-2">
-          <div>
-            <div className="flex items-center justify-between gap-2">
-              <label className="block text-[10px] text-gray-500">
-                {videoReferenceMode === 'frames' ? '参考视频 URL' : '参考视频 URL（可选）'}
-              </label>
-              <button
-                type="button"
-                onClick={() => videoReferenceInputRef.current?.click()}
-                disabled={isUploadingReferenceVideo}
-                className="inline-flex items-center gap-1 rounded-md border border-white/10 bg-black/20 px-2 py-1 text-[10px] text-blue-300 transition-colors hover:border-white/20 hover:text-blue-200 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {isUploadingReferenceVideo ? (
-                  <Loader2 size={11} className="animate-spin" />
-                ) : (
-                  <Upload size={11} />
-                )}
-                {isUploadingReferenceVideo ? '上传中' : '上传视频'}
-              </button>
-            </div>
-            <input
-              value={videoReferenceUrl}
-              onChange={(e) => setVideoReferenceUrl(e.target.value)}
-              placeholder="https://..."
-              className="mt-1 w-full rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-sm text-white outline-none"
-            />
-            <input
-              ref={videoReferenceInputRef}
-              type="file"
-              accept="video/mp4,video/webm,video/quicktime,.mp4,.webm,.mov"
-              className="hidden"
-              onChange={handleSelectReferenceVideo}
-            />
-          </div>
-          <div className="text-[10px] text-gray-400">
-            {videoReferenceMode === 'frames'
-              ? `首尾帧模式下最多支持 ${maxReferenceImages} 张图片`
-              : `参考图模式下最多支持 ${maxReferenceImages} 张图片`}
-          </div>
-        </div>
-      )}
-
-      <div>
-        <div className="mb-1 flex items-center justify-between gap-2">
-          <label className="block text-[10px] text-gray-500">视频模型</label>
-          <span className="text-[10px] font-medium text-yellow-300">
-            {isPerSecondPricing
-              ? `${pointCostPerSecond} 金币/s · 预计 ${estimatedCost} 金币`
-              : `预计 ${estimatedCost} 金币`}
-          </span>
-        </div>
-        {supportsHd && (
-          <label className="mb-2 flex cursor-pointer items-center justify-end gap-1.5">
-            <input
-              type="checkbox"
-              checked={videoHd}
-              onChange={(event) => setVideoHd(event.target.checked)}
-              className="h-3 w-3 rounded border-gray-600 bg-gray-700 text-purple-600 focus:ring-purple-500"
-            />
-            <span className="text-[10px] font-medium text-purple-300">
-              {isGrokModel ? '1080P 高清' : '高清模式'}
-            </span>
-          </label>
-        )}
-
-        <ModelSelector
-          dropUp
-          value={currentModel.id}
-          onChange={(value) => {
-            setVideoModel(value);
-            setVideoAspectRatio(getDefaultVideoAspectRatioForModel(value));
-            setVideoDuration(getDefaultVideoDurationForModel(value));
-            setVideoHd(false);
-          }}
-          options={modelOptions}
-        />
-      </div>
+  return <div className="flex flex-col gap-3">
+    <div className={`grid ${showLineSelector ? 'grid-cols-4' : 'grid-cols-3'} gap-2`}>
+      <div><label className="mb-1 block text-[10px] text-gray-500">画面比例</label><DropUpSelect value={videoAspectRatio} onChange={setVideoAspectRatio} options={ratioOptions.map((value) => ({ value, label: value }))} showRectMarker /></div>
+      <div><label className="mb-1 block text-[10px] text-gray-500">分辨率</label>{resolutionOptions.length > 1 ? <DropUpSelect value={videoResolution} onChange={setVideoResolution} options={resolutionOptions.map((value) => ({ value, label: value.toUpperCase() }))} /> : <div className="flex h-9 items-center rounded-lg border border-white/10 bg-black/20 px-3 text-xs text-gray-300">{resolutionOptions[0].toUpperCase()}</div>}</div>
+      <div><label className="mb-1 block text-[10px] text-gray-500">时长</label><DropUpSelect value={videoDuration} onChange={setVideoDuration} options={durationOptions.map((value) => ({ value, label: `${value}s` }))} /></div>
+      {showLineSelector && <div><label className="mb-1 block text-[10px] text-gray-500">线路</label><DropUpSelect value={videoLine} onChange={setVideoLine} options={routeOptions} /></div>}
     </div>
-  );
+    {supportsVideoReference && <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3 space-y-2">
+      <div className="flex items-center justify-between"><label className="text-[10px] text-gray-500">参考视频（最多 {maxReferenceVideos} 个）</label><button type="button" onClick={() => videoReferenceInputRef.current?.click()} disabled={isUploadingReferenceVideo} className="inline-flex items-center gap-1 rounded-md border border-white/10 bg-black/20 px-2 py-1 text-[10px] text-blue-300 disabled:opacity-60"><Upload size={11} />{isUploadingReferenceVideo ? '上传中' : '上传视频'}</button></div>
+      <input ref={videoReferenceInputRef} type="file" multiple accept="video/mp4,video/webm,video/quicktime,.mp4,.webm,.mov" className="hidden" onChange={handleSelectReferenceVideo} />
+      {videoReferenceVideos.map((item, index) => <div key={item.id || item.url} className="flex h-8 items-center justify-between gap-2 rounded-md bg-black/20 px-2 text-xs text-gray-300"><span className="truncate">{item.name || item.url}</span><button type="button" aria-label={`移除参考视频 ${index + 1}`} onClick={() => removeVideoReferenceVideo(index)} className="text-gray-400 hover:text-white"><X size={14} /></button></div>)}
+      <div className="text-[10px] text-gray-400">参考图片最多 {maxReferenceImages} 张，参考视频最多 {maxReferenceVideos} 个，合计最多 {maxTotalReferences} 个</div>
+    </div>}
+    <div><div className="mb-1 flex items-center justify-between gap-2"><label className="block text-[10px] text-gray-500">视频模型</label><span className="text-[10px] font-medium text-yellow-300">{isPerSecondPricing ? `${pointCostPerSecond} 金币/s · 预计 ${estimatedCost} 金币` : `预计 ${estimatedCost} 金币`}</span></div><ModelSelector dropUp value={currentModel.id} onChange={(value) => { setVideoModel(value); setVideoAspectRatio(getDefaultVideoAspectRatioForModel(value)); setVideoDuration(getDefaultVideoDurationForModel(value)); setVideoResolution(getDefaultVideoResolutionForModel(value)); }} options={modelOptions} /></div>
+    {referenceImageMode === 'frames' && <div className="text-[10px] text-cyan-300">参考图片将按首帧、尾帧顺序发送。</div>}
+  </div>;
 };
 
 export default VideoFormConfig;
