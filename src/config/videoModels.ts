@@ -57,6 +57,12 @@ const normalizeStringArray = (value: unknown): string[] => {
   return Array.from(new Set(input.map((item) => String(item || '').trim()).filter(Boolean)));
 };
 
+const normalizeResolutionOptions = (model: Partial<VideoModelConfig>): string[] => {
+  const options = normalizeStringArray(model.resolutionOptions);
+  if (options.length > 0) return options;
+  return [String(model.defaultResolution || '720p').trim() || '720p'];
+};
+
 const LEGACY_MODEL_ALIASES: Record<string, string> = {
   'veo3.1-4k': 'veo3.1-fast-4K',
   'veo3.1-components-4k': 'veo3.1-fast-components-4K',
@@ -86,7 +92,7 @@ const normalizeModel = (model: Partial<VideoModelConfig> = {}): VideoModelConfig
   defaultAspectRatio: String(model.defaultAspectRatio || '16:9').trim(),
   aspectRatioOptions: normalizeStringArray(model.aspectRatioOptions || ['16:9', '9:16']),
   defaultResolution: String(model.defaultResolution || '720p').trim(),
-  resolutionOptions: normalizeStringArray(model.resolutionOptions || ['720p']),
+  resolutionOptions: normalizeResolutionOptions(model),
   defaultDuration: String(model.defaultDuration || '4').trim(),
   durationOptions: normalizeStringArray(model.durationOptions || ['4', '6', '8']),
   promptMaxLength: model.promptMaxLength === null || model.promptMaxLength === undefined

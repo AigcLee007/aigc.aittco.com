@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import targetCatalog from '../../config/pixelhubVideoCatalog.json';
 import modelCatalog from '../../config/videoModels.json';
 import routeCatalog from '../../config/videoRoutes.json';
@@ -7,7 +7,17 @@ import {
   getVideoModelMaxReferenceVideos,
   getVideoModelReferenceImageMode,
   getVideoModelResolutionOptions,
+  refreshVideoModelCatalog,
 } from './videoModels';
+
+afterEach(async () => {
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+    ok: true,
+    json: async () => modelCatalog,
+  }));
+  await refreshVideoModelCatalog();
+  vi.unstubAllGlobals();
+});
 
 const targetModelIds = [
   'gemini-omni-flash',
@@ -113,5 +123,27 @@ describe('PixelHub video catalog', () => {
     expect(getVideoModelMaxReferenceVideos('sora-v3-pro')).toBe(3);
     expect(getVideoModelReferenceImageMode('veo31-fast')).toBe('frames');
     expect(getVideoModelDisplayCost('veo31-fast', '4')).toBe(2);
+  });
+
+  it('falls back to the default resolution when the server returns an empty option list', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        defaultModelId: 'legacy-video-model',
+        models: [{
+          id: 'legacy-video-model',
+          label: 'Legacy Video Model',
+          modelFamily: 'legacy',
+          routeFamily: 'legacy',
+          defaultResolution: '720p',
+          resolutionOptions: [],
+          isActive: true,
+        }],
+      }),
+    }));
+
+    await refreshVideoModelCatalog();
+
+    expect(getVideoModelResolutionOptions('legacy-video-model')).toEqual(['720p']);
   });
 });
