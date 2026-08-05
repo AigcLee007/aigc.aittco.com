@@ -75,9 +75,9 @@ const normalizeModel = (model: Partial<VideoModelConfig> = {}): VideoModelConfig
   selectorCost: roundNonNegativePoint(model.selectorCost || 0, 0),
   pricingMode: model.pricingMode === 'per_second' ? 'per_second' : 'fixed',
   pointCostPerSecond: roundNonNegativePoint(model.pointCostPerSecond || 0, 0),
-  maxReferenceImages: Math.max(0, Number(model.maxReferenceImages || 1)),
-  maxReferenceVideos: Math.max(0, Number(model.maxReferenceVideos || 0)),
-  maxTotalReferences: Math.max(0, Number(model.maxTotalReferences || model.maxReferenceImages || 1)),
+  maxReferenceImages: Math.max(0, Number(model.maxReferenceImages ?? 1)),
+  maxReferenceVideos: Math.max(0, Number(model.maxReferenceVideos ?? 0)),
+  maxTotalReferences: Math.max(0, Number(model.maxTotalReferences ?? model.maxReferenceImages ?? 1)),
   referenceImageMode: ['style', 'general', 'frames'].includes(String(model.referenceImageMode || 'general'))
     ? model.referenceImageMode
     : 'general',

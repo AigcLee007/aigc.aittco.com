@@ -292,7 +292,7 @@ const requireMySqlVideoModelManagement = async () => {
   await ensureVideoModelSchema();
 };
 
-const validateModelPayload = (input = {}, { partial = false } = {}) => {
+const normalizeManagedVideoModelInput = (input = {}, { partial = false } = {}) => {
   const next = {};
   if (!partial || Object.prototype.hasOwnProperty.call(input, "id")) {
     const value = trimToString(input.id);
@@ -378,7 +378,7 @@ const fetchAdminVideoModels = async () => {
 
 const createManagedVideoModel = async (input = {}) => {
   await requireMySqlVideoModelManagement();
-  const payload = validateModelPayload(input, { partial: false });
+  const payload = normalizeManagedVideoModelInput(input, { partial: false });
   const nowDb = toDbDateTime();
   return withTransaction(async (connection) => {
     const [existingRows] = await connection.execute("SELECT model_id FROM video_models WHERE model_id = ? LIMIT 1", [payload.model_id]);
@@ -413,12 +413,17 @@ const updateManagedVideoModel = async (modelId, patch = {}) => {
   await requireMySqlVideoModelManagement();
   const modelIdValue = trimToString(modelId);
   if (!modelIdValue) throw new Error("Model ID is required");
-  const payload = validateModelPayload(patch, { partial: true });
+  const payload = normalizeManagedVideoModelInput(patch, { partial: true });
   delete payload.model_id;
   payload.updated_at = toDbDateTime();
   return withTransaction(async (connection) => {
     const [existingRows] = await connection.execute("SELECT * FROM video_models WHERE model_id = ? LIMIT 1 FOR UPDATE", [modelIdValue]);
     if (!existingRows?.[0]) throw new Error("Video model does not exist");
+    normalizeManagedVideoModelInput({
+      ...mapRowToModel(existingRows[0]),
+      ...patch,
+      id: modelIdValue,
+    }, { partial: false });
     if (payload.is_default_model) await connection.execute("UPDATE video_models SET is_default_model = 0");
     const entries = Object.entries(payload);
     if (entries.length > 0) {
@@ -460,5 +465,6 @@ module.exports = {
   getVideoModelById,
   getVideoModelByRequestModel,
   getVideoModelCatalog,
+  normalizeManagedVideoModelInput,
   updateManagedVideoModel,
 };
