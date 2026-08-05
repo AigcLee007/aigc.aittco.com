@@ -3,17 +3,59 @@ import targetCatalog from '../../config/pixelhubVideoCatalog.json';
 import modelCatalog from '../../config/videoModels.json';
 import routeCatalog from '../../config/videoRoutes.json';
 
+const targetModelIds = [
+  'gemini-omni-flash',
+  'sora-v3-pro',
+  'veo31-fast',
+];
+const targetRouteIds = [
+  'gemini-omni-flash-line1',
+  'sora-v3-pro-line1',
+  'veo31-fast-line1',
+];
+const legacyModelIds = [
+  'veo3.1-fast',
+  'grok-video-3',
+  'kling-video-3.0',
+  'kling-video-o3-omni',
+  'sora2',
+  'sora-v3-fast',
+  'veo3.1-components',
+  'veo3.1-pro',
+  'veo3.1-fast-4K',
+  'veo3.1-fast-components-4K',
+  'veo3.1-pro-4k',
+];
+const legacyRouteIds = [
+  'veo3.1-fast-line1',
+  'grok-video-3-line1',
+  'kling-video-3.0-line1',
+  'kling-video-o3-omni-line1',
+  'sora2-line1',
+  'sora-v3-fast-line1',
+  'veo3.1-components-line1',
+  'veo3.1-pro-line1',
+  'veo3.1-fast-4k-line1',
+  'veo3.1-fast-components-4k-line1',
+  'veo3.1-pro-4k-line1',
+];
+
 describe('PixelHub video catalog', () => {
   it('exposes only the three target models', () => {
     const activeIds = modelCatalog.models
       .filter((model) => model.isActive !== false)
       .map((model) => model.id);
-    expect(activeIds).toEqual([
-      'gemini-omni-flash',
-      'sora-v3-pro',
-      'veo31-fast',
-    ]);
+    expect(activeIds).toEqual(targetModelIds);
     expect(modelCatalog.defaultModelId).toBe('gemini-omni-flash');
+
+    expect(modelCatalog.models
+      .filter((model) => !targetModelIds.includes(model.id))
+      .map((model) => model.id))
+      .toEqual(legacyModelIds);
+    expect(modelCatalog.models
+      .filter((model) => legacyModelIds.includes(model.id))
+      .every((model) => model.isActive === false && model.isDefaultModel === false))
+      .toBe(true);
   });
 
   it('keeps one independently keyed active route per target model', () => {
@@ -28,19 +70,24 @@ describe('PixelHub video catalog', () => {
     expect(activeRoutes.every((route) => route.baseUrl === 'https://api.pixellelabs.com')).toBe(true);
     expect(activeRoutes.every((route) => route.generatePath === '/v1/videos')).toBe(true);
     expect(activeRoutes.every((route) => route.taskPath === '/v1/videos/{taskId}')).toBe(true);
+
+    expect(routeCatalog.routes
+      .filter((route) => !targetRouteIds.includes(route.id))
+      .map((route) => route.id))
+      .toEqual(legacyRouteIds);
+    expect(routeCatalog.routes
+      .filter((route) => legacyRouteIds.includes(route.id))
+      .every((route) => route.isActive === false && route.isDefaultRoute === false))
+      .toBe(true);
   });
 
   it('matches the migration source of truth', () => {
-    expect(targetCatalog.models.map((model) => model.id)).toEqual([
-      'gemini-omni-flash',
-      'sora-v3-pro',
-      'veo31-fast',
-    ]);
-    expect(targetCatalog.routes.map((route) => route.id)).toEqual([
-      'gemini-omni-flash-line1',
-      'sora-v3-pro-line1',
-      'veo31-fast-line1',
-    ]);
+    expect(targetCatalog.models.map((model) => model.id)).toEqual(targetModelIds);
+    expect(targetCatalog.routes.map((route) => route.id)).toEqual(targetRouteIds);
+    expect(targetCatalog.defaultModelId).toBe('gemini-omni-flash');
+    expect(targetCatalog.defaultRouteId).toBe('gemini-omni-flash-line1');
+    expect(modelCatalog.defaultModelId).toBe(targetCatalog.defaultModelId);
+    expect(routeCatalog.defaultRouteId).toBe(targetCatalog.defaultRouteId);
 
     for (const targetModel of targetCatalog.models) {
       expect(modelCatalog.models.find((model) => model.id === targetModel.id))
