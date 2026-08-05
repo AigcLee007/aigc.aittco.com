@@ -340,6 +340,7 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
   const promptTextareaRef = useRef<HTMLTextAreaElement>(null);
 
   const isGenerateMode = toolMode === ToolMode.GENERATE;
+  const isInpaintMode = (toolMode as ToolMode) === ToolMode.INPAINT;
   // Use persistent panelMode instead of transient toolMode
   const isVideoMode = panelMode === 'VIDEO';
 
@@ -2355,13 +2356,13 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
                 isGenerating ||
                 isCheckingGenerationAccess ||
                 !hasUnlockedGenerationAccess ||
-                (!prompt.trim() && toolMode !== ToolMode.INPAINT)
+                (!prompt.trim() && !isInpaintMode)
               }
               className={`w-full ${isMobile ? 'py-3.5 rounded-xl text-base min-h-[50px]' : 'py-2.5 rounded-lg text-sm'} font-medium flex items-center justify-center gap-2 transition-all touch-manipulation active:scale-[0.98] ${
                 isGenerating ||
                 isCheckingGenerationAccess ||
                 !hasUnlockedGenerationAccess ||
-                (!prompt.trim() && toolMode !== ToolMode.INPAINT)
+                (!prompt.trim() && !isInpaintMode)
                   ? 'bg-gray-700 text-gray-500 cursor-not-allowed'
                   : 'bg-linear-to-r from-purple-600 to-blue-600 hover:from-purple-500 hover:to-blue-500 text-white shadow-lg'
               }`}
@@ -2374,8 +2375,8 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
                 <><ShieldCheck size={16} />请先登录或验证 Key</>
               ) : (
                 <>
-                  {toolMode === ToolMode.INPAINT ? <Zap size={16} /> : (isVideoMode ? <Film size={16} /> : <Wand2 size={16} />)}
-                  {toolMode === ToolMode.INPAINT ? '开始图片编辑' : (isVideoMode ? '立即生成视频' : '立即开始创作')}
+                  {isInpaintMode ? <Zap size={16} /> : (isVideoMode ? <Film size={16} /> : <Wand2 size={16} />)}
+                  {isInpaintMode ? '开始图片编辑' : (isVideoMode ? '立即生成视频' : '立即开始创作')}
                 </>
               )}
             </button>
