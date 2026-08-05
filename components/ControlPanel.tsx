@@ -37,9 +37,11 @@ import {
 import {
   getVideoModelById,
   getVideoModelMaxReferenceImages,
+  getVideoModelMaxReferenceVideos,
+  getVideoModelMaxTotalReferences,
   getVideoReferenceThumbnailLabel,
 } from '../src/config/videoModels';
-import { getSelectedVideoRoute, getVideoModelNameForRoute } from '../src/config/videoRoutes';
+import { getSelectedVideoRoute } from '../src/config/videoRoutes';
 import { useVideoModelCatalog } from '../src/hooks/useVideoModelCatalog';
 import { useVideoRouteCatalog } from '../src/hooks/useVideoRouteCatalog';
 import ImageModelIcon from './ImageModelIcon';
@@ -134,11 +136,8 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
     quantity, setQuantity,
     videoAspectRatio, setVideoAspectRatio,
     videoDuration, setVideoDuration,
-    videoHd, setVideoHd,
-    videoReferenceMode,
-    setVideoReferenceMode,
-    videoReferenceUrl,
-    setVideoReferenceUrl,
+    videoResolution,
+    videoReferenceVideos,
     imageModel, setImageModel,
     imageLine, setImageLine,
     gptImageQuality,
@@ -166,14 +165,6 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
   const selectedImageModelConfig = getImageModelById(imageModel);
   const selectedVideoRoute = getSelectedVideoRoute(videoModel, videoLine);
   const selectedVideoModelConfig = getVideoModelById(videoModel);
-  const isSoraV3Video = selectedVideoModelConfig.id === 'sora-v3-pro' || selectedVideoModelConfig.id === 'sora-v3-fast';
-
-  useEffect(() => {
-    if (!isSoraV3Video) {
-      if (videoReferenceMode !== 'images') setVideoReferenceMode('images');
-      if (videoReferenceUrl) setVideoReferenceUrl('');
-    }
-  }, [isSoraV3Video, setVideoReferenceMode, setVideoReferenceUrl, videoReferenceMode, videoReferenceUrl]);
 
   // State moved to store: const [prompt, setPrompt] = useState('')
   const [error, setError] = useState<string | null>(null);
@@ -192,7 +183,6 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
   // const [videoModel, setVideoModel] = useState<string>('veo3.1-fast'); // Moved to store
   // const [videoAspectRatio, setVideoAspectRatio] = useState<string>('16:9'); // Moved to store
   // const [videoDuration, setVideoDuration] = useState<string>('4'); // Moved to store
-  // const [videoHd, setVideoHd] = useState(false); // Moved to store
   // const [quantity, setQuantity] = useState(1); // Moved to store
   
   const [draggingIndex, setDraggingIndex] = useState<number | null>(null);
@@ -1449,15 +1439,35 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
             .map((idx) => referenceImages[idx])
             .filter((img): img is ReferenceImage => Boolean(img))
         : referenceImages;
-    const referenceMode = isSoraV3Video ? videoReferenceMode : 'images';
-    const referenceVideoUrl = isSoraV3Video ? String(videoReferenceUrl || '').trim() : '';
 
-    // Auto-append ratio argument to prompt for model compatibility (double safety)
-    const promptWithRatio = `${parsedPrompt} --ar ${videoAspectRatio}`;
-    const currentPrompt = promptWithRatio;
+    const referenceVideoUrls = Array.from(
+      new Set(
+        videoReferenceVideos
+          .map((reference) => String(reference?.url || '').trim())
+          .filter(Boolean),
+      ),
+    );
+    const maxReferenceVideos = getVideoModelMaxReferenceVideos(selectedVideoModelConfig.id);
+    const maxTotalReferences = getVideoModelMaxTotalReferences(selectedVideoModelConfig.id);
+    const maxReferenceImages = getVideoModelMaxReferenceImages(selectedVideoModelConfig.id);
+
+    if (effectiveVideoReferenceImages.length > maxReferenceImages) {
+      setError(`当前模型最多支持 ${maxReferenceImages} 张参考图`);
+      return;
+    }
+    if (referenceVideoUrls.length > maxReferenceVideos) {
+      setError(`当前模型最多支持 ${maxReferenceVideos} 个参考视频`);
+      return;
+    }
+    if (effectiveVideoReferenceImages.length + referenceVideoUrls.length > maxTotalReferences) {
+      setError(`当前模型最多支持 ${maxTotalReferences} 个参考素材`);
+      return;
+    }
+
+    const currentPrompt = parsedPrompt;
 
     // Init generation node (VIDEO type)
-    const placeholderIds = onInitGenerations(1, currentPrompt, '16:9', undefined, 'VIDEO');
+    const placeholderIds = onInitGenerations(1, currentPrompt, videoAspectRatio, undefined, 'VIDEO');
     const pid = placeholderIds[0];
 
     try {
@@ -1548,8 +1558,7 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
                   ctx.drawImage(img, 0, 0, width, height);
 
                   // Export as JPEG quality 0.85
-                  const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
-                  resolve(dataUrl.split(',')[1]);
+                  resolve(canvas.toDataURL('image/jpeg', 0.85));
                 };
                 
                 img.onerror = (e) => {
@@ -1570,19 +1579,17 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
         }
       }
 
-      const videoUrl = await generateVideo(apiKey, getVideoModelNameForRoute({
-        videoModel: selectedVideoModelConfig.id,
-        videoLine,
-      }), currentPrompt, base64Images.length > 0 ? base64Images : undefined, (progress) => {
-        if (onUpdateProgress) onUpdateProgress(pid, progress);
-      }, {
+      const videoUrl = await generateVideo(apiKey, {
         modelId: selectedVideoModelConfig.id,
         routeId: selectedVideoRoute.id,
-        aspect_ratio: videoAspectRatio,
-        hd: videoHd,
+        prompt: currentPrompt,
+        aspectRatio: videoAspectRatio,
+        resolution: videoResolution,
         duration: videoDuration,
-        videoReference: referenceVideoUrl || undefined,
-        referenceMode,
+        referenceImages: base64Images,
+        referenceVideos: referenceVideoUrls,
+      }, (progress) => {
+        if (onUpdateProgress) onUpdateProgress(pid, progress);
       });
       onUpdateGeneration(pid, videoUrl);
     } catch (err: any) {
@@ -1711,13 +1718,14 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
     { label: '5:4', value: '5:4' }
   ];
   const maxReferenceImages = isVideoMode
-    ? getVideoModelMaxReferenceImages(
-        selectedVideoModelConfig.id,
-        (selectedVideoModelConfig.id === 'sora-v3-pro' || selectedVideoModelConfig.id === 'sora-v3-fast')
-          ? videoReferenceMode
-          : undefined,
-      )
+    ? getVideoModelMaxReferenceImages(selectedVideoModelConfig.id)
     : (imageModel === 'gpt-image-2' ? 16 : 10);
+  const maxReferenceVideos = isVideoMode
+    ? getVideoModelMaxReferenceVideos(selectedVideoModelConfig.id)
+    : 0;
+  const maxTotalReferences = isVideoMode
+    ? getVideoModelMaxTotalReferences(selectedVideoModelConfig.id)
+    : maxReferenceImages;
   const promptReferenceMentionState = useMemo(() => {
     const referenceTagRegex = /@图\s*([1-9]\d*)/gi;
     const mentionedOneBased: number[] = [];
@@ -1996,23 +2004,17 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
                     <span className="inline-flex items-center rounded-md border border-blue-400/35 bg-blue-500/15 px-1.5 py-[1px] text-[10px] font-medium text-blue-200">
                       {referenceImages.length}/{maxReferenceImages}
                     </span>
-                    {isVideoMode && isSoraV3Video && (
-                      <div className="inline-flex rounded-md border border-white/10 bg-black/20 p-0.5">
-                        {(['images', 'frames'] as const).map((mode) => (
-                          <button
-                            key={mode}
-                            type="button"
-                            onClick={() => setVideoReferenceMode(mode)}
-                            className={`px-2 py-1 text-[10px] transition-colors ${
-                              videoReferenceMode === mode
-                                ? 'rounded bg-white/10 text-white'
-                                : 'text-gray-400 hover:text-gray-200'
-                            }`}
-                          >
-                            {mode === 'images' ? '参考图' : '首尾帧'}
-                          </button>
-                        ))}
-                      </div>
+                    {isVideoMode && (
+                      <>
+                        <span className="text-xs text-gray-400">参考视频</span>
+                        <span className="inline-flex items-center rounded-md border border-blue-400/35 bg-blue-500/15 px-1.5 py-[1px] text-[10px] font-medium text-blue-200">
+                          {videoReferenceVideos.length}/{maxReferenceVideos}
+                        </span>
+                        <span className="text-xs text-gray-400">合计</span>
+                        <span className="inline-flex items-center rounded-md border border-blue-400/35 bg-blue-500/15 px-1.5 py-[1px] text-[10px] font-medium text-blue-200">
+                          {referenceImages.length + videoReferenceVideos.length}/{maxTotalReferences}
+                        </span>
+                      </>
                     )}
                   </div>
                   <div className="flex items-center gap-1">
@@ -2036,7 +2038,7 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
                     const label = isVideoMode
                       ? getVideoReferenceThumbnailLabel(
                           selectedVideoModelConfig.id,
-                          isSoraV3Video ? videoReferenceMode : 'images',
+                          undefined,
                           idx,
                         )
                       : `图${idx + 1}`;
