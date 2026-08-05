@@ -86,6 +86,13 @@ describe('normalizePixelHubVideoRequest', () => {
     }, 'gemini-omni-flash'), /duration/i);
   });
 
+  it('rejects a non-integer duration before billing', () => {
+    assert.throws(() => request({
+      prompt: 'test', aspectRatio: '16:9', resolution: '720p', duration: 4.5,
+      referenceImages: [], referenceVideos: [],
+    }, 'gemini-omni-flash'), /integer/i);
+  });
+
   it('rejects a video quantity other than one', () => {
     assert.throws(() => request({
       prompt: 'test', aspectRatio: '16:9', resolution: '720p', duration: 4,
