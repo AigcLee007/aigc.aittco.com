@@ -6,6 +6,7 @@ import { useCanvasStore } from './canvasStore';
 import { getVideoModelMaxReferenceImages } from '../config/videoModels';
 import { assetStorage } from '../services/assetStorage';
 import { v4 as uuidv4 } from 'uuid';
+import { migrateVideoSelectionState, type VideoReferenceItem } from '../utils/videoSelectionMigration';
 
 export interface ReferenceImage {
   id: string; // Unique UI ID
@@ -38,6 +39,8 @@ interface SelectionStore {
   quantity: number;
   videoAspectRatio: string;
   videoDuration: string;
+  videoResolution: string;
+  videoReferenceVideos: VideoReferenceItem[];
   videoHd: boolean;
   videoReferenceMode: 'images' | 'frames';
   videoReferenceUrl: string;
@@ -85,6 +88,10 @@ interface SelectionStore {
   setQuantity: (qty: number) => void;
   setVideoAspectRatio: (ratio: string) => void;
   setVideoDuration: (duration: string) => void;
+  setVideoResolution: (resolution: string) => void;
+  setVideoReferenceVideos: (items: VideoReferenceItem[]) => void;
+  addVideoReferenceVideo: (item: VideoReferenceItem) => void;
+  removeVideoReferenceVideo: (index: number) => void;
   setVideoHd: (hd: boolean) => void;
   setVideoReferenceMode: (mode: 'images' | 'frames') => void;
   setVideoReferenceUrl: (url: string) => void;
@@ -234,7 +241,7 @@ export const useSelectionStore = create<SelectionStore>()(
       referenceImages: [],
       pendingPrompt: null,
       apiKey: '', // Must be manually set by user
-      videoModel: 'veo3.1-fast',
+      videoModel: 'gemini-omni-flash',
       videoLine: 'line1',
       imageModel: 'nano-banana',
       
@@ -247,6 +254,8 @@ export const useSelectionStore = create<SelectionStore>()(
       quantity: 1,
       videoAspectRatio: '16:9',
       videoDuration: '4',
+      videoResolution: '720p',
+      videoReferenceVideos: [],
       videoHd: false,
       videoReferenceMode: 'images',
       videoReferenceUrl: '',
@@ -326,9 +335,16 @@ export const useSelectionStore = create<SelectionStore>()(
       }),
       setVideoAspectRatio: (val) => set(state => { state.videoAspectRatio = val; }),
       setVideoDuration: (val) => set(state => { state.videoDuration = val; }),
-      setVideoHd: (val) => set(state => { state.videoHd = val; }),
+      setVideoResolution: (val) => set(state => { state.videoResolution = val; state.videoHd = val === '1080p'; }),
+      setVideoReferenceVideos: (items) => set(state => { state.videoReferenceVideos = items; state.videoReferenceUrl = items[0]?.url || ''; }),
+      addVideoReferenceVideo: (item) => set(state => { state.videoReferenceVideos.push(item); state.videoReferenceUrl = state.videoReferenceVideos[0]?.url || ''; }),
+      removeVideoReferenceVideo: (index) => set(state => { state.videoReferenceVideos.splice(index, 1); state.videoReferenceUrl = state.videoReferenceVideos[0]?.url || ''; }),
+      setVideoHd: (val) => set(state => { state.videoHd = val; state.videoResolution = val ? '1080p' : '720p'; }),
       setVideoReferenceMode: (val) => set(state => { state.videoReferenceMode = val; }),
-      setVideoReferenceUrl: (val) => set(state => { state.videoReferenceUrl = val; }),
+      setVideoReferenceUrl: (val) => set(state => {
+        state.videoReferenceUrl = val;
+        state.videoReferenceVideos = val ? [{ url: val }] : [];
+      }),
       setBrushSize: (val) => set(state => { state.brushSize = val; }),
       setBrushColor: (val) => set(state => { state.brushColor = val; }),
       setImageLine: (val) => set(state => { state.imageLine = val; }),
@@ -612,6 +628,8 @@ export const useSelectionStore = create<SelectionStore>()(
         quantity: state.quantity,
         videoAspectRatio: state.videoAspectRatio,
         videoDuration: state.videoDuration,
+        videoResolution: state.videoResolution,
+        videoReferenceVideos: state.videoReferenceVideos,
         videoHd: state.videoHd,
         videoReferenceMode: state.videoReferenceMode,
         videoReferenceUrl: state.videoReferenceUrl,
@@ -628,13 +646,16 @@ export const useSelectionStore = create<SelectionStore>()(
         autoDownloadOnSuccess: state.autoDownloadOnSuccess
       }),
       merge: (persistedState, currentState) => {
-        const persisted = persistedState as Partial<SelectionStore> | null;
+        const persisted = migrateVideoSelectionState((persistedState || {}) as Record<string, unknown>) as Partial<SelectionStore>;
         return {
           ...currentState,
           ...persisted,
           referenceImages: sanitizePersistedReferenceImages(persisted?.referenceImages || []),
           videoReferenceMode: persisted?.videoReferenceMode === 'frames' ? 'frames' : 'images',
-          videoReferenceUrl: String(persisted?.videoReferenceUrl || '').trim(),
+          videoReferenceUrl: String(persisted.videoReferenceVideos?.[0]?.url || '').trim(),
+          videoHd: persisted.videoResolution === '1080p',
+          videoResolution: String(persisted.videoResolution || '720p'),
+          videoReferenceVideos: Array.isArray(persisted.videoReferenceVideos) ? persisted.videoReferenceVideos : [],
         };
       },
     }
