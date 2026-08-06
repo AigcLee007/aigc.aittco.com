@@ -29,7 +29,7 @@ const applyPixelHubVideoMigration = async (connection) => {
         max_reference_images,max_reference_videos,max_total_references,reference_image_mode,supports_video_reference,
         reference_labels_json,default_aspect_ratio,aspect_ratio_options_json,default_resolution,resolution_options_json,
         default_duration,duration_options_json,prompt_max_length,supports_hd,default_hd,is_active,is_default_model,sort_order,created_at,updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON DUPLICATE KEY UPDATE
         label = VALUES(label), description = VALUES(description), model_family = VALUES(model_family), route_family = VALUES(route_family),
         request_model = VALUES(request_model), selector_cost = VALUES(selector_cost), pricing_mode = VALUES(pricing_mode),

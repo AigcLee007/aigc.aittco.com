@@ -1,5 +1,8 @@
 const assert = require('assert');
-const { buildPixelHubVideoMigrationOperations } = require('./pixelhubVideoMigration.cjs');
+const {
+  applyPixelHubVideoMigration,
+  buildPixelHubVideoMigrationOperations,
+} = require('./pixelhubVideoMigration.cjs');
 
 describe('PixelHub video catalog migration', () => {
   it('deactivates legacy catalog entries and upserts only three targets', () => {
@@ -22,5 +25,22 @@ describe('PixelHub video catalog migration', () => {
     assert.ok(!serialized.includes('generation_records'));
     assert.ok(!serialized.includes('billing'));
     assert.ok(!serialized.includes('pending_tasks'));
+  });
+
+  it('keeps migration insert columns, placeholders, and parameters aligned', async () => {
+    const connection = {
+      execute: async (sql, params = []) => {
+        if (!/^\s*INSERT INTO\s+/i.test(sql)) return [{}];
+        const match = sql.match(/^\s*INSERT INTO\s+\w+\s*\(([\s\S]*?)\)\s*VALUES\s*\(([\s\S]*?)\)/i);
+        assert.ok(match, 'expected a parameterized INSERT statement');
+        const columnCount = match[1].split(',').map((value) => value.trim()).filter(Boolean).length;
+        const placeholderCount = (match[2].match(/\?/g) || []).length;
+        assert.strictEqual(placeholderCount, columnCount, 'placeholder count must match column count');
+        assert.strictEqual(params.length, columnCount, 'parameter count must match column count');
+        return [{}];
+      },
+    };
+
+    await applyPixelHubVideoMigration(connection);
   });
 });
