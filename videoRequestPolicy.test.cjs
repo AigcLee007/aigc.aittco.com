@@ -32,6 +32,25 @@ describe('normalizePixelHubVideoRequest', () => {
       /if \(error\?\.status === 400\)\s*\{\s*return sendUserFacingGenerationError\(res, 400, error\);\s*\}/,
     );
   });
+  it('persists only safe PixelHub provider summaries in video generation metadata', () => {
+    const source = fs.readFileSync('./server.cjs', 'utf8');
+    const endpointStart = source.indexOf('app.post("/api/video/generate"');
+    const endpointEnd = source.indexOf('// ==================== Video Task Polling', endpointStart);
+    const endpoint = source.slice(endpointStart, endpointEnd);
+    assert.match(
+      endpoint,
+      /const\s*\{\s*upstreamBody\s*,\s*providerSummary\s*,\s*pointCost\s*\}\s*=\s*normalizePixelHubVideoRequest\(/,
+    );
+
+    const recordStart = endpoint.indexOf('generationRecord = await buildGenerationRecordPayload({');
+    const recordEnd = endpoint.indexOf('const response = await requestWithRetry', recordStart);
+    const recordPayload = endpoint.slice(recordStart, recordEnd);
+    assert.ok(recordPayload.includes('providerSummary'));
+    assert.ok(!recordPayload.includes('image_urls'));
+    assert.ok(!recordPayload.includes('video_urls'));
+    assert.ok(!recordPayload.includes('Authorization'));
+  });
+
   it('builds Gemini references, summary, and charges one point per second', () => {
     const result = request({
       prompt: 'city at night', aspectRatio: '16:9', resolution: '1080p', duration: 10,
