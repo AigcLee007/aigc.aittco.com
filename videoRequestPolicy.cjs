@@ -17,7 +17,7 @@ const uniqueUrls = (value) => {
   const urls = [];
   for (const item of value) {
     const url = String(item || '').trim();
-    if (!/^https?:\/\//i.test(url)) throw badRequest('reference media URLs must use http or https');
+    if (!/^https:\/\//i.test(url)) throw badRequest('reference media URLs must use https');
     if (!urls.includes(url)) urls.push(url);
   }
   return urls;
@@ -79,17 +79,26 @@ const normalizePixelHubVideoRequest = ({ body = {}, model, upstreamModel }) => {
     aspect_ratio: aspectRatio,
     duration,
     resolution,
-    generate_audio: true,
   };
-  if (model.referenceImageMode === 'frames') {
+  if (expectedModel === 'gemini-omni-flash') {
     if (images.length) upstreamBody.image_urls = images;
+    if (videos.length) upstreamBody.video_urls = videos;
+  } else if (model.referenceImageMode === 'frames') {
+    if (images.length) upstreamBody.image_urls = images;
+    upstreamBody.generate_audio = true;
   } else {
     if (images.length) upstreamBody.reference_image_urls = images;
     if (videos.length) upstreamBody.reference_videos = videos;
+    upstreamBody.generate_audio = true;
   }
 
   return {
     upstreamBody,
+    providerSummary: {
+      model: expectedModel,
+      referenceImageCount: images.length,
+      referenceVideoCount: videos.length,
+    },
     pointCost: toNonNegativePoint(duration * Number(model.pointCostPerSecond || 0), 0),
   };
 };
