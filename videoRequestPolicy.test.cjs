@@ -32,7 +32,26 @@ describe('normalizePixelHubVideoRequest', () => {
       /if \(error\?\.status === 400\)\s*\{\s*return sendUserFacingGenerationError\(res, 400, error\);\s*\}/,
     );
   });
-  it('builds Gemini references and charges one point per second', () => {
+  it('persists only safe PixelHub provider summaries in video generation metadata', () => {
+    const source = fs.readFileSync('./server.cjs', 'utf8');
+    const endpointStart = source.indexOf('app.post("/api/video/generate"');
+    const endpointEnd = source.indexOf('// ==================== Video Task Polling', endpointStart);
+    const endpoint = source.slice(endpointStart, endpointEnd);
+    assert.match(
+      endpoint,
+      /const\s*\{\s*upstreamBody\s*,\s*providerSummary\s*,\s*pointCost\s*\}\s*=\s*normalizePixelHubVideoRequest\(/,
+    );
+
+    const recordStart = endpoint.indexOf('generationRecord = await buildGenerationRecordPayload({');
+    const recordEnd = endpoint.indexOf('const response = await requestWithRetry', recordStart);
+    const recordPayload = endpoint.slice(recordStart, recordEnd);
+    assert.ok(recordPayload.includes('providerSummary'));
+    assert.ok(!recordPayload.includes('image_urls'));
+    assert.ok(!recordPayload.includes('video_urls'));
+    assert.ok(!recordPayload.includes('Authorization'));
+  });
+
+  it('builds Gemini references, summary, and charges one point per second', () => {
     const result = request({
       prompt: 'city at night', aspectRatio: '16:9', resolution: '1080p', duration: 10,
       referenceImages: ['https://app.test/a.jpg'], referenceVideos: ['https://app.test/a.mp4'],
@@ -40,9 +59,29 @@ describe('normalizePixelHubVideoRequest', () => {
     assert.strictEqual(result.pointCost, 10);
     assert.deepStrictEqual(result.upstreamBody, {
       model: 'gemini-omni-flash', prompt: 'city at night', aspect_ratio: '16:9', duration: 10,
-      resolution: '1080p', generate_audio: true, reference_image_urls: ['https://app.test/a.jpg'],
-      reference_videos: ['https://app.test/a.mp4'],
+      resolution: '1080p', image_urls: ['https://app.test/a.jpg'], video_urls: ['https://app.test/a.mp4'],
     });
+    for (const field of ['image_url', 'reference_image_urls', 'reference_video', 'reference_videos', 'generate_audio']) {
+      assert.ok(!(field in result.upstreamBody));
+    }
+    assert.deepStrictEqual(result.providerSummary, {
+      model: 'gemini-omni-flash',
+      referenceImageCount: 1,
+      referenceVideoCount: 1,
+    });
+    const serializedSummary = JSON.stringify(result.providerSummary);
+    assert.ok(!serializedSummary.includes('https://'));
+    assert.ok(!serializedSummary.includes('Authorization'));
+    assert.ok(!serializedSummary.includes('Bearer'));
+  });
+
+  it('builds Gemini image-only references with no video alias', () => {
+    const result = request({
+      prompt: 'city at night', aspectRatio: '16:9', resolution: '1080p', duration: 10,
+      referenceImages: ['https://app.test/a.jpg'], referenceVideos: [],
+    }, 'gemini-omni-flash');
+    assert.deepStrictEqual(result.upstreamBody.image_urls, ['https://app.test/a.jpg']);
+    assert.ok(!('video_urls' in result.upstreamBody));
   });
 
   it('builds Sora references and charges ten points per second', () => {
@@ -123,6 +162,10 @@ describe('normalizePixelHubVideoRequest', () => {
       prompt: 'test', aspectRatio: '16:9', resolution: '1080p', duration: 4,
       referenceImages: ['data:image/png;base64,abc'], referenceVideos: [],
     }, 'gemini-omni-flash'), /http/i);
+    assert.throws(() => request({
+      prompt: 'test', aspectRatio: '16:9', resolution: '1080p', duration: 4,
+      referenceImages: ['http://app.test/insecure.jpg'], referenceVideos: [],
+    }, 'gemini-omni-flash'), /https/i);
     assert.throws(() => request({
       prompt: 'test', aspectRatio: '16:9', resolution: '1080p', duration: 4,
       referenceImages: [], referenceVideos: ['https://app.test/v.mp4'],

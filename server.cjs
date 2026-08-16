@@ -5632,7 +5632,7 @@ app.post("/api/video/generate", generateLimiter, async (req, res) => {
     }
 
     const materializedBody = materializeVideoReferenceMedia(requestBody, req);
-    const { upstreamBody, pointCost } = normalizePixelHubVideoRequest({
+    const { upstreamBody, providerSummary, pointCost } = normalizePixelHubVideoRequest({
       body: materializedBody,
       model: requestedVideoModel,
       upstreamModel: route.upstreamModel || requestedVideoModel.requestModel || requestedVideoModel.id,
@@ -5676,6 +5676,7 @@ app.post("/api/video/generate", generateLimiter, async (req, res) => {
         duration: upstreamBody.duration,
         pricingMode: requestedVideoModel?.pricingMode || "fixed",
         pointCostPerSecond: requestedVideoModel?.pointCostPerSecond || null,
+        providerSummary,
       },
     });
 

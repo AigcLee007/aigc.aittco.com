@@ -1,7 +1,16 @@
 import { describe, expect, it } from 'vitest';
-import { buildInternalVideoRequest } from './videoService';
+import {
+  buildInternalVideoRequest,
+  VIDEO_POLL_DEADLINE_MS,
+  VIDEO_POLL_INTERVAL_MS,
+} from './videoService';
 
 describe('videoService internal request contract', () => {
+  it('polls PixelHub every 12 seconds for at most 30 minutes', () => {
+    expect(VIDEO_POLL_INTERVAL_MS).toBe(12_000);
+    expect(VIDEO_POLL_DEADLINE_MS).toBe(30 * 60 * 1000);
+  });
+
   it('builds the sole internal API body with normalized duration and deduplicated references', () => {
     expect(
       buildInternalVideoRequest({
