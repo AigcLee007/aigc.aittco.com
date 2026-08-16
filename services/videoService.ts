@@ -3,7 +3,8 @@ import { getAuthorizedBillingHeaders } from '../src/services/accountIdentity';
 import { AppError, extractErrorMessage } from '../src/utils/errorDebug';
 
 const API_BASE_URL = '/api';
-export const VIDEO_POLL_INTERVAL_MS = 10_000;
+export const VIDEO_POLL_INTERVAL_MS = 12_000;
+export const VIDEO_POLL_DEADLINE_MS = 30 * 60 * 1000;
 
 export interface GenerateVideoInput {
   modelId: string;
@@ -87,10 +88,8 @@ export const pollVideoTask = async (
   new Promise((resolve, reject) => {
     const startTime = Date.now();
     let errorCount = 0;
-    const maxDuration = 15 * 60 * 1000;
-
     const pollInterval = setInterval(async () => {
-      if (Date.now() - startTime > maxDuration) {
+      if (Date.now() - startTime > VIDEO_POLL_DEADLINE_MS) {
         clearInterval(pollInterval);
         reject(new Error('任务等待超时'));
         return;
