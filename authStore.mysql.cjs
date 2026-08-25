@@ -920,6 +920,68 @@ const changeUserPassword = async (authUser, currentPassword, newPassword) => {
   });
 };
 
+const resetUserPasswordByAdmin = async (actor, userId, password) => {
+  await ensureAuthSchema();
+
+  if (!actor?.userId) {
+    throw new AuthError("AUTH_LOGIN_REQUIRED", "Please sign in before using this feature");
+  }
+
+  const actorRole = getEffectiveRole(actor);
+  if (!hasAdminRole(actorRole)) {
+    throw new AuthError("ADMIN_REQUIRED", "Administrator access is required");
+  }
+
+  const targetUserId = String(userId || "").trim();
+  if (!targetUserId) {
+    throw new AuthError("USER_NOT_FOUND", "User does not exist");
+  }
+
+  return withTransaction(async (connection) => {
+    const [rows] = await connection.execute(
+      "SELECT * FROM auth_users WHERE user_id = ? LIMIT 1 FOR UPDATE",
+      [targetUserId],
+    );
+    const user = rows[0];
+    if (!user) {
+      throw new AuthError("USER_NOT_FOUND", "User does not exist");
+    }
+
+    if (!hasSuperAdminRole(actorRole) && getEffectiveRole(user) !== "user") {
+      throw new AuthError(
+        "ADMIN_PASSWORD_RESET_FORBIDDEN",
+        "Regular administrators can only reset user passwords",
+      );
+    }
+
+    let safePassword = "";
+    try {
+      safePassword = validatePassword(password);
+    } catch (error) {
+      throw new AuthError("INVALID_PASSWORD", error.message);
+    }
+
+    const nowDb = toDbDateTime();
+    const passwordHash = hashPassword(safePassword);
+    await connection.execute(
+      `
+        UPDATE auth_users
+        SET password_hash = ?, password_updated_at = ?, updated_at = ?
+        WHERE user_id = ?
+      `,
+      [passwordHash, nowDb, nowDb, targetUserId],
+    );
+    await connection.execute("DELETE FROM auth_sessions WHERE user_id = ?", [targetUserId]);
+
+    return toPublicUser({
+      ...user,
+      password_hash: passwordHash,
+      password_updated_at: nowDb,
+      updated_at: nowDb,
+    });
+  });
+};
+
 const requireSuperAdminAccess = async (req) => {
   const user = await requireAuthUser(req);
   if (!hasSuperAdminRole(user.role)) {
@@ -1264,6 +1326,7 @@ module.exports = {
   getSessionUserFromRequest,
   listAdminUsers,
   changeUserPassword,
+  resetUserPasswordByAdmin,
   loginWithPassword,
   logoutSession,
   normalizeEmail,
