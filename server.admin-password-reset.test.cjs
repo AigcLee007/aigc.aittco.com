@@ -5,6 +5,9 @@ const os = require("os");
 const path = require("path");
 
 const AUTH_FILE = path.join(os.tmpdir(), `image-zhuce-admin-route-${process.pid}.json`);
+const MYSQL_ENV_KEYS = Object.keys(process.env).filter((key) => key.startsWith("MYSQL_"));
+const MYSQL_ENV_BACKUP = Object.fromEntries(MYSQL_ENV_KEYS.map((key) => [key, process.env[key]]));
+MYSQL_ENV_KEYS.forEach((key) => delete process.env[key]);
 process.env.AUTH_STORE_FILE = AUTH_FILE;
 const auth = require("./authStore.file.cjs");
 
@@ -56,6 +59,16 @@ describe.sequential("admin password reset route", () => {
 
   beforeAll(() => {
     app = require("./server.cjs");
+  });
+
+  afterAll(() => {
+    resetStore();
+    Object.keys(process.env)
+      .filter((key) => key.startsWith("MYSQL_"))
+      .forEach((key) => delete process.env[key]);
+    Object.entries(MYSQL_ENV_BACKUP).forEach(([key, value]) => {
+      process.env[key] = value;
+    });
   });
 
   const withServer = async (callback) => {
