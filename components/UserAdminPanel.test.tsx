@@ -96,8 +96,10 @@ describe('UserAdminPanel password reset', () => {
       ledgerPage: 1,
       ledgerPageSize: 20,
     });
-    expect(password).toHaveProperty('value', '');
-    expect(confirmation).toHaveProperty('value', '');
+    await waitFor(() =>
+      expect(screen.getByPlaceholderText('输入新密码')).toHaveProperty('value', ''),
+    );
+    expect(screen.getByPlaceholderText('再次输入新密码')).toHaveProperty('value', '');
     expect(mocks.toastSuccess).toHaveBeenCalled();
   });
 
@@ -123,5 +125,42 @@ describe('UserAdminPanel password reset', () => {
     await waitFor(() => expect(mocks.fetchAdminUserDetail).toHaveBeenCalled());
     expect(screen.queryByPlaceholderText('输入新密码')).toBeNull();
     expect(screen.queryByRole('button', { name: '重置密码' })).toBeNull();
+  });
+
+  it('clears password fields when switching to another user', async () => {
+    const secondUser = { ...user, userId: 'user-2', email: 'second@example.com', displayName: 'Second' };
+    mocks.fetchAdminUsers.mockResolvedValueOnce({
+      success: true,
+      total: 2,
+      page: 1,
+      pageSize: 20,
+      totalPages: 1,
+      onlineTotal: 0,
+      onlineWindowMinutes: 5,
+      onlineUsers: [],
+      users: [user, secondUser],
+    });
+    mocks.fetchAdminUserDetail.mockImplementation(async ({ userId }: { userId: string }) => ({
+      ...detail,
+      user: userId === 'user-2' ? secondUser : user,
+    }));
+
+    render(<UserAdminPanel session={session} />);
+    const password = await screen.findByPlaceholderText('输入新密码');
+    const confirmation = screen.getByPlaceholderText('再次输入新密码');
+    fireEvent.change(password, { target: { value: 'secret-for-first-user' } });
+    fireEvent.change(confirmation, { target: { value: 'secret-for-first-user' } });
+
+    fireEvent.click(screen.getByRole('button', { name: /Second/ }));
+
+    await waitFor(() => expect(mocks.fetchAdminUserDetail).toHaveBeenCalledWith({
+      userId: 'user-2',
+      ledgerPage: 1,
+      ledgerPageSize: 20,
+    }));
+    await waitFor(() =>
+      expect(screen.getByPlaceholderText('输入新密码')).toHaveProperty('value', ''),
+    );
+    expect(screen.getByPlaceholderText('再次输入新密码')).toHaveProperty('value', '');
   });
 });

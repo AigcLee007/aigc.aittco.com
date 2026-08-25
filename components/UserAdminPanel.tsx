@@ -88,6 +88,10 @@ const UserAdminPanel: React.FC<UserAdminPanelProps> = ({ session }) => {
     async (userId: string, nextLedgerPage = 1) => {
       if (!isAdmin) return;
 
+      // Passwords are scoped to the selected user; discard any in-progress
+      // secrets before loading another detail (or ledger page).
+      setResetPassword('');
+      setResetPasswordConfirmation('');
       setDetailLoading(true);
       setError(null);
       try {
