@@ -22,7 +22,9 @@ const {
   verifyPassword,
 } = require("./authShared.cjs");
 
-const AUTH_FILE = path.join(__dirname, "auth-data.json");
+const AUTH_FILE = path.resolve(
+  process.env.AUTH_STORE_FILE || path.join(__dirname, "auth-data.json"),
+);
 const AUTH_VERSION = 2;
 const EMAIL_CODE_LENGTH = 6;
 const EMAIL_CODE_TTL_MS = 10 * 60 * 1000;

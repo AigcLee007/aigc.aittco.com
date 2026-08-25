@@ -1,9 +1,11 @@
 const assert = require("assert");
 const fs = require("fs");
 const http = require("http");
+const os = require("os");
 const path = require("path");
 
-const AUTH_FILE = path.join(__dirname, "auth-data.json");
+const AUTH_FILE = path.join(os.tmpdir(), `image-zhuce-admin-route-${process.pid}.json`);
+process.env.AUTH_STORE_FILE = AUTH_FILE;
 const auth = require("./authStore.file.cjs");
 
 const request = (server, method, pathname, body, headers = {}) =>
@@ -49,51 +51,54 @@ const resetStore = () => {
   }
 };
 
-describe("admin password reset route", () => {
+describe.sequential("admin password reset route", () => {
   let app;
-  let server;
 
   beforeAll(() => {
     app = require("./server.cjs");
   });
 
-  beforeEach(async () => {
+  const withServer = async (callback) => {
     resetStore();
-    server = http.createServer(app);
+    const server = http.createServer(app);
     await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
-  });
-
-  afterEach(async () => {
-    await new Promise((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
-    resetStore();
-  });
+    try {
+      return await callback(server);
+    } finally {
+      await new Promise((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+      resetStore();
+    }
+  };
 
   it("resets a user password for an authenticated administrator and redacts secrets", async () => {
-    const admin = await auth.registerWithPassword({ email: "root@example.com", password: "root-pass-123" });
-    const target = await auth.registerWithPassword({ email: "target@example.com", password: "old-pass-123" });
-    const session = await auth.loginWithPassword({ email: admin.user.email, password: "root-pass-123" });
+    await withServer(async (server) => {
+      const admin = await auth.registerWithPassword({ email: "root@example.com", password: "root-pass-123" });
+      const target = await auth.registerWithPassword({ email: "target@example.com", password: "old-pass-123" });
+      const session = await auth.loginWithPassword({ email: admin.user.email, password: "root-pass-123" });
 
-    const result = await request(
-      server,
-      "POST",
-      `/api/admin/users/${target.user.userId}/password`,
-      { password: "new-pass-123" },
-      { "x-auth-session": session.sessionToken },
-    );
+      const result = await request(
+        server,
+        "POST",
+        `/api/admin/users/${target.user.userId}/password`,
+        { password: "new-pass-123" },
+        { "x-auth-session": session.sessionToken },
+      );
 
-    assert.equal(result.status, 200);
-    assert.equal(result.body.success, true);
-    assert.equal(result.body.user.userId, target.user.userId);
-    assert.equal(Object.prototype.hasOwnProperty.call(result.body.user, "passwordHash"), false);
-    assert.equal(JSON.stringify(result.body).includes("new-pass-123"), false);
-    assert.equal(
-      (await auth.loginWithPassword({ email: target.user.email, password: "new-pass-123" })).user.userId,
-      target.user.userId,
-    );
+      assert.equal(result.status, 200);
+      assert.equal(result.body.success, true);
+      assert.equal(result.body.user.userId, target.user.userId);
+      assert.equal(Object.prototype.hasOwnProperty.call(result.body.user, "passwordHash"), false);
+      assert.equal(JSON.stringify(result.body).includes("new-pass-123"), false);
+      assert.equal(
+        (await auth.loginWithPassword({ email: target.user.email, password: "new-pass-123" })).user.userId,
+        target.user.userId,
+      );
+    });
   });
 
   it("requires admin access and maps forbidden, missing, and invalid errors", async () => {
-    const admin = await auth.registerWithPassword({ email: "root@example.com", password: "root-pass-123" });
+    await withServer(async (server) => {
+      const admin = await auth.registerWithPassword({ email: "root@example.com", password: "root-pass-123" });
     const target = await auth.registerWithPassword({ email: "target@example.com", password: "old-pass-123" });
     const regular = await auth.registerWithPassword({ email: "regular@example.com", password: "regular-pass-123" });
     const regularAdmin = await auth.registerWithPassword({ email: "regular-admin@example.com", password: "admin-pass-123" });
@@ -142,6 +147,7 @@ describe("admin password reset route", () => {
       { "x-auth-session": adminSession.sessionToken },
     );
     assert.equal(invalid.status, 400);
-    assert.equal(invalid.body.code, "INVALID_PASSWORD");
+      assert.equal(invalid.body.code, "INVALID_PASSWORD");
+    });
   });
 });
