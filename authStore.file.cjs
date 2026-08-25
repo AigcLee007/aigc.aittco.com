@@ -709,6 +709,52 @@ const changeUserPassword = (authUser, currentPassword, newPassword) => {
   });
 };
 
+const resetUserPasswordByAdmin = (actor, userId, password) => {
+  if (!actor?.userId) {
+    throw new AuthError("AUTH_LOGIN_REQUIRED", "Please sign in before using this feature");
+  }
+  if (!hasAdminRole(actor.role)) {
+    throw new AuthError("ADMIN_REQUIRED", "Administrator access is required");
+  }
+
+  let safePassword = "";
+  try {
+    safePassword = validatePassword(password);
+  } catch (error) {
+    throw new AuthError("INVALID_PASSWORD", error.message);
+  }
+
+  const targetUserId = String(userId || "").trim();
+  if (!targetUserId) {
+    throw new AuthError("USER_NOT_FOUND", "User does not exist");
+  }
+
+  return withStore((store) => {
+    const user = store.users[targetUserId];
+    if (!user) {
+      throw new AuthError("USER_NOT_FOUND", "User does not exist");
+    }
+    if (!hasSuperAdminRole(actor.role) && normalizeRole(user.role, "user") !== "user") {
+      throw new AuthError(
+        "ADMIN_PASSWORD_RESET_FORBIDDEN",
+        "Regular administrators can only reset user passwords",
+      );
+    }
+
+    user.passwordHash = hashPassword(safePassword);
+    user.passwordUpdatedAt = new Date().toISOString();
+    user.updatedAt = user.passwordUpdatedAt;
+
+    Object.keys(store.sessions).forEach((token) => {
+      if (store.sessions[token]?.userId === targetUserId) {
+        delete store.sessions[token];
+      }
+    });
+
+    return toPublicUser(user);
+  });
+};
+
 const requireSuperAdminAccess = (req) => {
   const user = requireAuthUser(req);
   if (!hasSuperAdminRole(user.role)) {
@@ -1015,6 +1061,7 @@ module.exports = {
   logoutSession,
   normalizeEmail,
   registerWithPassword,
+  resetUserPasswordByAdmin,
   resetPasswordWithEmailCode,
   requestEmailCode,
   requireAdminAccess,
