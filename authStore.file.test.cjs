@@ -80,6 +80,25 @@ describe("file auth store admin password reset", () => {
     );
   });
 
+  it("rejects a regular administrator resetting an auto-promoted administrator account", async () => {
+    const previousAdminEmails = process.env.ADMIN_EMAILS;
+    try {
+      const superAdmin = await register("root@example.com", "root-pass-123");
+      const actor = await register("admin@example.com", "admin-pass-123");
+      const target = await register("promoted@example.com", "old-pass-123");
+      const adminActor = setRole(superAdmin.user, actor, "admin");
+      process.env.ADMIN_EMAILS = target.user.email;
+
+      assert.throws(
+        () => auth.resetUserPasswordByAdmin(adminActor, target.user.userId, "new-pass-123"),
+        (error) => error && error.code === "ADMIN_PASSWORD_RESET_FORBIDDEN",
+      );
+    } finally {
+      if (previousAdminEmails === undefined) delete process.env.ADMIN_EMAILS;
+      else process.env.ADMIN_EMAILS = previousAdminEmails;
+    }
+  });
+
   it("rejects passwords outside the shared 8-200 character policy", async () => {
     const superAdmin = await register("root@example.com", "root-pass-123");
     const target = await register("target@example.com", "old-pass-123");
@@ -87,6 +106,15 @@ describe("file auth store admin password reset", () => {
     assert.throws(
       () => auth.resetUserPasswordByAdmin(superAdmin.user, target.user.userId, "short"),
       (error) => error && error.code === "INVALID_PASSWORD",
+    );
+  });
+
+  it("reports a missing target before validating the replacement password", async () => {
+    const superAdmin = await register("root@example.com", "root-pass-123");
+
+    assert.throws(
+      () => auth.resetUserPasswordByAdmin(superAdmin.user, "missing-user", "short"),
+      (error) => error && error.code === "USER_NOT_FOUND",
     );
   });
 });
