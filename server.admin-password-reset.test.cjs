@@ -99,54 +99,54 @@ describe.sequential("admin password reset route", () => {
   it("requires admin access and maps forbidden, missing, and invalid errors", async () => {
     await withServer(async (server) => {
       const admin = await auth.registerWithPassword({ email: "root@example.com", password: "root-pass-123" });
-    const target = await auth.registerWithPassword({ email: "target@example.com", password: "old-pass-123" });
-    const regular = await auth.registerWithPassword({ email: "regular@example.com", password: "regular-pass-123" });
-    const regularAdmin = await auth.registerWithPassword({ email: "regular-admin@example.com", password: "admin-pass-123" });
-    auth.updateAdminUser(admin.user, regularAdmin.user.userId, { role: "admin" });
-    auth.updateAdminUser(admin.user, target.user.userId, { role: "admin" });
-    const regularSession = await auth.loginWithPassword({ email: regular.user.email, password: "regular-pass-123" });
-    const regularAdminSession = await auth.loginWithPassword({ email: regularAdmin.user.email, password: "admin-pass-123" });
-    const adminSession = await auth.loginWithPassword({ email: admin.user.email, password: "root-pass-123" });
+      const target = await auth.registerWithPassword({ email: "target@example.com", password: "old-pass-123" });
+      const regular = await auth.registerWithPassword({ email: "regular@example.com", password: "regular-pass-123" });
+      const regularAdmin = await auth.registerWithPassword({ email: "regular-admin@example.com", password: "admin-pass-123" });
+      auth.updateAdminUser(admin.user, regularAdmin.user.userId, { role: "admin" });
+      auth.updateAdminUser(admin.user, target.user.userId, { role: "admin" });
+      const regularSession = await auth.loginWithPassword({ email: regular.user.email, password: "regular-pass-123" });
+      const regularAdminSession = await auth.loginWithPassword({ email: regularAdmin.user.email, password: "admin-pass-123" });
+      const adminSession = await auth.loginWithPassword({ email: admin.user.email, password: "root-pass-123" });
 
-    const unauthenticated = await request(server, "POST", `/api/admin/users/${target.user.userId}/password`, { password: "new-pass-123" });
-    assert.equal(unauthenticated.status, 401);
+      const unauthenticated = await request(server, "POST", `/api/admin/users/${target.user.userId}/password`, { password: "new-pass-123" });
+      assert.equal(unauthenticated.status, 401);
 
-    const forbidden = await request(
-      server,
-      "POST",
-      `/api/admin/users/${target.user.userId}/password`,
-      { password: "short" },
-      { "x-auth-session": regularSession.sessionToken },
-    );
-    assert.equal(forbidden.status, 403);
+      const forbidden = await request(
+        server,
+        "POST",
+        `/api/admin/users/${target.user.userId}/password`,
+        { password: "short" },
+        { "x-auth-session": regularSession.sessionToken },
+      );
+      assert.equal(forbidden.status, 403);
 
-    const roleForbidden = await request(
-      server,
-      "POST",
-      `/api/admin/users/${target.user.userId}/password`,
-      { password: "new-pass-123" },
-      { "x-auth-session": regularAdminSession.sessionToken },
-    );
-    assert.equal(roleForbidden.status, 403);
-    assert.equal(roleForbidden.body.code, "ADMIN_PASSWORD_RESET_FORBIDDEN");
+      const roleForbidden = await request(
+        server,
+        "POST",
+        `/api/admin/users/${target.user.userId}/password`,
+        { password: "new-pass-123" },
+        { "x-auth-session": regularAdminSession.sessionToken },
+      );
+      assert.equal(roleForbidden.status, 403);
+      assert.equal(roleForbidden.body.code, "ADMIN_PASSWORD_RESET_FORBIDDEN");
 
-    const missing = await request(
-      server,
-      "POST",
-      "/api/admin/users/missing-user/password",
-      { password: "new-pass-123" },
-      { "x-auth-session": adminSession.sessionToken },
-    );
-    assert.equal(missing.status, 404);
+      const missing = await request(
+        server,
+        "POST",
+        "/api/admin/users/missing-user/password",
+        { password: "new-pass-123" },
+        { "x-auth-session": adminSession.sessionToken },
+      );
+      assert.equal(missing.status, 404);
 
-    const invalid = await request(
-      server,
-      "POST",
-      `/api/admin/users/${target.user.userId}/password`,
-      { password: "short" },
-      { "x-auth-session": adminSession.sessionToken },
-    );
-    assert.equal(invalid.status, 400);
+      const invalid = await request(
+        server,
+        "POST",
+        `/api/admin/users/${target.user.userId}/password`,
+        { password: "short" },
+        { "x-auth-session": adminSession.sessionToken },
+      );
+      assert.equal(invalid.status, 400);
       assert.equal(invalid.body.code, "INVALID_PASSWORD");
     });
   });
