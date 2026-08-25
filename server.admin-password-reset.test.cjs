@@ -7,7 +7,17 @@ const path = require("path");
 const AUTH_FILE = path.join(os.tmpdir(), `image-zhuce-admin-route-${process.pid}.json`);
 const MYSQL_ENV_KEYS = Object.keys(process.env).filter((key) => key.startsWith("MYSQL_"));
 const MYSQL_ENV_BACKUP = Object.fromEntries(MYSQL_ENV_KEYS.map((key) => [key, process.env[key]]));
-MYSQL_ENV_KEYS.forEach((key) => delete process.env[key]);
+[
+  "MYSQL_URL",
+  "MYSQL_HOST",
+  "MYSQL_PORT",
+  "MYSQL_USER",
+  "MYSQL_PASSWORD",
+  "MYSQL_DATABASE",
+  "MYSQL_CONNECTION_LIMIT",
+].forEach((key) => {
+  process.env[key] = "";
+});
 process.env.AUTH_STORE_FILE = AUTH_FILE;
 const auth = require("./authStore.file.cjs");
 
