@@ -146,3 +146,33 @@ export const updateAdminUserProfile = async ({
   return parseResponse<AdminUserDetailPayload>(response);
 };
 
+export const resetAdminUserPassword = async ({
+  userId,
+  password,
+  ledgerPage = 1,
+  ledgerPageSize = 20,
+}: {
+  userId: string;
+  password: string;
+  ledgerPage?: number;
+  ledgerPageSize?: number;
+}): Promise<AdminUserDetailPayload> => {
+  const params = new URLSearchParams();
+  params.set('ledgerPage', String(ledgerPage));
+  params.set('ledgerPageSize', String(ledgerPageSize));
+
+  const response = await fetch(
+    `${cleanUrl(API_BASE_URL)}/admin/users/${encodeURIComponent(userId)}/password?${params.toString()}`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(await getAuthorizedBillingHeaders()),
+      },
+      body: JSON.stringify({ password }),
+    },
+  );
+
+  return parseResponse<AdminUserDetailPayload>(response);
+};
+

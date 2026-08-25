@@ -12,6 +12,7 @@ import { AuthSessionPayload } from '../src/services/accountIdentity';
 import {
   fetchAdminUserDetail,
   fetchAdminUsers,
+  resetAdminUserPassword,
   updateAdminUserProfile,
   type AdminUserDetailPayload,
   type AdminUserListPayload,
@@ -52,6 +53,7 @@ const UserAdminPanel: React.FC<UserAdminPanelProps> = ({ session }) => {
   const [loading, setLoading] = useState(false);
   const [detailLoading, setDetailLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [resettingPassword, setResettingPassword] = useState(false);
   const [adjusting, setAdjusting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -66,6 +68,8 @@ const UserAdminPanel: React.FC<UserAdminPanelProps> = ({ session }) => {
   const [editRole, setEditRole] = useState<'user' | 'admin' | 'super_admin'>('user');
   const [editStatus, setEditStatus] = useState<'active' | 'disabled'>('active');
   const [editAdminNote, setEditAdminNote] = useState('');
+  const [resetPassword, setResetPassword] = useState('');
+  const [resetPasswordConfirmation, setResetPasswordConfirmation] = useState('');
   const [adjustDelta, setAdjustDelta] = useState('100');
   const [adjustNote, setAdjustNote] = useState('');
 
@@ -226,6 +230,42 @@ const UserAdminPanel: React.FC<UserAdminPanelProps> = ({ session }) => {
       setError((err as Error).message);
     } finally {
       setAdjusting(false);
+    }
+  };
+
+  const handleResetPassword = async () => {
+    if (!detail || (!isSuperAdmin && detail.user.role !== 'user')) return;
+
+    if (!resetPassword.trim()) {
+      setError('请输入新密码');
+      return;
+    }
+    if (resetPassword !== resetPasswordConfirmation) {
+      setError('两次输入的密码不一致');
+      return;
+    }
+
+    setResettingPassword(true);
+    setError(null);
+    try {
+      await resetAdminUserPassword({
+        userId: detail.user.userId,
+        password: resetPassword,
+        ledgerPage,
+        ledgerPageSize: 20,
+      });
+      setResetPassword('');
+      setResetPasswordConfirmation('');
+      toast.success('用户密码已重置');
+      await loadUsers({
+        nextPage: page,
+        nextSearch: searchKeyword,
+        preferredUserId: detail.user.userId,
+      });
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setResettingPassword(false);
     }
   };
 
@@ -541,6 +581,42 @@ const UserAdminPanel: React.FC<UserAdminPanelProps> = ({ session }) => {
                       {saving ? <Loader2 size={14} className="animate-spin" /> : <ShieldCheck size={14} />}
                       保存用户资料
                     </button>
+                  )}
+
+                  {(isSuperAdmin || detail.user.role === 'user') && (
+                    <div className="rounded-2xl border border-amber-500/20 bg-amber-500/10 p-4">
+                      <div className="mb-3 text-xs font-medium text-amber-100">重置用户密码</div>
+                      <p className="mb-3 text-[11px] leading-5 text-amber-100/70">
+                        设置后该用户现有登录会话将失效，需要使用新密码重新登录。
+                      </p>
+                      <div className="space-y-3">
+                        <input
+                          type="password"
+                          value={resetPassword}
+                          onChange={(event) => setResetPassword(event.target.value)}
+                          placeholder="输入新密码"
+                          autoComplete="new-password"
+                          className="h-10 w-full rounded-xl border border-white/10 bg-black/20 px-3 text-sm text-white placeholder:text-gray-500 focus:border-white/20 focus:outline-none"
+                        />
+                        <input
+                          type="password"
+                          value={resetPasswordConfirmation}
+                          onChange={(event) => setResetPasswordConfirmation(event.target.value)}
+                          placeholder="再次输入新密码"
+                          autoComplete="new-password"
+                          className="h-10 w-full rounded-xl border border-white/10 bg-black/20 px-3 text-sm text-white placeholder:text-gray-500 focus:border-white/20 focus:outline-none"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => void handleResetPassword()}
+                          disabled={resettingPassword}
+                          className="inline-flex h-10 items-center gap-2 rounded-xl bg-amber-600 px-4 text-sm font-medium text-white transition-colors hover:bg-amber-500 disabled:opacity-60"
+                        >
+                          {resettingPassword ? <Loader2 size={14} className="animate-spin" /> : <ShieldCheck size={14} />}
+                          {resettingPassword ? '重置中...' : '重置密码'}
+                        </button>
+                      </div>
+                    </div>
                   )}
 
                   {detail.account && isSuperAdmin && (
