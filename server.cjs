@@ -33,6 +33,7 @@ const {
   registerWithPassword,
   resetPasswordWithEmailCode,
   requestEmailCode,
+  resetUserPasswordByAdmin,
   requireAdminAccess,
   requireAuthUser,
   requireSuperAdminAccess,
@@ -1296,6 +1297,7 @@ const sendAuthError = (res, error) => {
       AUTH_USER_DISABLED: 403,
       ADMIN_REQUIRED: 403,
       SUPER_ADMIN_REQUIRED: 403,
+      ADMIN_PASSWORD_RESET_FORBIDDEN: 403,
       EMAIL_DELIVERY_NOT_CONFIGURED: 500,
       EMAIL_ALREADY_EXISTS: 409,
       EMAIL_CODE_COOLDOWN: 429,
@@ -2708,6 +2710,28 @@ app.patch("/api/admin/users/:userId", async (req, res) => {
     if (sendAuthError(res, error)) return;
     if (sendBillingError(res, error)) return;
     res.status(500).json({ error: error.message || "Failed to update user" });
+  }
+});
+
+app.post("/api/admin/users/:userId/password", async (req, res) => {
+  try {
+    const actor = await requireAdminAccess(req, EMERGENCY_ADMIN_API_KEYS);
+    const userId = String(req.params.userId || "").trim();
+    const user = await resetUserPasswordByAdmin(
+      actor,
+      userId,
+      String(req.body?.password || ""),
+    );
+    res.json(
+      await buildAdminUserDetailPayload(user, {
+        ledgerPage: parsePositivePage(req.query?.ledgerPage, 1),
+        ledgerPageSize: parsePositivePage(req.query?.ledgerPageSize, 20),
+      }),
+    );
+  } catch (error) {
+    if (sendAuthError(res, error)) return;
+    if (sendBillingError(res, error)) return;
+    res.status(500).json({ error: error.message || "Failed to reset user password" });
   }
 });
 
@@ -6580,10 +6604,14 @@ app.get("/{*splat}", (req, res) => {
   res.sendFile(path.join(__dirname, "dist", "index.html"));
 });
 
-app.listen(PORT, () => {
-  console.log(`Backend server running on http://localhost:${PORT}`);
-  console.log(`   Upstream API: ${UPSTREAM_URL}`);
-  startBackgroundTaskSettlement();
-  startBillingMaintenance(logger);
-  startGenerationRecordMaintenance(logger);
-});
+if (require.main === module) {
+  app.listen(PORT, () => {
+    console.log(`Backend server running on http://localhost:${PORT}`);
+    console.log(`   Upstream API: ${UPSTREAM_URL}`);
+    startBackgroundTaskSettlement();
+    startBillingMaintenance(logger);
+    startGenerationRecordMaintenance(logger);
+  });
+}
+
+module.exports = app;
