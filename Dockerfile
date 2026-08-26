@@ -32,6 +32,7 @@ COPY --from=builder /app/dist ./dist
 # Copy backend runtime files
 COPY server.cjs ./
 COPY imageRequestCount.cjs ./
+COPY seedreamImagePolicy.cjs ./
 COPY imageRouteCompatibility.cjs ./
 COPY db.cjs ./
 COPY imageRouteStore.cjs ./
