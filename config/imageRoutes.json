@@ -211,6 +211,22 @@
       "pointCost": 1,
       "isActive": false,
       "sortOrder": 2
+    },
+    {
+      "id": "seedream-5-pro-default",
+      "label": "线路一",
+      "description": "",
+      "modelFamily": "seedream-5-pro",
+      "line": "线路一",
+      "transport": "openai-image",
+      "mode": "sync",
+      "baseUrl": "https://api.pixellelabs.com",
+      "generatePath": "/v1/images/generations",
+      "editPath": "/v1/images/edits",
+      "upstreamModel": "seedream-5-pro",
+      "apiKeyEnv": "IMAGE_ROUTE_SEEDREAM_5_PRO_KEY",
+      "pointCost": 3,
+      "sortOrder": 0
     }
   ]
 }

@@ -40,7 +40,7 @@
     "admin_credit",
     "redeem_code",
   ]);
-  const CLASSIC_ALLOWED_IMAGE_MODEL_IDS = new Set(["nano-banana", "nano-banana-2", "gpt-image-2"]);
+  const CLASSIC_ALLOWED_IMAGE_MODEL_IDS = new Set(["nano-banana", "nano-banana-2", "gpt-image-2", "seedream-5-pro"]);
 
   let bridgeModelCatalog = {
     defaultModelId: "",
@@ -840,8 +840,10 @@
     const resolvedRequestModel = String(requestModel || model?.requestModel || "").trim();
     return (
       modelId === "gpt-image-2" ||
+      modelId === "seedream-5-pro" ||
       resolvedRequestModel === "gpt-image-2" ||
-      resolvedRequestModel === "gpt-image-2-all"
+      resolvedRequestModel === "gpt-image-2-all" ||
+      resolvedRequestModel === "seedream-5-pro"
     );
   };
   const isGeminiNativeSyncRoute = (route) =>

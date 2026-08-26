@@ -14,6 +14,7 @@ const {
 } = require("./videoReferenceUpload.cjs");
 const { materializeVideoReferenceMedia } = require("./videoReferenceMedia.cjs");
 const { normalizePixelHubVideoRequest } = require("./videoRequestPolicy.cjs");
+const { getSeedreamSizeError } = require("./seedreamImagePolicy.cjs");
 
 const localEnvPath = path.join(__dirname, ".env");
 if (typeof process.loadEnvFile === "function" && fs.existsSync(localEnvPath)) {
@@ -3276,7 +3277,7 @@ const GPT_IMAGE2_MAX_EDGE = 3840;
 const GPT_IMAGE2_MAX_ASPECT_RATIO = 3;
 const GPT_IMAGE2_MIN_PIXELS = 655360;
 const GPT_IMAGE2_MAX_PIXELS = 8294400;
-const GPT_IMAGE2_REQUEST_MODELS = new Set(["gpt-image-2", "gpt-image-2-all"]);
+const GPT_IMAGE2_REQUEST_MODELS = new Set(["gpt-image-2", "gpt-image-2-all", "seedream-5-pro"]);
 
 const isGptImage2RequestModel = (model = "") =>
   GPT_IMAGE2_REQUEST_MODELS.has(String(model || "").trim());
@@ -3402,6 +3403,12 @@ app.post("/api/generate", generateLimiter, async (req, res) => {
     const shouldUseBilling = !useUserProvidedApiKey;
     if (!route) {
       return sendUserFacingGenerationError(res, 400, new Error("图片线路不存在或已停用，请联系管理员"));
+    }
+    if (requestedImageModel?.id === "seedream-5-pro") {
+      const sizeError = getSeedreamSizeError(requestBody);
+      if (sizeError) {
+        return sendUserFacingGenerationError(res, 400, new Error(sizeError));
+      }
     }
     console.log("[Generate] Request accepted:", {
       routeId: route.id,
@@ -4686,6 +4693,12 @@ app.post("/api/edit", generateLimiter, async (req, res) => {
 
     if (!route) {
       return sendUserFacingGenerationError(res, 400, new Error("图片编辑线路不存在或已停用，请联系管理员"));
+    }
+    if (requestedImageModel?.id === "seedream-5-pro") {
+      const sizeError = getSeedreamSizeError(requestBody);
+      if (sizeError) {
+        return sendUserFacingGenerationError(res, 400, new Error(sizeError));
+      }
     }
 
     const pointCost = shouldUseBilling ? getRoutePointCost(route, requestBody.n, requestBody) : 0;
