@@ -83,6 +83,14 @@ let classicPricingCatalog = {
       defaultSize: "2k",
       selectorCost: 1,
     },
+    {
+      id: "seedream-5-pro",
+      label: "Seedream-5-pro",
+      routeFamily: "seedream-5-pro",
+      sizeOptions: ["1k", "2k"],
+      defaultSize: "2k",
+      selectorCost: 3,
+    },
   ],
   routes: [
     { id: "nano-banana-pro-line1", label: "Line 1", modelFamily: "nano-banana", line: "line1", pointCost: 10 },
@@ -125,6 +133,13 @@ let classicPricingCatalog = {
         "2k": { upstreamModel: "gpt-image-2", pointCost: 3 },
         "4k": { upstreamModel: "gpt-image-2", pointCost: 4 },
       },
+    },
+    {
+      id: "seedream-5-pro-default",
+      label: "Line 1",
+      modelFamily: "seedream-5-pro",
+      line: "line1",
+      pointCost: 3,
     },
   ],
 };
@@ -1285,7 +1300,8 @@ function getClassicSelectedModelId(fallback = imageModel) {
 }
 
 function isClassicGptImageModel(modelId = null) {
-  return getClassicSelectedModelId(modelId || imageModel) === "gpt-image-2";
+  const selected = getClassicSelectedModelId(modelId || imageModel);
+  return selected === "gpt-image-2" || selected === "seedream-5-pro";
 }
 
 function getCurrentRefImageLimit(modelId = imageModel) {

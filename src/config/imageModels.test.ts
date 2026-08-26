@@ -7,6 +7,23 @@ import {
 } from './imageModels';
 import { getImageRouteOptions, getImageRoutesByModelFamily } from './imageRoutes';
 
+describe('Seedream-5-pro catalog', () => {
+  it('registers a PixelleLabs GPT-compatible model with only 1K and 2K sizes', () => {
+    const model = getImageModelById('seedream-5-pro');
+
+    expect(model.label).toBe('Seedream-5-pro');
+    expect(model.requestModel).toBe('seedream-5-pro');
+    expect(getImageModelSizeOptions(model.id)).toEqual(['1k', '2k']);
+    expect(getImageRoutesByModelFamily('seedream-5-pro')).toHaveLength(1);
+    expect(getImageRoutesByModelFamily('seedream-5-pro')[0]).toMatchObject({
+      baseUrl: 'https://api.pixellelabs.com',
+      generatePath: '/v1/images/generations',
+      editPath: '/v1/images/edits',
+      upstreamModel: 'seedream-5-pro',
+    });
+  });
+});
+
 describe('Nano Banana 2-Lite catalog', () => {
   it('registers Nano Banana 2-Lite as a 1K-only Nano Banana 2-compatible model', () => {
     const model = getImageModelById('nano-banana-2-lite');

@@ -63,7 +63,7 @@ export const getImageEditModelGroup = (
   const text = normalizeModelText(model);
   if (!text) return null;
 
-  if (text.includes('gpt-image-2')) {
+  if (text.includes('gpt-image-2') || text.includes('seedream-5-pro')) {
     return 'gpt-image-2';
   }
 

@@ -113,7 +113,7 @@ export const ImageFormConfig: React.FC<ImageFormConfigProps> = ({
   const normalizedSize = getNormalizedImageSizeForModel(currentModel.id, imageSize);
   const showLineSelector = availableRoutes.length > 1;
   const showSizeSelector = shouldShowImageSizeSelector(currentModel.id);
-  const isGptImage2 = currentModel.id === 'gpt-image-2';
+  const isGptImage2 = currentModel.id === 'gpt-image-2' || currentModel.id === 'seedream-5-pro';
   const selectedRoute = getSelectedImageRoute(currentModel.id, imageLine);
   const sizeOptions = getImageRouteSizeOptions(selectedRoute, baseSizeOptions);
   const effectiveSize = sizeOptions.includes(normalizedSize)

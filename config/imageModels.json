@@ -80,6 +80,26 @@
       "isActive": true,
       "isDefaultModel": false,
       "sortOrder": 2
+    },
+    {
+      "id": "seedream-5-pro",
+      "label": "Seedream-5-pro",
+      "description": "Seedream-5-pro image generation and editing",
+      "modelFamily": "seedream-5-pro",
+      "routeFamily": "seedream-5-pro",
+      "requestModel": "seedream-5-pro",
+      "selectorCost": 3,
+      "iconKind": "sparkles",
+      "panelLayout": "default",
+      "sizeBehavior": "passthrough",
+      "defaultSize": "2k",
+      "sizeOptions": ["1k", "2k"],
+      "extraAspectRatios": [],
+      "showSizeSelector": true,
+      "supportsCustomRatio": true,
+      "isActive": true,
+      "isDefaultModel": false,
+      "sortOrder": 6
     }
   ]
 }

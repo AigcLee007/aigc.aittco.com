@@ -609,7 +609,7 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
 
     const max = isVideoMode
       ? getVideoModelMaxReferenceImages(selectedVideoModelConfig.id)
-      : (imageModel === 'gpt-image-2' ? 16 : 10);
+      : (imageModel === 'gpt-image-2' || imageModel === 'seedream-5-pro' ? 16 : 10);
     
     // DEBUG ALERT
     // alert(`[Debug] Drop: Max=${max}, Current=${referenceImages.length}, IsVideo=${isVideoMode}, Model=${videoModel}`);
@@ -676,7 +676,7 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
       const files = Array.from(e.target.files);
       const max = isVideoMode
         ? getVideoModelMaxReferenceImages(selectedVideoModelConfig.id)
-        : (imageModel === 'gpt-image-2' ? 16 : 10);
+        : (imageModel === 'gpt-image-2' || imageModel === 'seedream-5-pro' ? 16 : 10);
       const remainingSlots = max - referenceImages.length;
 
       if (remainingSlots <= 0) {
@@ -947,8 +947,8 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
       : {};
 
     const isGptImage2RequestModel = (model: string) =>
-      model === 'gpt-image-2' || model === 'gpt-image-2-all';
-    const isGptImage2Model = imageModel === 'gpt-image-2' || isGptImage2RequestModel(modelName);
+      model === 'gpt-image-2' || model === 'gpt-image-2-all' || model === 'seedream-5-pro';
+    const isGptImage2Model = imageModel === 'gpt-image-2' || imageModel === 'seedream-5-pro' || isGptImage2RequestModel(modelName);
     const promptWithoutAr = parsedPrompt.replace(/\s*--ar\s*\d+\s*[:：]\s*\d+/gi, '').trim();
     const promptWithRatio = `${promptWithoutAr} --ar ${effectiveRatio}`;
     const currentPrompt = isGptImage2Model ? promptWithoutAr : promptWithRatio;
@@ -1720,7 +1720,7 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
   ];
   const maxReferenceImages = isVideoMode
     ? getVideoModelMaxReferenceImages(selectedVideoModelConfig.id)
-    : (imageModel === 'gpt-image-2' ? 16 : 10);
+    : (imageModel === 'gpt-image-2' || imageModel === 'seedream-5-pro' ? 16 : 10);
   const maxReferenceVideos = isVideoMode
     ? getVideoModelMaxReferenceVideos(selectedVideoModelConfig.id)
     : 0;
