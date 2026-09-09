@@ -48,6 +48,7 @@ COPY billingStore.cjs ./
 COPY billingStore.file.cjs ./
 COPY billingStore.mysql.cjs ./
 COPY billingReportUtils.cjs ./
+COPY redeemCodePolicy.cjs ./
 COPY pointMath.cjs ./
 COPY generatedAssetService.cjs ./
 COPY videoReferenceUpload.cjs ./

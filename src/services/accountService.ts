@@ -88,7 +88,11 @@ export interface RedeemCodeRecord {
   redeemedByEmail: string | null;
   redeemedAccountId: string | null;
   redeemedAt: string | null;
-  status: 'active' | 'redeemed';
+  disabledAt: string | null;
+  disabledByUserId: string | null;
+  disabledByEmail: string | null;
+  disabledReason: string;
+  status: 'active' | 'disabled' | 'redeemed';
 }
 
 export interface BillingAccountPayload {
@@ -308,10 +312,12 @@ export const fetchBillingRedeemCodes = async ({
   page = 1,
   pageSize = 20,
   status = 'all',
+  search = '',
 }: {
   page?: number;
   pageSize?: number;
-  status?: 'all' | 'active' | 'redeemed';
+  status?: 'all' | 'active' | 'disabled' | 'redeemed';
+  search?: string;
 } = {}): Promise<RedeemCodeListPayload> => {
   await ensureBillingIdentity();
 
@@ -319,6 +325,7 @@ export const fetchBillingRedeemCodes = async ({
   params.set('page', String(page));
   params.set('pageSize', String(pageSize));
   params.set('status', status);
+  if (search) params.set('search', search);
 
   const response = await fetch(
     `${cleanUrl(API_BASE_URL)}/admin/redeem-codes?${params.toString()}`,
@@ -332,5 +339,21 @@ export const fetchBillingRedeemCodes = async ({
   );
 
   return parseResponse<RedeemCodeListPayload>(response);
+};
+
+export const updateBillingRedeemCodeStatus = async ({ codes, disabled, reason = '' }: { codes: string[]; disabled: boolean; reason?: string }): Promise<{ success: boolean; changed: number; unchanged: number; skipped: number; notFound: number; codes: RedeemCodeRecord[] }> => {
+  await ensureBillingIdentity();
+  const response = await fetch(`${cleanUrl(API_BASE_URL)}/admin/redeem-codes/status`, {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json', ...(await getAuthorizedBillingHeaders()) },
+    body: JSON.stringify({ codes, disabled, reason }),
+  });
+  return parseResponse(response);
+};
+
+export const fetchAllBillingRedeemCodes = async ({ status = 'all', search = '' }: { status?: 'all' | 'active' | 'disabled' | 'redeemed'; search?: string } = {}) => {
+  const first = await fetchBillingRedeemCodes({ page: 1, pageSize: 100, status, search });
+  const records = [...first.codes];
+  for (let page = 2; page <= first.totalPages; page += 1) records.push(...(await fetchBillingRedeemCodes({ page, pageSize: 100, status, search })).codes);
+  return Array.from(new Map(records.map((item) => [item.normalizedCode, item])).values());
 };
 

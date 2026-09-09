@@ -19,6 +19,8 @@ import {
   createBillingRedeemCodes,
   fetchBillingAccount,
   fetchBillingRedeemCodes,
+  fetchAllBillingRedeemCodes,
+  updateBillingRedeemCodeStatus,
   RedeemCodeListPayload,
   redeemBillingCode,
 } from '../src/services/accountService';
@@ -53,7 +55,11 @@ const BillingPanel: React.FC<BillingPanelProps> = ({ session }) => {
   const [creatingCodes, setCreatingCodes] = useState(false);
   const [generatedCodes, setGeneratedCodes] = useState<string[]>([]);
 
-  const [codeFilter, setCodeFilter] = useState<'all' | 'active' | 'redeemed'>('all');
+  const [codeFilter, setCodeFilter] = useState<'all' | 'active' | 'disabled' | 'redeemed'>('all');
+  const [codeSearchInput, setCodeSearchInput] = useState('');
+  const [codeSearch, setCodeSearch] = useState('');
+  const [codePage, setCodePage] = useState(1);
+  const [selectedCodes, setSelectedCodes] = useState<Set<string>>(new Set());
   const [codeData, setCodeData] = useState<RedeemCodeListPayload | null>(null);
   const [codesLoading, setCodesLoading] = useState(false);
 
@@ -88,9 +94,10 @@ const BillingPanel: React.FC<BillingPanelProps> = ({ session }) => {
     setCodesLoading(true);
     try {
       const next = await fetchBillingRedeemCodes({
-        page: 1,
-        pageSize: 20,
+        page: codePage,
+        pageSize: 100,
         status: codeFilter,
+        search: codeSearch,
       });
       setCodeData(next);
     } catch (loadError) {
@@ -98,7 +105,19 @@ const BillingPanel: React.FC<BillingPanelProps> = ({ session }) => {
     } finally {
       setCodesLoading(false);
     }
-  }, [codeFilter, isAuthenticated, isSuperAdmin]);
+  }, [codeFilter, codePage, codeSearch, isAuthenticated, isSuperAdmin]);
+
+  const copyCodes = async (codes: string[], label: string) => {
+    if (!codes.length) return;
+    await navigator.clipboard.writeText(codes.join('\n'));
+    toast.success(`${label}已复制`);
+  };
+
+  const toggleCode = (code: string) => setSelectedCodes((prev) => { const next = new Set(prev); next.has(code) ? next.delete(code) : next.add(code); return next; });
+  const batchUpdateCodes = async (disabled: boolean) => {
+    const codes = Array.from(selectedCodes); if (!codes.length) return;
+    try { const result = await updateBillingRedeemCodeStatus({ codes, disabled, reason: '' }); toast.success(`已处理 ${result.changed} 个兑换码`); setSelectedCodes(new Set()); await loadRedeemCodes(); } catch (e) { setError((e as Error).message); }
+  };
 
   useEffect(() => {
     void loadAccount();
@@ -427,15 +446,21 @@ const BillingPanel: React.FC<BillingPanelProps> = ({ session }) => {
               <div className="flex items-center gap-2">
                 <select
                   value={codeFilter}
-                  onChange={(event) =>
-                    setCodeFilter(event.target.value as 'all' | 'active' | 'redeemed')
-                  }
+                  onChange={(event) => { setCodeFilter(event.target.value as 'all' | 'active' | 'disabled' | 'redeemed'); setCodePage(1); setSelectedCodes(new Set()); }}
                   className="h-9 rounded-xl border border-white/10 bg-black/25 px-3 text-xs text-white focus:border-white/20 focus:outline-none"
                 >
                   <option value="all">全部</option>
                   <option value="active">未兑换</option>
+                  <option value="disabled">已禁用</option>
                   <option value="redeemed">已兑换</option>
                 </select>
+                <input value={codeSearchInput} onChange={(e) => setCodeSearchInput(e.target.value)} placeholder="搜索兑换码" className="h-9 w-36 rounded-xl border border-white/10 bg-black/25 px-3 text-xs text-white" />
+                <button type="button" onClick={() => { setCodeSearch(codeSearchInput); setCodePage(1); }} className="h-9 rounded-xl border border-white/10 px-3 text-xs text-gray-200">搜索</button>
+                <button type="button" onClick={() => void copyCodes((codeData?.codes || []).map((item) => item.code), '本页兑换码')} className="h-9 rounded-xl border border-white/10 px-3 text-xs text-gray-200">复制本页</button>
+                <button type="button" onClick={() => void copyCodes(Array.from(selectedCodes), '选中兑换码')} className="h-9 rounded-xl border border-white/10 px-3 text-xs text-gray-200">复制选中</button>
+                <button type="button" onClick={() => void fetchAllBillingRedeemCodes({ status: codeFilter, search: codeSearch }).then((items) => copyCodes(items.map((item) => item.code), '全部兑换码'))} className="h-9 rounded-xl border border-white/10 px-3 text-xs text-gray-200">复制全部</button>
+                <button type="button" onClick={() => void batchUpdateCodes(true)} disabled={!selectedCodes.size} className="h-9 rounded-xl border border-red-400/30 px-3 text-xs text-red-200 disabled:opacity-40">批量禁用</button>
+                <button type="button" onClick={() => void batchUpdateCodes(false)} disabled={!selectedCodes.size} className="h-9 rounded-xl border border-emerald-400/30 px-3 text-xs text-emerald-200 disabled:opacity-40">批量启用</button>
                 <button
                   type="button"
                   onClick={() => void loadRedeemCodes()}
@@ -458,15 +483,16 @@ const BillingPanel: React.FC<BillingPanelProps> = ({ session }) => {
                     <div className="flex items-center justify-between gap-3">
                       <div className="min-w-0">
                         <div className="flex items-center gap-2">
+                          {item.status !== 'redeemed' && <input type="checkbox" checked={selectedCodes.has(item.normalizedCode)} onChange={() => toggleCode(item.normalizedCode)} aria-label={`选择 ${item.code}`} />}
                           <code className="truncate text-white">{item.code}</code>
                           <span
                             className={`rounded-full px-2 py-0.5 text-[10px] uppercase tracking-[0.14em] ${
                               item.status === 'redeemed'
                                 ? 'bg-emerald-500/15 text-emerald-200'
-                                : 'bg-amber-500/15 text-amber-200'
+                                : item.status === 'disabled' ? 'bg-red-500/15 text-red-200' : 'bg-amber-500/15 text-amber-200'
                             }`}
                           >
-                            {item.status === 'redeemed' ? '已兑换' : '未兑换'}
+                            {item.status === 'redeemed' ? '已兑换' : item.status === 'disabled' ? '已禁用' : '未兑换'}
                           </span>
                         </div>
                         <div className="mt-1 text-gray-500">

@@ -15,6 +15,7 @@ const {
   toDbDateTime,
   withTransaction,
 } = require("./db.cjs");
+const { getRedeemCodeStatus } = require("./redeemCodePolicy.cjs");
 
 const LEDGER_LIMIT = 5000;
 const SETTLED_TASK_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
@@ -198,6 +199,10 @@ const ensureBillingSchema = async () => {
           redeemed_by_email VARCHAR(255) NULL,
           redeemed_account_id VARCHAR(32) NULL,
           redeemed_at DATETIME(3) NULL,
+          disabled_at DATETIME(3) NULL,
+          disabled_by_user_id VARCHAR(32) NULL,
+          disabled_by_email VARCHAR(255) NULL,
+          disabled_reason VARCHAR(255) NULL,
           INDEX idx_billing_redeem_codes_created_at (created_at),
           INDEX idx_billing_redeem_codes_redeemed_at (redeemed_at)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
@@ -239,6 +244,15 @@ const ensureBillingSchema = async () => {
         "total_recharged",
         "DECIMAL(12,1) NOT NULL DEFAULT 0",
       );
+      const ensureColumn = async (tableName, columnName, definition) => {
+        const [rows] = await pool.execute(`SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ? LIMIT 1`, [tableName, columnName]);
+        if (!rows?.length) await pool.execute(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${definition}`);
+      };
+      await ensureColumn("billing_redeem_codes", "disabled_at", "DATETIME(3) NULL");
+      await ensureColumn("billing_redeem_codes", "disabled_by_user_id", "VARCHAR(32) NULL");
+      await ensureColumn("billing_redeem_codes", "disabled_by_email", "VARCHAR(255) NULL");
+      await ensureColumn("billing_redeem_codes", "disabled_reason", "VARCHAR(255) NULL");
+      await ensureIndex("ALTER TABLE billing_redeem_codes ADD INDEX idx_billing_redeem_codes_disabled_at (disabled_at)");
       await ensureOneDecimalColumn(
         "billing_accounts",
         "total_spent",
@@ -383,7 +397,11 @@ const publicRedeemCode = (entry) => ({
   redeemedAccountId:
     String(entry.redeemed_account_id || entry.redeemedAccountId || "").trim() || null,
   redeemedAt: fromDbDateTime(entry.redeemed_at || entry.redeemedAt),
-  status: entry.redeemed_at || entry.redeemedAt ? "redeemed" : "active",
+  disabledAt: fromDbDateTime(entry.disabled_at || entry.disabledAt),
+  disabledByUserId: String(entry.disabled_by_user_id || entry.disabledByUserId || "").trim() || null,
+  disabledByEmail: String(entry.disabled_by_email || entry.disabledByEmail || "").trim() || null,
+  disabledReason: String(entry.disabled_reason || entry.disabledReason || "").trim(),
+  status: getRedeemCodeStatus(entry),
 });
 
 const getBillingPricing = () =>
@@ -1648,6 +1666,7 @@ const listRedeemCodes = async ({
   page = 1,
   pageSize = 20,
   status = "all",
+  search = "",
 } = {}) => {
   await ensureBillingSchema();
   await cleanupBillingArtifacts();
@@ -1660,10 +1679,14 @@ const listRedeemCodes = async ({
   const params = [];
 
   if (normalizedStatus === "active") {
-    filters.push("redeemed_at IS NULL");
+    filters.push("redeemed_at IS NULL", "disabled_at IS NULL");
+  } else if (normalizedStatus === "disabled") {
+    filters.push("redeemed_at IS NULL", "disabled_at IS NOT NULL");
   } else if (normalizedStatus === "redeemed") {
     filters.push("redeemed_at IS NOT NULL");
   }
+  const normalizedSearch = normalizeRedeemCode(search);
+  if (normalizedSearch) { filters.push("code_value LIKE CONCAT('%', ?, '%')"); params.push(normalizedSearch); }
 
   const whereClause = filters.length ? `WHERE ${filters.join(" AND ")}` : "";
   const countRows = await query(
@@ -1714,6 +1737,9 @@ const redeemCode = async (accountId, code, meta = {}) => {
     const codeRow = codeRows[0];
     if (!codeRow) {
       throw new BillingError("INVALID_REDEEM_CODE", "Redeem code does not exist");
+    }
+    if (codeRow.disabled_at) {
+      throw new BillingError("REDEEM_CODE_DISABLED", "Redeem code has been disabled");
     }
     if (codeRow.redeemed_at) {
       throw new BillingError("REDEEM_CODE_ALREADY_USED", "Redeem code has already been used", {
@@ -1800,6 +1826,29 @@ const redeemCode = async (accountId, code, meta = {}) => {
   });
 };
 
+const updateRedeemCodeStatus = async ({ codes = [], disabled = false, reason = "", actorUserId = null, actorEmail = null } = {}) => {
+  const normalized = Array.from(new Set(codes.map((code) => normalizeRedeemCode(code)).filter(Boolean)));
+  return withTransaction(async (connection) => {
+    const result = { changed: 0, unchanged: 0, skipped: 0, notFound: 0, codes: [] };
+    for (const code of normalized) {
+      const [rows] = await connection.execute("SELECT * FROM billing_redeem_codes WHERE code_value = ? LIMIT 1 FOR UPDATE", [code]);
+      const entry = rows?.[0];
+      if (!entry) { result.notFound += 1; continue; }
+      const status = getRedeemCodeStatus(entry);
+      if (status === "redeemed") { result.skipped += 1; result.codes.push(publicRedeemCode(entry)); continue; }
+      if ((status === "disabled") === disabled) { result.unchanged += 1; result.codes.push(publicRedeemCode(entry)); continue; }
+      if (disabled) {
+        await connection.execute("UPDATE billing_redeem_codes SET disabled_at = ?, disabled_by_user_id = ?, disabled_by_email = ?, disabled_reason = ? WHERE code_value = ?", [toDbDateTime(), String(actorUserId || '').trim() || null, String(actorEmail || '').trim().toLowerCase() || null, String(reason || '').trim(), code]);
+      } else {
+        await connection.execute("UPDATE billing_redeem_codes SET disabled_at = NULL, disabled_by_user_id = NULL, disabled_by_email = NULL, disabled_reason = NULL WHERE code_value = ?", [code]);
+      }
+      result.changed += 1;
+      result.codes.push(publicRedeemCode({ ...entry, disabled_at: disabled ? new Date() : null, disabled_by_user_id: disabled ? actorUserId : null, disabled_by_email: disabled ? actorEmail : null, disabled_reason: disabled ? reason : null }));
+    }
+    return result;
+  });
+};
+
 module.exports = {
   BillingError,
   getAdminBillingOverview,
@@ -1822,6 +1871,7 @@ module.exports = {
   adjustAccountPoints,
   createRedeemCodes,
   listRedeemCodes,
+  updateRedeemCodeStatus,
   redeemCode,
   startBillingMaintenance,
 };

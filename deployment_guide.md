@@ -87,3 +87,16 @@
 *   **API 错误**：请确保您在网站的【设置】中正确输入了 API Key。
 
 祝您部署成功！如有疑问请随时咨询。
+
+## 兑换码管理更新
+
+发布新版本后执行：
+
+```bash
+cd /www/wwwroot/aigc.aittco.com
+docker compose up -d --build app
+docker compose ps
+docker compose logs --tail=100 app
+```
+
+应用启动时会自动为 `billing_redeem_codes` 增加禁用相关字段。请在超级管理员后台验证分页、兑换码搜索、批量复制、禁用和重新启用。不要删除服务器上的 `.env`、数据库备份或上传目录。

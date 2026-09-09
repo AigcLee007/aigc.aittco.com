@@ -59,6 +59,7 @@ const {
   getBillingPricing,
   listPendingTasks,
   listRedeemCodes,
+  updateRedeemCodeStatus,
   reservePoints,
   redeemCode,
   refundPoints,
@@ -2599,12 +2600,29 @@ app.get("/api/admin/redeem-codes", async (req, res) => {
         page: parsePositivePage(req.query?.page, 1),
         pageSize: parsePositivePage(req.query?.pageSize, 20),
         status: String(req.query?.status || "all").trim(),
+        search: String(req.query?.search || "").trim().slice(0, 80),
       })),
     });
   } catch (error) {
     if (sendAuthError(res, error)) return;
     if (sendBillingError(res, error)) return;
     res.status(500).json({ error: error.message || "Failed to load redeem codes" });
+  }
+});
+
+app.patch("/api/admin/redeem-codes/status", async (req, res) => {
+  try {
+    const actor = await requireSuperAdminAccess(req);
+    const codes = Array.isArray(req.body?.codes) ? req.body.codes : [];
+    if (codes.length < 1 || codes.length > 500) return res.status(400).json({ error: "codes must contain between 1 and 500 items" });
+    const disabled = req.body?.disabled === true;
+    const result = await updateRedeemCodeStatus({ codes, disabled, reason: String(req.body?.reason || "").trim().slice(0, 255), actorUserId: actor?.userId, actorEmail: actor?.email });
+    await logAdminCatalogChange(req, { action: "billing.update_redeem_code_status", entityType: "redeem_code_batch", entityId: "batch", summary: `${disabled ? "Disabled" : "Enabled"} ${result.changed} redeem code(s)`, detail: { requestedCount: codes.length, changed: result.changed, unchanged: result.unchanged, skipped: result.skipped, notFound: result.notFound, disabled } });
+    return res.json({ success: true, ...result });
+  } catch (error) {
+    if (sendAuthError(res, error)) return;
+    if (sendBillingError(res, error)) return;
+    return res.status(500).json({ error: error.message || "Failed to update redeem code status" });
   }
 });
 

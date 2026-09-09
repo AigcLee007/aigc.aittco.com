@@ -3,6 +3,7 @@ const path = require("path");
 const { randomBytes } = require("crypto");
 const imageRouteCatalog = require("./config/imageRoutes.json");
 const { buildBillingLedgerReport } = require("./billingReportUtils.cjs");
+const { getRedeemCodeStatus, matchesRedeemCodeSearch } = require("./redeemCodePolicy.cjs");
 const {
   toNonNegativePoint,
   toPointNumber,
@@ -10,7 +11,9 @@ const {
   toSignedPoint,
 } = require("./pointMath.cjs");
 
-const BILLING_FILE = path.join(__dirname, "billing-data.json");
+const BILLING_FILE = process.env.BILLING_FILE_PATH
+  ? path.resolve(process.env.BILLING_FILE_PATH)
+  : path.join(__dirname, "billing-data.json");
 const BILLING_VERSION = 1;
 const LEDGER_LIMIT = 5000;
 const SETTLED_TASK_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
@@ -80,6 +83,12 @@ const normalizeStore = (store) => {
   if (!Array.isArray(next.ledger)) next.ledger = [];
   if (!next.pendingTasks || typeof next.pendingTasks !== "object") next.pendingTasks = {};
   if (!next.redeemCodes || typeof next.redeemCodes !== "object") next.redeemCodes = {};
+  Object.values(next.redeemCodes).forEach((entry) => {
+    entry.disabledAt = entry.disabledAt || null;
+    entry.disabledByUserId = entry.disabledByUserId || null;
+    entry.disabledByEmail = entry.disabledByEmail || null;
+    entry.disabledReason = entry.disabledReason || "";
+  });
   next.version = BILLING_VERSION;
   return next;
 };
@@ -203,7 +212,11 @@ const publicRedeemCode = (entry) => ({
   redeemedByEmail: String(entry.redeemedByEmail || "").trim() || null,
   redeemedAccountId: String(entry.redeemedAccountId || "").trim() || null,
   redeemedAt: entry.redeemedAt || null,
-  status: entry.redeemedAt ? "redeemed" : "active",
+  disabledAt: entry.disabledAt || null,
+  disabledByUserId: entry.disabledByUserId || null,
+  disabledByEmail: entry.disabledByEmail || null,
+  disabledReason: entry.disabledReason || "",
+  status: getRedeemCodeStatus(entry),
 });
 
 const getBillingPricing = () =>
@@ -844,6 +857,10 @@ const createRedeemCodes = ({
         redeemedByEmail: null,
         redeemedAccountId: null,
         redeemedAt: null,
+        disabledAt: null,
+        disabledByUserId: null,
+        disabledByEmail: null,
+        disabledReason: "",
       };
       store.redeemCodes[codeValue] = entry;
       created.push(publicRedeemCode(entry));
@@ -852,7 +869,7 @@ const createRedeemCodes = ({
     return created;
   });
 
-const listRedeemCodes = ({ page = 1, pageSize = 20, status = "all" } = {}) =>
+const listRedeemCodes = ({ page = 1, pageSize = 20, status = "all", search = "" } = {}) =>
   withStore((store) => {
     const safePage = Math.max(1, Number.parseInt(String(page || 1), 10) || 1);
     const safePageSize = Math.min(100, Math.max(1, Number.parseInt(String(pageSize || 20), 10) || 20));
@@ -860,11 +877,8 @@ const listRedeemCodes = ({ page = 1, pageSize = 20, status = "all" } = {}) =>
     const offset = (safePage - 1) * safePageSize;
 
     let entries = Object.values(store.redeemCodes || {});
-    if (normalizedStatus === "active") {
-      entries = entries.filter((entry) => !entry.redeemedAt);
-    } else if (normalizedStatus === "redeemed") {
-      entries = entries.filter((entry) => Boolean(entry.redeemedAt));
-    }
+    if (["active", "disabled", "redeemed"].includes(normalizedStatus)) entries = entries.filter((entry) => getRedeemCodeStatus(entry) === normalizedStatus);
+    entries = entries.filter((entry) => matchesRedeemCodeSearch(entry, search));
 
     entries.sort((left, right) => {
       const rightTime = new Date(right.createdAt || 0).getTime();
@@ -882,6 +896,29 @@ const listRedeemCodes = ({ page = 1, pageSize = 20, status = "all" } = {}) =>
     };
   });
 
+const updateRedeemCodeStatus = ({ codes = [], disabled = false, reason = "", actorUserId = null, actorEmail = null } = {}) =>
+  withStore((store) => {
+    const normalized = Array.from(new Set(codes.map((code) => normalizeRedeemCode(code)).filter(Boolean)));
+    const result = { changed: 0, unchanged: 0, skipped: 0, notFound: 0, codes: [] };
+    normalized.forEach((code) => {
+      const entry = store.redeemCodes[code];
+      if (!entry) { result.notFound += 1; return; }
+      if (getRedeemCodeStatus(entry) === "redeemed") { result.skipped += 1; result.codes.push(publicRedeemCode(entry)); return; }
+      const currentlyDisabled = getRedeemCodeStatus(entry) === "disabled";
+      if (currentlyDisabled === disabled) { result.unchanged += 1; result.codes.push(publicRedeemCode(entry)); return; }
+      if (disabled) {
+        entry.disabledAt = new Date().toISOString();
+        entry.disabledByUserId = String(actorUserId || "").trim() || null;
+        entry.disabledByEmail = String(actorEmail || "").trim().toLowerCase() || null;
+        entry.disabledReason = String(reason || "").trim();
+      } else {
+        entry.disabledAt = null; entry.disabledByUserId = null; entry.disabledByEmail = null; entry.disabledReason = "";
+      }
+      result.changed += 1; result.codes.push(publicRedeemCode(entry));
+    });
+    return result;
+  });
+
 const redeemCode = (accountId, code, meta = {}) =>
   withStore((store) => {
     const account = store.accounts[accountId];
@@ -897,6 +934,9 @@ const redeemCode = (accountId, code, meta = {}) =>
     const redeemEntry = store.redeemCodes[normalizedCode];
     if (!redeemEntry) {
       throw new BillingError("INVALID_REDEEM_CODE", "Redeem code does not exist");
+    }
+    if (getRedeemCodeStatus(redeemEntry) === "disabled") {
+      throw new BillingError("REDEEM_CODE_DISABLED", "Redeem code has been disabled");
     }
     if (redeemEntry.redeemedAt) {
       throw new BillingError("REDEEM_CODE_ALREADY_USED", "Redeem code has already been used", {
@@ -964,6 +1004,7 @@ module.exports = {
   adjustAccountPoints,
   createRedeemCodes,
   listRedeemCodes,
+  updateRedeemCodeStatus,
   redeemCode,
   startBillingMaintenance: () => null,
 };
