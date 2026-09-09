@@ -4,10 +4,10 @@
 
 ## 1. 总览
 
-- 模型：5 个，均为启用状态。
-- 线路：14 条；启用 11 条，停用 3 条。
-- 传输：`openai-image` 11 条，`gemini-native` 3 条。
-- 配置模式：异步 7 条，同步 7 条；其中 Visionary 线路（`visionary.beer`）的生成会被后端放入后台任务，`gpt-image-2-line2` 的同步编辑也会转为后台任务。
+- 模型：6 个，均为启用状态。
+- 线路：16 条；启用 13 条，停用 3 条。
+- 传输：`openai-image` 13 条，`gemini-native` 3 条。
+- 配置模式：异步 7 条，同步 9 条；其中 Visionary 线路（`visionary.beer`）的生成会被后端放入后台任务，现有 `gpt-image-2-line2` 的同步编辑也会转为后台任务。
 - 上游域名：`api.bltcy.ai`、`api.pixellelabs.com`、`api.02studio.net`、`visionary.beer`。
 - 计费点数按线路计：1～12 点/次；默认模型选择器成本不等于线路实际扣费。
 
@@ -20,6 +20,7 @@
 | `nano-banana-2-lite` | Nano Banana 2-Lite | `gemini-3.1-flash-image-preview` | 1k，默认 1k | 5 | 2/3 |
 | `gpt-image-2` | GPT-Image-2 | `gpt-image-2` | 1k/2k/4k，默认 2k | 1 | 2/3 |
 | `seedream-5-pro` | Seedream-5-pro | `seedream-5-pro` | 1k/2k，默认 2k | 3 | 1/1 |
+| `gpt-image-2.5` | GPT-Image-2.5 | `gpt-image-2.5` | 1k/2k/4k，默认 2k | 3 | 2/2 |
 
 ## 3. 线路明细
 
@@ -39,6 +40,8 @@
 | `gpt-image-2-line2` | gpt-image-2 / line2 | 启用 | OpenAI / 同步 | `https://api.pixellelabs.com/v1/images/generations` | 无 | `/v1/images/edits` | 请求模型（通常 `gpt-image-2`） | `IMAGE_ROUTE_GPT_IMAGE_2_LINE2_KEY` | 3 |
 | `gpt-image-2` | gpt-image-2 / 线路一（旧） | 停用 | OpenAI / 异步 | `https://api.bltcy.ai/v1/images/generations?async=true` | `/v1/images/tasks/{taskId}` | `/v1/images/edits?async=true` | 请求模型 | `IMAGE_ROUTE_GPT_IMAGE_2_KEY` | 1 |
 | `seedream-5-pro-default` | seedream-5-pro / 线路一 | 启用 | OpenAI / 同步 | `https://api.pixellelabs.com/v1/images/generations` | 无 | `/v1/images/edits` | `seedream-5-pro` | `IMAGE_ROUTE_SEEDREAM_5_PRO_KEY` | 3 |
+| `gpt-image-2.5-flare` | gpt-image-2.5 / Flare（默认） | 启用 | OpenAI / 同步 | `https://api.pixellelabs.com/v1/images/generations` | 无 | `/v1/images/edits` | `gpt-image-2.5-flare` | `IMAGE_ROUTE_GPT_IMAGE_2_LINE2_KEY` | 3 |
+| `gpt-image-2.5-sunburst` | gpt-image-2.5 / Sunburst | 启用 | OpenAI / 同步 | `https://api.pixellelabs.com/v1/images/generations` | 无 | `/v1/images/edits` | `gpt-image-2.5-sunburst` | `IMAGE_ROUTE_GPT_IMAGE_2_LINE2_KEY` | 3 |
 
 ## 4. 对外接口与请求参数
 

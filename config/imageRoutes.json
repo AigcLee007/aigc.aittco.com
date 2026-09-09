@@ -1,5 +1,5 @@
 {
-  "defaultRouteId": "",
+  "defaultRouteId": "nano-banana-pro",
   "defaultNanoBananaLine": "",
   "routes": [
     {
@@ -227,6 +227,40 @@
       "apiKeyEnv": "IMAGE_ROUTE_SEEDREAM_5_PRO_KEY",
       "pointCost": 3,
       "sortOrder": 0
+    },
+    {
+      "id": "gpt-image-2.5-flare",
+      "label": "Flare",
+      "description": "",
+      "modelFamily": "gpt-image-2.5",
+      "line": "flare",
+      "transport": "openai-image",
+      "mode": "sync",
+      "baseUrl": "https://api.pixellelabs.com",
+      "generatePath": "/v1/images/generations",
+      "editPath": "/v1/images/edits",
+      "upstreamModel": "gpt-image-2.5-flare",
+      "apiKeyEnv": "IMAGE_ROUTE_GPT_IMAGE_2_LINE2_KEY",
+      "pointCost": 3,
+      "isDefaultRoute": true,
+      "sortOrder": 0
+    },
+    {
+      "id": "gpt-image-2.5-sunburst",
+      "label": "Sunburst",
+      "description": "",
+      "modelFamily": "gpt-image-2.5",
+      "line": "sunburst",
+      "transport": "openai-image",
+      "mode": "sync",
+      "baseUrl": "https://api.pixellelabs.com",
+      "generatePath": "/v1/images/generations",
+      "editPath": "/v1/images/edits",
+      "upstreamModel": "gpt-image-2.5-sunburst",
+      "apiKeyEnv": "IMAGE_ROUTE_GPT_IMAGE_2_LINE2_KEY",
+      "pointCost": 3,
+      "isDefaultRoute": false,
+      "sortOrder": 1
     }
   ]
 }

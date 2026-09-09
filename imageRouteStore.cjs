@@ -120,6 +120,7 @@ const normalizeStaticRoute = (route, index) => ({
   sort_order: index,
   is_active: true,
   is_default_route:
+    parseBoolean(route.isDefaultRoute, false) ||
     trimToString(route.id) === trimToString(staticCatalog.defaultRouteId || ""),
   is_default_nano_banana_line:
     trimToString(route.modelFamily) === "nano-banana" &&
@@ -184,9 +185,10 @@ const buildCatalogFromRoutes = (routes, { includeInactive = false } = {}) => {
   const activeRoutes = sortedRoutes.filter((route) => route.isActive !== false);
 
   const defaultRoute =
-    activeRoutes.find((route) => route.isDefaultRoute) ||
     activeRoutes.find((route) => route.id === trimToString(staticCatalog.defaultRouteId || "")) ||
+    activeRoutes.find((route) => route.isDefaultRoute) ||
     activeRoutes[0] ||
+    sortedRoutes.find((route) => route.id === trimToString(staticCatalog.defaultRouteId || "")) ||
     sortedRoutes.find((route) => route.isDefaultRoute) ||
     sortedRoutes[0] ||
     null;

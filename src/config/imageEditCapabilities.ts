@@ -5,6 +5,7 @@ import {
   getImageModelById,
   getImageModelOptions,
   getImageModelSizeOptions,
+  isGptImageCompatibleModel,
   type ImageModelConfig,
 } from './imageModels';
 import {
@@ -62,6 +63,15 @@ export const getImageEditModelGroup = (
 ): ImageEditModelGroup | null => {
   const text = normalizeModelText(model);
   if (!text) return null;
+
+  if (
+    isGptImageCompatibleModel(model?.id) ||
+    isGptImageCompatibleModel(model?.requestModel) ||
+    isGptImageCompatibleModel(model?.modelFamily) ||
+    isGptImageCompatibleModel(model?.routeFamily)
+  ) {
+    return 'gpt-image-2';
+  }
 
   if (text.includes('gpt-image-2') || text.includes('seedream-5-pro')) {
     return 'gpt-image-2';

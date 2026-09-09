@@ -33,6 +33,7 @@ COPY --from=builder /app/dist ./dist
 COPY server.cjs ./
 COPY imageRequestCount.cjs ./
 COPY seedreamImagePolicy.cjs ./
+COPY imageModelCompatibility.cjs ./
 COPY imageRouteCompatibility.cjs ./
 COPY db.cjs ./
 COPY imageRouteStore.cjs ./

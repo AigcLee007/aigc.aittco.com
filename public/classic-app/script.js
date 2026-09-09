@@ -91,6 +91,15 @@ let classicPricingCatalog = {
       defaultSize: "2k",
       selectorCost: 3,
     },
+    {
+      id: "gpt-image-2.5",
+      label: "GPT-Image-2.5",
+      routeFamily: "gpt-image-2.5",
+      requestModel: "gpt-image-2.5",
+      sizeOptions: ["1k", "2k", "4k"],
+      defaultSize: "2k",
+      selectorCost: 3,
+    },
   ],
   routes: [
     { id: "nano-banana-pro-line1", label: "Line 1", modelFamily: "nano-banana", line: "line1", pointCost: 10 },
@@ -140,6 +149,26 @@ let classicPricingCatalog = {
       modelFamily: "seedream-5-pro",
       line: "line1",
       pointCost: 3,
+    },
+    {
+      id: "gpt-image-2.5-flare",
+      label: "Flare",
+      modelFamily: "gpt-image-2.5",
+      line: "flare",
+      upstreamModel: "gpt-image-2.5-flare",
+      pointCost: 3,
+      isDefaultRoute: true,
+      sortOrder: 0,
+    },
+    {
+      id: "gpt-image-2.5-sunburst",
+      label: "Sunburst",
+      modelFamily: "gpt-image-2.5",
+      line: "sunburst",
+      upstreamModel: "gpt-image-2.5-sunburst",
+      pointCost: 3,
+      isDefaultRoute: false,
+      sortOrder: 1,
     },
   ],
 };
@@ -1301,7 +1330,10 @@ function getClassicSelectedModelId(fallback = imageModel) {
 
 function isClassicGptImageModel(modelId = null) {
   const selected = getClassicSelectedModelId(modelId || imageModel);
-  return selected === "gpt-image-2" || selected === "seedream-5-pro";
+  return (
+    selected === "seedream-5-pro" ||
+    /^gpt-image-2(?:$|-|\.5(?:-|$))/i.test(String(selected || "").trim())
+  );
 }
 
 function getCurrentRefImageLimit(modelId = imageModel) {

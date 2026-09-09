@@ -15,6 +15,7 @@ const {
 const { materializeVideoReferenceMedia } = require("./videoReferenceMedia.cjs");
 const { normalizePixelHubVideoRequest } = require("./videoRequestPolicy.cjs");
 const { getSeedreamSizeError } = require("./seedreamImagePolicy.cjs");
+const { isGptImageCompatibleModel } = require("./imageModelCompatibility.cjs");
 
 const localEnvPath = path.join(__dirname, ".env");
 if (typeof process.loadEnvFile === "function" && fs.existsSync(localEnvPath)) {
@@ -3277,10 +3278,8 @@ const GPT_IMAGE2_MAX_EDGE = 3840;
 const GPT_IMAGE2_MAX_ASPECT_RATIO = 3;
 const GPT_IMAGE2_MIN_PIXELS = 655360;
 const GPT_IMAGE2_MAX_PIXELS = 8294400;
-const GPT_IMAGE2_REQUEST_MODELS = new Set(["gpt-image-2", "gpt-image-2-all", "seedream-5-pro"]);
-
 const isGptImage2RequestModel = (model = "") =>
-  GPT_IMAGE2_REQUEST_MODELS.has(String(model || "").trim());
+  isGptImageCompatibleModel(model);
 
 const roundGptImage2ToMultiple = (value, multiple = GPT_IMAGE2_SIZE_MULTIPLE) =>
   Math.max(multiple, Math.round(Number(value || 0) / multiple) * multiple);

@@ -44,6 +44,13 @@ export interface ImageModelCatalogShape {
   models: ImageModelConfig[];
 }
 
+const GPT_IMAGE_COMPATIBLE_PATTERN = /^gpt-image-2(?:$|-|\.5(?:-|$))/i;
+
+export const isGptImageCompatibleModel = (value: unknown): boolean => {
+  const normalized = String(value || '').trim();
+  return normalized === 'seedream-5-pro' || GPT_IMAGE_COMPATIBLE_PATTERN.test(normalized);
+};
+
 const API_BASE_URL = '/api';
 
 const cleanUrl = (url: string) => url.replace(/\/$/, '');

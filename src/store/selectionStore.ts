@@ -4,6 +4,7 @@ import { persist, type PersistStorage } from 'zustand/middleware';
 import { ToolMode, AppStatus } from '../../types';
 import { useCanvasStore } from './canvasStore';
 import { getVideoModelMaxReferenceImages } from '../config/videoModels';
+import { isGptImageCompatibleModel } from '../config/imageModels';
 import { assetStorage } from '../services/assetStorage';
 import { v4 as uuidv4 } from 'uuid';
 import { migrateVideoSelectionState, type VideoReferenceItem } from '../utils/videoSelectionMigration';
@@ -479,7 +480,7 @@ export const useSelectionStore = create<SelectionStore>()(
               const isVideoMode = state.panelMode === 'VIDEO' || state.toolMode === ToolMode.VIDEO;
               if (isVideoMode) {
                    max = getVideoModelMaxReferenceImages(state.videoModel);
-              } else if (state.imageModel === 'gpt-image-2') {
+               } else if (isGptImageCompatibleModel(state.imageModel)) {
                    max = 16;
               }
 
@@ -535,7 +536,7 @@ export const useSelectionStore = create<SelectionStore>()(
                    const isVideoMode = state.panelMode === 'VIDEO' || state.toolMode === ToolMode.VIDEO;
                    if (isVideoMode) {
                        limit = getVideoModelMaxReferenceImages(state.videoModel);
-                   } else if (state.imageModel === 'gpt-image-2') {
+                    } else if (isGptImageCompatibleModel(state.imageModel)) {
                        limit = 16;
                    }
               }

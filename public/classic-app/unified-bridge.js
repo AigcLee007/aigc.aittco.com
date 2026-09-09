@@ -40,7 +40,13 @@
     "admin_credit",
     "redeem_code",
   ]);
-  const CLASSIC_ALLOWED_IMAGE_MODEL_IDS = new Set(["nano-banana", "nano-banana-2", "gpt-image-2", "seedream-5-pro"]);
+  const CLASSIC_ALLOWED_IMAGE_MODEL_IDS = new Set([
+    "nano-banana",
+    "nano-banana-2",
+    "gpt-image-2",
+    "gpt-image-2.5",
+    "seedream-5-pro",
+  ]);
 
   let bridgeModelCatalog = {
     defaultModelId: "",
@@ -835,17 +841,17 @@
       return String(left.label || "").localeCompare(String(right.label || ""));
     })[0];
   };
-  const isGptImage2Model = (model, requestModel = "") => {
-    const modelId = String(model?.id || "").trim();
-    const resolvedRequestModel = String(requestModel || model?.requestModel || "").trim();
-    return (
-      modelId === "gpt-image-2" ||
-      modelId === "seedream-5-pro" ||
-      resolvedRequestModel === "gpt-image-2" ||
-      resolvedRequestModel === "gpt-image-2-all" ||
-      resolvedRequestModel === "seedream-5-pro"
+  const isGptImageCompatibleModel = (model, requestModel = "") => {
+    const values = [model?.id, model?.requestModel, requestModel]
+      .map((value) => String(value || "").trim())
+      .filter(Boolean);
+    return values.some(
+      (value) =>
+        value === "seedream-5-pro" ||
+        /^gpt-image-2(?:$|-|\.5(?:-|$))/i.test(value),
     );
   };
+  const isGptImage2Model = isGptImageCompatibleModel;
   const isGeminiNativeSyncRoute = (route) =>
     String(route?.transport || "").trim() === "gemini-native" &&
     String(route?.mode || "").trim() === "sync";
