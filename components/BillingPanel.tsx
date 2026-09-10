@@ -59,6 +59,7 @@ const BillingPanel: React.FC<BillingPanelProps> = ({ session }) => {
   const [codeSearchInput, setCodeSearchInput] = useState('');
   const [codeSearch, setCodeSearch] = useState('');
   const [codePage, setCodePage] = useState(1);
+  const [codePageSize, setCodePageSize] = useState(10);
   const [selectedCodes, setSelectedCodes] = useState<Set<string>>(new Set());
   const [codeData, setCodeData] = useState<RedeemCodeListPayload | null>(null);
   const [codesLoading, setCodesLoading] = useState(false);
@@ -95,7 +96,7 @@ const BillingPanel: React.FC<BillingPanelProps> = ({ session }) => {
     try {
       const next = await fetchBillingRedeemCodes({
         page: codePage,
-        pageSize: 100,
+        pageSize: codePageSize,
         status: codeFilter,
         search: codeSearch,
       });
@@ -105,7 +106,7 @@ const BillingPanel: React.FC<BillingPanelProps> = ({ session }) => {
     } finally {
       setCodesLoading(false);
     }
-  }, [codeFilter, codePage, codeSearch, isAuthenticated, isSuperAdmin]);
+  }, [codeFilter, codePage, codePageSize, codeSearch, isAuthenticated, isSuperAdmin]);
 
   const copyCodes = async (codes: string[], label: string) => {
     if (!codes.length) return;
@@ -441,7 +442,7 @@ const BillingPanel: React.FC<BillingPanelProps> = ({ session }) => {
             <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
               <div className="flex items-center gap-2 text-sm font-semibold text-white">
                 <Gift size={16} />
-                最近兑换码记录
+                兑换码记录
               </div>
               <div className="flex items-center gap-2">
                 <select
@@ -453,6 +454,16 @@ const BillingPanel: React.FC<BillingPanelProps> = ({ session }) => {
                   <option value="active">未兑换</option>
                   <option value="disabled">已禁用</option>
                   <option value="redeemed">已兑换</option>
+                </select>
+                <select
+                  aria-label="每页条数"
+                  value={codePageSize}
+                  onChange={(event) => { setCodePageSize(Number(event.target.value)); setCodePage(1); setSelectedCodes(new Set()); }}
+                  className="h-9 rounded-xl border border-white/10 bg-black/25 px-3 text-xs text-white focus:border-white/20 focus:outline-none"
+                >
+                  <option value={10}>每页 10 条</option>
+                  <option value={20}>每页 20 条</option>
+                  <option value={50}>每页 50 条</option>
                 </select>
                 <input value={codeSearchInput} onChange={(e) => setCodeSearchInput(e.target.value)} placeholder="搜索兑换码" className="h-9 w-36 rounded-xl border border-white/10 bg-black/25 px-3 text-xs text-white" />
                 <button type="button" onClick={() => { setCodeSearch(codeSearchInput); setCodePage(1); }} className="h-9 rounded-xl border border-white/10 px-3 text-xs text-gray-200">搜索</button>
@@ -522,6 +533,29 @@ const BillingPanel: React.FC<BillingPanelProps> = ({ session }) => {
                 </div>
               )}
             </div>
+            {codeData && (
+              <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-white/10 pt-4 text-xs text-gray-400">
+                <span>共 {codeData.total} 个，第 {codeData.page} / {codeData.totalPages} 页</span>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setCodePage((page) => Math.max(1, page - 1))}
+                    disabled={codesLoading || codePage <= 1}
+                    className="h-8 rounded-lg border border-white/10 px-3 text-gray-200 hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    上一页
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCodePage((page) => Math.min(codeData.totalPages, page + 1))}
+                    disabled={codesLoading || codePage >= codeData.totalPages}
+                    className="h-8 rounded-lg border border-white/10 px-3 text-gray-200 hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    下一页
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </>
       )}
