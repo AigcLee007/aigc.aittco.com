@@ -13,37 +13,36 @@ import {
 } from './imageRoutes';
 
 describe('GPT-Image-2.5 catalog', () => {
-  it('registers one model with Flare and Sunburst routes', () => {
-    const model = getImageModelById('gpt-image-2.5');
-    const routes = getImageRoutesByModelFamily('gpt-image-2.5');
+  it('registers Flare and Sunburst as independent models with separate route families', () => {
+    const flare = getImageModelById('gpt-image-2.5-flare');
+    const sunburst = getImageModelById('gpt-image-2.5-sunburst');
+    const flareRoutes = getImageRoutesByModelFamily('gpt-image-2.5-flare');
+    const sunburstRoutes = getImageRoutesByModelFamily('gpt-image-2.5-sunburst');
 
-    expect(model.label).toBe('GPT-Image-2.5');
-    expect(model.requestModel).toBe('gpt-image-2.5');
-    expect(getImageModelSizeOptions(model.id)).toEqual(['1k', '2k', '4k']);
-    expect(routes.map((route) => route.id)).toEqual([
-      'gpt-image-2.5-flare',
-      'gpt-image-2.5-sunburst',
-    ]);
-    expect(routes).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          baseUrl: 'https://api.pixellelabs.com',
-          generatePath: '/v1/images/generations',
-          editPath: '/v1/images/edits',
-          apiKeyEnv: 'IMAGE_ROUTE_GPT_IMAGE_2_LINE2_KEY',
-          transport: 'openai-image',
-          mode: 'sync',
-          pointCost: 3,
-          upstreamModel: 'gpt-image-2.5-flare',
-        }),
-        expect.objectContaining({ upstreamModel: 'gpt-image-2.5-sunburst' }),
-      ]),
-    );
+    expect(flare.label).toBe('GPT-Image-2.5-Flare');
+    expect(flare.requestModel).toBe('gpt-image-2.5-flare');
+    expect(sunburst.label).toBe('GPT-Image-2.5-Sunburst');
+    expect(sunburst.requestModel).toBe('gpt-image-2.5-sunburst');
+    expect(getImageModelSizeOptions(flare.id)).toEqual(['1k', '2k', '4k']);
+    expect(flareRoutes).toHaveLength(1);
+    expect(sunburstRoutes).toHaveLength(1);
+    expect(flareRoutes[0]).toEqual(expect.objectContaining({
+      baseUrl: 'https://api.pixellelabs.com',
+      generatePath: '/v1/images/generations',
+      editPath: '/v1/images/edits',
+      apiKeyEnv: 'IMAGE_ROUTE_GPT_IMAGE_2_LINE2_KEY',
+      transport: 'openai-image',
+      mode: 'sync',
+      pointCost: 3,
+      upstreamModel: 'gpt-image-2.5-flare',
+      modelFamily: 'gpt-image-2.5-flare',
+    }));
+    expect(sunburstRoutes[0]).toEqual(expect.objectContaining({ upstreamModel: 'gpt-image-2.5-sunburst', modelFamily: 'gpt-image-2.5-sunburst' }));
     expect(
-      getImageModelNameForRoute({ imageModel: model.id, imageLine: 'flare', imageSize: '2k' }),
+      getImageModelNameForRoute({ imageModel: flare.id, imageLine: 'line1', imageSize: '2k' }),
     ).toBe('gpt-image-2.5-flare');
     expect(
-      getImageModelNameForRoute({ imageModel: model.id, imageLine: 'sunburst', imageSize: '2k' }),
+      getImageModelNameForRoute({ imageModel: sunburst.id, imageLine: 'line1', imageSize: '2k' }),
     ).toBe('gpt-image-2.5-sunburst');
   });
 });
