@@ -263,6 +263,7 @@
         "4k": { "upstreamModel": "gpt-image-2.5-flare-4k" }
       },
       "apiKeyEnv": "IMAGE_ROUTE_mouxihub_GPT_IMAGE_2.5_KEY",
+      "preserveSizeTier": true,
       "pointCost": 8,
       "sortOrder": 1
     },
@@ -317,6 +318,7 @@
         "4k": { "upstreamModel": "gpt-image-2.5-sunburst-4k" }
       },
       "apiKeyEnv": "IMAGE_ROUTE_mouxihub_GPT_IMAGE_2.5_KEY",
+      "preserveSizeTier": true,
       "pointCost": 8,
       "sortOrder": 1
     },

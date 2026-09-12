@@ -3860,7 +3860,7 @@ app.post("/api/generate", generateLimiter, async (req, res) => {
       }
     }
 
-    if (isGptImage2RequestModel(requestBody.model)) {
+    if (isGptImage2RequestModel(requestBody.model) && !route.preserveSizeTier && !String(route.baseUrl || '').toLowerCase().includes('mouxihub.com')) {
       const gptImage2Size = requestBody.size || requestBody.image_size;
       if (gptImage2Size) {
         requestBody.size = normalizeGptImage2RequestSize(
@@ -4732,7 +4732,7 @@ app.post("/api/edit", generateLimiter, async (req, res) => {
       requestedImageModel?.requestModel || requestBody.model,
     );
 
-    if (isGptImage2RequestModel(requestBody.model)) {
+    if (isGptImage2RequestModel(requestBody.model) && !route.preserveSizeTier && !String(route.baseUrl || '').toLowerCase().includes('mouxihub.com')) {
       const gptImage2Size = requestBody.size || requestBody.image_size;
       if (gptImage2Size) {
         requestBody.size = normalizeGptImage2RequestSize(

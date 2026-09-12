@@ -34,6 +34,7 @@ export interface ImageRouteConfig {
   apiKeyEnv?: string;
   pointCost?: number;
   sizeOverrides?: ImageRouteSizeOverrideMap;
+  preserveSizeTier?: boolean;
   isActive?: boolean;
   isDefaultRoute?: boolean;
   isDefaultNanoBananaLine?: boolean;
@@ -116,6 +117,7 @@ const normalizeRoute = (route: Partial<ImageRouteConfig> = {}): ImageRouteConfig
   apiKeyEnv: String(route.apiKeyEnv || '').trim(),
   pointCost: roundNonNegativePoint(route.pointCost || 0, 0),
   sizeOverrides: normalizeSizeOverrides(route.sizeOverrides),
+  preserveSizeTier: route.preserveSizeTier === true,
   isActive: route.isActive !== false,
   isDefaultRoute: route.isDefaultRoute === true,
   isDefaultNanoBananaLine: route.isDefaultNanoBananaLine === true,
