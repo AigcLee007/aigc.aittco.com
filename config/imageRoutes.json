@@ -229,11 +229,11 @@
       "sortOrder": 0
     },
     {
-      "id": "gpt-image-2.5-flare",
-      "label": "Flare",
+      "id": "gpt-image-2.5-flare-stable",
+      "label": "稳定线路",
       "description": "",
       "modelFamily": "gpt-image-2.5-flare",
-      "line": "line1",
+      "line": "稳定线路",
       "transport": "openai-image",
       "mode": "sync",
       "baseUrl": "https://api.pixellelabs.com",
@@ -246,11 +246,48 @@
       "sortOrder": 0
     },
     {
-      "id": "gpt-image-2.5-sunburst",
-      "label": "Sunburst",
+      "id": "gpt-image-2.5-flare-official",
+      "label": "官key线路",
+      "description": "",
+      "modelFamily": "gpt-image-2.5-flare",
+      "line": "官key线路",
+      "transport": "openai-image",
+      "mode": "sync",
+      "baseUrl": "https://api.mouxihub.com",
+      "generatePath": "/v1/images/generations",
+      "editPath": "/v1/images/edits",
+      "upstreamModel": "gpt-image-2.5-flare",
+      "sizeOverrides": {
+        "1k": { "upstreamModel": "gpt-image-2.5-flare" },
+        "2k": { "upstreamModel": "gpt-image-2.5-flare-2k" },
+        "4k": { "upstreamModel": "gpt-image-2.5-flare-4k" }
+      },
+      "apiKeyEnv": "IMAGE_ROUTE_mouxihub_GPT_IMAGE_2.5_KEY",
+      "pointCost": 8,
+      "sortOrder": 1
+    },
+    {
+      "id": "gpt-image-2.5-flare-backup",
+      "label": "备用线路",
+      "description": "",
+      "modelFamily": "gpt-image-2.5-flare",
+      "line": "备用线路",
+      "transport": "openai-image",
+      "mode": "sync",
+      "baseUrl": "https://vip.aittco.com",
+      "generatePath": "/v1/images/generations",
+      "editPath": "/v1/images/edits",
+      "upstreamModel": "gpt-image-2.5-flare",
+      "apiKeyEnv": "IMAGE_ROUTE_vip_Aittco_KEY",
+      "pointCost": 3,
+      "sortOrder": 2
+    },
+    {
+      "id": "gpt-image-2.5-sunburst-stable",
+      "label": "稳定线路",
       "description": "",
       "modelFamily": "gpt-image-2.5-sunburst",
-      "line": "line1",
+      "line": "稳定线路",
       "transport": "openai-image",
       "mode": "sync",
       "baseUrl": "https://api.pixellelabs.com",
@@ -260,7 +297,44 @@
       "apiKeyEnv": "IMAGE_ROUTE_GPT_IMAGE_2_LINE2_KEY",
       "pointCost": 3,
       "isDefaultRoute": false,
+      "sortOrder": 0
+    },
+    {
+      "id": "gpt-image-2.5-sunburst-official",
+      "label": "官key线路",
+      "description": "",
+      "modelFamily": "gpt-image-2.5-sunburst",
+      "line": "官key线路",
+      "transport": "openai-image",
+      "mode": "sync",
+      "baseUrl": "https://api.mouxihub.com",
+      "generatePath": "/v1/images/generations",
+      "editPath": "/v1/images/edits",
+      "upstreamModel": "gpt-image-2.5-sunburst",
+      "sizeOverrides": {
+        "1k": { "upstreamModel": "gpt-image-2.5-sunburst" },
+        "2k": { "upstreamModel": "gpt-image-2.5-sunburst-2k" },
+        "4k": { "upstreamModel": "gpt-image-2.5-sunburst-4k" }
+      },
+      "apiKeyEnv": "IMAGE_ROUTE_mouxihub_GPT_IMAGE_2.5_KEY",
+      "pointCost": 8,
       "sortOrder": 1
+    },
+    {
+      "id": "gpt-image-2.5-sunburst-backup",
+      "label": "备用线路",
+      "description": "",
+      "modelFamily": "gpt-image-2.5-sunburst",
+      "line": "备用线路",
+      "transport": "openai-image",
+      "mode": "sync",
+      "baseUrl": "https://vip.aittco.com",
+      "generatePath": "/v1/images/generations",
+      "editPath": "/v1/images/edits",
+      "upstreamModel": "gpt-image-2.5-sunburst",
+      "apiKeyEnv": "IMAGE_ROUTE_vip_Aittco_KEY",
+      "pointCost": 3,
+      "sortOrder": 2
     }
   ]
 }

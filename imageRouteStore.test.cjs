@@ -48,7 +48,7 @@ describe("image route store schema seeding", () => {
     try {
       const { getImageRouteCatalog } = require("./imageRouteStore.cjs");
       const catalog = await getImageRouteCatalog();
-      const flare = catalog.routes.find((route) => route.id === "gpt-image-2.5-flare");
+      const flare = catalog.routes.find((route) => route.id === "gpt-image-2.5-flare-stable");
 
       assert.equal(flare?.isDefaultRoute, true);
     } finally {

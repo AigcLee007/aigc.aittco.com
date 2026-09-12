@@ -24,8 +24,8 @@ describe('GPT-Image-2.5 catalog', () => {
     expect(sunburst.label).toBe('GPT-Image-2.5-Sunburst');
     expect(sunburst.requestModel).toBe('gpt-image-2.5-sunburst');
     expect(getImageModelSizeOptions(flare.id)).toEqual(['1k', '2k', '4k']);
-    expect(flareRoutes).toHaveLength(1);
-    expect(sunburstRoutes).toHaveLength(1);
+    expect(flareRoutes).toHaveLength(3);
+    expect(sunburstRoutes).toHaveLength(3);
     expect(flareRoutes[0]).toEqual(expect.objectContaining({
       baseUrl: 'https://api.pixellelabs.com',
       generatePath: '/v1/images/generations',
@@ -38,11 +38,23 @@ describe('GPT-Image-2.5 catalog', () => {
       modelFamily: 'gpt-image-2.5-flare',
     }));
     expect(sunburstRoutes[0]).toEqual(expect.objectContaining({ upstreamModel: 'gpt-image-2.5-sunburst', modelFamily: 'gpt-image-2.5-sunburst' }));
+    expect(flareRoutes.map((route) => route.label)).toEqual(['稳定线路', '官key线路', '备用线路']);
+    expect(sunburstRoutes.map((route) => route.label)).toEqual(['稳定线路', '官key线路', '备用线路']);
+    expect(flareRoutes[1].sizeOverrides).toEqual({
+      '1k': { upstreamModel: 'gpt-image-2.5-flare' },
+      '2k': { upstreamModel: 'gpt-image-2.5-flare-2k' },
+      '4k': { upstreamModel: 'gpt-image-2.5-flare-4k' },
+    });
+    expect(sunburstRoutes[1].sizeOverrides).toEqual({
+      '1k': { upstreamModel: 'gpt-image-2.5-sunburst' },
+      '2k': { upstreamModel: 'gpt-image-2.5-sunburst-2k' },
+      '4k': { upstreamModel: 'gpt-image-2.5-sunburst-4k' },
+    });
     expect(
-      getImageModelNameForRoute({ imageModel: flare.id, imageLine: 'line1', imageSize: '2k' }),
+      getImageModelNameForRoute({ imageModel: flare.id, imageLine: '稳定线路', imageSize: '2k' }),
     ).toBe('gpt-image-2.5-flare');
     expect(
-      getImageModelNameForRoute({ imageModel: sunburst.id, imageLine: 'line1', imageSize: '2k' }),
+      getImageModelNameForRoute({ imageModel: sunburst.id, imageLine: '稳定线路', imageSize: '2k' }),
     ).toBe('gpt-image-2.5-sunburst');
   });
 });
