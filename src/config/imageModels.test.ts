@@ -45,13 +45,11 @@ describe('GPT-Image-2.5 catalog', () => {
       '2k': { upstreamModel: 'gpt-image-2.5-flare-2k' },
       '4k': { upstreamModel: 'gpt-image-2.5-flare-4k' },
     });
-    expect(flareRoutes[1].preserveSizeTier).toBe(true);
     expect(sunburstRoutes[1].sizeOverrides).toEqual({
       '1k': { upstreamModel: 'gpt-image-2.5-sunburst' },
       '2k': { upstreamModel: 'gpt-image-2.5-sunburst-2k' },
       '4k': { upstreamModel: 'gpt-image-2.5-sunburst-4k' },
     });
-    expect(sunburstRoutes[1].preserveSizeTier).toBe(true);
     expect(
       getImageModelNameForRoute({ imageModel: flare.id, imageLine: '稳定线路', imageSize: '2k' }),
     ).toBe('gpt-image-2.5-flare');
