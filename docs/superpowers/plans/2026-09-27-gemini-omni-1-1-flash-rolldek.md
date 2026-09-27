@@ -58,7 +58,7 @@ assert.ok(!('video_urls' in result.upstreamBody));
 
 - [ ] **Step 1: Add the new model.** Set `defaultModelId` to `gemini-omni-1.1-flash` and add an active/default model with `selectorCost: 20`, `pricingMode: 'fixed'`, `pointCostPerSecond: 0`, `maxReferenceImages: 2`, `maxReferenceVideos: 1`, `maxTotalReferences: 3`, `referenceImageMode: 'frames'`, `supportsVideoReference: true`, `referenceLabels: ['首帧', '尾帧']`, aspect ratios `['16:9', '9:16']`, resolution `['720p']`, and duration `['5']`.
 
-- [ ] **Step 2: Add the new route.** Set `defaultRouteId` to `gemini-omni-1.1-flash-line1` and add an active/default route with `baseUrl: 'https://rolldek.com'`, `generatePath: '/v1/videos'`, `taskPath: '/v1/videos/{taskId}'`, `contentPath: '/v1/videos/{taskId}/content'`, `upstreamModel: 'gemini-omni-1.1-flash'`, `apiKeyEnv: 'ROLLDEK_GEMINI_OMNI_1_1_FLASH_KEY'`, and `pointCost: 20`.
+- [ ] **Step 2: Add the new route.** Set `defaultRouteId` to `gemini-omni-1.1-flash-line1` and add an active/default route with `baseUrl: 'https://rolldek.com'`, `generatePath: '/v1/videos'`, `taskPath: '/v1/videos/{taskId}'`, `contentPath: '/v1/videos/{taskId}/content'`, `upstreamModel: 'gemini-omni-1.1-flash'`, `apiKeyEnv: 'ROLL_VEDIO_OMNI_KEY'`, and `pointCost: 20`.
 
 - [ ] **Step 3: Deactivate historical entries.** Keep old entries in `videoModels.json` and `videoRoutes.json`, but set their active/default flags to false. Make `pixelhubVideoCatalog.json` contain only the new model and route so the server allowlist rejects old IDs.
 
@@ -157,7 +157,7 @@ try {
 
 - [ ] **Step 1: Run the complete local suite.** Run `npm test`. Expected: one active model and route, and all policy, migration, client, and UI tests pass.
 
-- [ ] **Step 2: Configure the production secret without printing its value.** Ensure the deployment environment contains `ROLLDEK_GEMINI_OMNI_1_1_FLASH_KEY`.
+- [ ] **Step 2: Configure the production secret without printing its value.** Ensure the deployment environment contains `ROLL_VEDIO_OMNI_KEY`.
 
 - [ ] **Step 3: Apply the migration.** Run `npm run migrate:pixelhub-video`.
 

@@ -2004,7 +2004,9 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
 
                 <div className="flex items-center justify-between mb-2 gap-2">
                   <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-xs text-gray-400">参考图</span>
+                    <span className="text-xs text-gray-400">
+                      {isVideoMode && selectedVideoModelConfig.referenceImageMode === 'frames' ? '首尾帧' : '参考图'}
+                    </span>
                     <span className="inline-flex items-center rounded-md border border-blue-400/35 bg-blue-500/15 px-1.5 py-[1px] text-[10px] font-medium text-blue-200">
                       {referenceImages.length}/{maxReferenceImages}
                     </span>

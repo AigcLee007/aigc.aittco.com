@@ -20,16 +20,15 @@ afterEach(async () => {
 });
 
 const targetModelIds = [
+  'gemini-omni-1.1-flash',
+];
+const targetRouteIds = [
+  'gemini-omni-1.1-flash-line1',
+];
+const legacyModelIds = [
   'gemini-omni-flash',
   'sora-v3-pro',
   'veo31-fast',
-];
-const targetRouteIds = [
-  'gemini-omni-flash-line1',
-  'sora-v3-pro-line1',
-  'veo31-fast-line1',
-];
-const legacyModelIds = [
   'veo3.1-fast',
   'grok-video-3',
   'kling-video-3.0',
@@ -43,6 +42,9 @@ const legacyModelIds = [
   'veo3.1-pro-4k',
 ];
 const legacyRouteIds = [
+  'gemini-omni-flash-line1',
+  'sora-v3-pro-line1',
+  'veo31-fast-line1',
   'veo3.1-fast-line1',
   'grok-video-3-line1',
   'kling-video-3.0-line1',
@@ -57,17 +59,18 @@ const legacyRouteIds = [
 ];
 
 describe('PixelHub video catalog', () => {
-  it('exposes only the three target models', () => {
+  it('exposes only the new active model', () => {
     const activeIds = modelCatalog.models
       .filter((model) => model.isActive !== false)
       .map((model) => model.id);
     expect(activeIds).toEqual(targetModelIds);
-    expect(modelCatalog.defaultModelId).toBe('gemini-omni-flash');
+    expect(modelCatalog.defaultModelId).toBe('gemini-omni-1.1-flash');
 
     expect(modelCatalog.models
       .filter((model) => !targetModelIds.includes(model.id))
-      .map((model) => model.id))
-      .toEqual(legacyModelIds);
+      .map((model) => model.id)
+      .sort())
+      .toEqual([...legacyModelIds].sort());
     expect(modelCatalog.models
       .filter((model) => legacyModelIds.includes(model.id))
       .every((model) => model.isActive === false && model.isDefaultModel === false))
@@ -78,19 +81,17 @@ describe('PixelHub video catalog', () => {
     const activeRoutes = routeCatalog.routes.filter(
       (route) => route.isActive !== false,
     );
-    expect(activeRoutes.map((route) => route.apiKeyEnv)).toEqual([
-      'PIXELHUB_GEMINI_OMNI_FLASH_KEY',
-      'PIXELHUB_SORA_V3_PRO_KEY',
-      'PIXELHUB_VEO31_FAST_KEY',
-    ]);
-    expect(activeRoutes.every((route) => route.baseUrl === 'https://api.pixellelabs.com')).toBe(true);
+    expect(activeRoutes.map((route) => route.apiKeyEnv)).toEqual(['ROLL_VEDIO_OMNI_KEY']);
+    expect(activeRoutes.every((route) => route.baseUrl === 'https://rolldek.com')).toBe(true);
     expect(activeRoutes.every((route) => route.generatePath === '/v1/videos')).toBe(true);
     expect(activeRoutes.every((route) => route.taskPath === '/v1/videos/{taskId}')).toBe(true);
+    expect(activeRoutes.every((route) => route.contentPath === '/v1/videos/{taskId}/content')).toBe(true);
 
     expect(routeCatalog.routes
       .filter((route) => !targetRouteIds.includes(route.id))
-      .map((route) => route.id))
-      .toEqual(legacyRouteIds);
+      .map((route) => route.id)
+      .sort())
+      .toEqual([...legacyRouteIds].sort());
     expect(routeCatalog.routes
       .filter((route) => legacyRouteIds.includes(route.id))
       .every((route) => route.isActive === false && route.isDefaultRoute === false))
@@ -100,8 +101,8 @@ describe('PixelHub video catalog', () => {
   it('matches the migration source of truth', () => {
     expect(targetCatalog.models.map((model) => model.id)).toEqual(targetModelIds);
     expect(targetCatalog.routes.map((route) => route.id)).toEqual(targetRouteIds);
-    expect(targetCatalog.defaultModelId).toBe('gemini-omni-flash');
-    expect(targetCatalog.defaultRouteId).toBe('gemini-omni-flash-line1');
+    expect(targetCatalog.defaultModelId).toBe('gemini-omni-1.1-flash');
+    expect(targetCatalog.defaultRouteId).toBe('gemini-omni-1.1-flash-line1');
     expect(modelCatalog.defaultModelId).toBe(targetCatalog.defaultModelId);
     expect(routeCatalog.defaultRouteId).toBe(targetCatalog.defaultRouteId);
 
@@ -117,12 +118,10 @@ describe('PixelHub video catalog', () => {
   });
 
   it('reads model controls and pricing from active capabilities', () => {
-    expect(getVideoModelResolutionOptions('sora-v3-pro')).toEqual(['720p']);
-    expect(getVideoModelResolutionOptions('veo31-fast')).toEqual(['720p', '1080p']);
-    expect(getVideoModelMaxReferenceVideos('gemini-omni-flash')).toBe(1);
-    expect(getVideoModelMaxReferenceVideos('sora-v3-pro')).toBe(3);
-    expect(getVideoModelReferenceImageMode('veo31-fast')).toBe('frames');
-    expect(getVideoModelDisplayCost('veo31-fast', '4')).toBe(2);
+    expect(getVideoModelResolutionOptions('gemini-omni-1.1-flash')).toEqual(['720p']);
+    expect(getVideoModelMaxReferenceVideos('gemini-omni-1.1-flash')).toBe(1);
+    expect(getVideoModelReferenceImageMode('gemini-omni-1.1-flash')).toBe('frames');
+    expect(getVideoModelDisplayCost('gemini-omni-1.1-flash', '5')).toBe(20);
   });
 
   it('falls back to the default resolution when the server returns an empty option list', async () => {

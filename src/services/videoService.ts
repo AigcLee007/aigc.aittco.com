@@ -48,6 +48,12 @@ const toPublicVideoImageReference = (value: string) => {
   return `data:image/jpeg;base64,${trimmed}`;
 };
 
+export const extractVideoOutputUrl = (task: any): string =>
+  String(
+    task?.video_url || task?.url || task?.metadata?.url || task?.data?.metadata?.url ||
+    task?.image_url || task?.data?.output || '',
+  ).trim();
+
 // Extracted polling function for reuse in recovery
 export const pollVideoTask = async (
   apiKey: string | undefined,
@@ -58,8 +64,8 @@ export const pollVideoTask = async (
     const startTime = Date.now();
     let errorCount = 0;
 
-    // Safety timeout: 15 minutes
-    const maxDuration = 15 * 60 * 1000;
+    // Safety timeout: 30 minutes
+    const maxDuration = 30 * 60 * 1000;
 
     const pollInterval = setInterval(async () => {
       // Timeout check
@@ -82,7 +88,7 @@ export const pollVideoTask = async (
           task?.data?.status ||
           ''
         ).toLowerCase();
-        const outputUrl = task.image_url || task.video_url || task.url || task.data?.output;
+        const outputUrl = extractVideoOutputUrl(task);
         const failReason =
           task.fail_reason ||
           task.error ||
@@ -115,7 +121,8 @@ export const pollVideoTask = async (
           status === 'processing' ||
           status === 'starting' ||
           status === 'pending' ||
-          status === 'queued'
+          status === 'queued' ||
+          status === 'in_progress'
         ) {
           // Continue polling
           errorCount = 0; // Reset error count on successful status read
@@ -139,7 +146,7 @@ export const pollVideoTask = async (
           reject(new Error('网络连接不稳定，无法获取任务状态'));
         }
       }
-    }, 3000);
+    }, 15_000);
   });
 };
 

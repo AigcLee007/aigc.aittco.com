@@ -16,6 +16,7 @@ export interface VideoRouteConfig {
   baseUrl: string;
   generatePath: string;
   taskPath?: string;
+  contentPath?: string;
   upstreamModel?: string;
   useRequestModel?: boolean;
   allowUserApiKeyWithoutLogin?: boolean;
@@ -52,6 +53,7 @@ const normalizeRoute = (route: Partial<VideoRouteConfig> = {}): VideoRouteConfig
   baseUrl: String(route.baseUrl || '').trim(),
   generatePath: String(route.generatePath || '/v2/videos/generations').trim(),
   taskPath: String(route.taskPath || '').trim(),
+  contentPath: String(route.contentPath || '').trim() || undefined,
   upstreamModel: String(route.upstreamModel || '').trim(),
   useRequestModel: route.useRequestModel === true,
   allowUserApiKeyWithoutLogin: route.allowUserApiKeyWithoutLogin === true,

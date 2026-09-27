@@ -58,19 +58,19 @@ const applyPixelHubVideoMigration = async (connection) => {
   for (const route of operations.routes) {
     await connection.execute(
       `INSERT INTO video_routes (
-        route_id,label,description,route_family,line_value,transport,mode,base_url,generate_path,task_path,upstream_model,
+        route_id,label,description,route_family,line_value,transport,mode,base_url,generate_path,task_path,content_path,upstream_model,
         use_request_model,allow_user_api_key_without_login,api_key,api_key_env,point_cost,sort_order,is_active,is_default_route,created_at,updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON DUPLICATE KEY UPDATE
         label = VALUES(label), description = VALUES(description), route_family = VALUES(route_family), line_value = VALUES(line_value),
         transport = VALUES(transport), mode = VALUES(mode), base_url = VALUES(base_url), generate_path = VALUES(generate_path),
-        task_path = VALUES(task_path), upstream_model = VALUES(upstream_model), use_request_model = VALUES(use_request_model),
+        task_path = VALUES(task_path), content_path = VALUES(content_path), upstream_model = VALUES(upstream_model), use_request_model = VALUES(use_request_model),
         allow_user_api_key_without_login = VALUES(allow_user_api_key_without_login), api_key = NULL, api_key_env = VALUES(api_key_env),
         point_cost = VALUES(point_cost), sort_order = VALUES(sort_order), is_active = VALUES(is_active),
         is_default_route = VALUES(is_default_route), updated_at = VALUES(updated_at)`,
       [
         route.id, route.label, route.description || null, route.routeFamily, route.line, route.transport, route.mode,
-        route.baseUrl, route.generatePath, route.taskPath || null, route.upstreamModel || null, route.useRequestModel ? 1 : 0,
+        route.baseUrl, route.generatePath, route.taskPath || null, route.contentPath || null, route.upstreamModel || null, route.useRequestModel ? 1 : 0,
         route.allowUserApiKeyWithoutLogin ? 1 : 0, null, route.apiKeyEnv || null, route.pointCost || 0, route.sortOrder || 0,
         route.isActive === false ? 0 : 1, route.isDefaultRoute ? 1 : 0, new Date(), new Date(),
       ],

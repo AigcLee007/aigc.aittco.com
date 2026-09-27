@@ -35,7 +35,13 @@ const requireReferenceLimits = ({ images, videos, model }) => {
   if (images.length > maxImages) throw badRequest(`reference image limit is ${maxImages}`);
   if (videos.length > maxVideos) throw badRequest(`reference video limit is ${maxVideos}`);
   if (images.length + videos.length > maxTotal) throw badRequest(`total reference limit is ${maxTotal}`);
-  if (model.referenceImageMode === 'frames' && videos.length) throw badRequest('reference videos are not supported by the selected model');
+  if (
+    model.referenceImageMode === 'frames' &&
+    videos.length > 0 &&
+    model.supportsVideoReference !== true
+  ) {
+    throw badRequest('reference videos are not supported by the selected model');
+  }
 };
 
 const requirePromptLength = (prompt, maxLength) => {
@@ -80,7 +86,13 @@ const normalizePixelHubVideoRequest = ({ body = {}, model, upstreamModel }) => {
     duration,
     resolution,
   };
-  if (expectedModel === 'gemini-omni-flash') {
+  if (expectedModel === 'gemini-omni-1.1-flash') {
+    if (images[0]) upstreamBody.first_frame_url = images[0];
+    if (images[1]) upstreamBody.last_frame_url = images[1];
+    if (videos.length) upstreamBody.videos = videos;
+    upstreamBody.generateAudio = true;
+    upstreamBody.n = 1;
+  } else if (expectedModel === 'gemini-omni-flash') {
     if (images.length) upstreamBody.image_urls = images;
     if (videos.length) upstreamBody.video_urls = videos;
   } else if (model.referenceImageMode === 'frames') {
@@ -99,7 +111,12 @@ const normalizePixelHubVideoRequest = ({ body = {}, model, upstreamModel }) => {
       referenceImageCount: images.length,
       referenceVideoCount: videos.length,
     },
-    pointCost: toNonNegativePoint(duration * Number(model.pointCostPerSecond || 0), 0),
+    pointCost: toNonNegativePoint(
+      model.pricingMode === 'per_second'
+        ? duration * Number(model.pointCostPerSecond || 0)
+        : Number(model.selectorCost || 0),
+      0,
+    ),
   };
 };
 

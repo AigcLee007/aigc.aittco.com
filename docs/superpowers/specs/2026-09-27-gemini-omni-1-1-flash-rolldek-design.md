@@ -91,7 +91,7 @@ RollDek 文档：<https://rolldek.com/docs/#/gemini-omni>
   "contentPath": "/v1/videos/{taskId}/content",
   "upstreamModel": "gemini-omni-1.1-flash",
   "allowUserApiKeyWithoutLogin": false,
-  "apiKeyEnv": "ROLLDEK_GEMINI_OMNI_1_1_FLASH_KEY",
+  "apiKeyEnv": "ROLL_VEDIO_OMNI_KEY",
   "pointCost": 20,
   "isActive": true,
   "isDefaultRoute": true,
@@ -102,7 +102,7 @@ RollDek 文档：<https://rolldek.com/docs/#/gemini-omni>
 生产环境新增：
 
 ```env
-ROLLDEK_GEMINI_OMNI_1_1_FLASH_KEY=<RollDek API key>
+ROLL_VEDIO_OMNI_KEY=<RollDek API key>
 ```
 
 ## 请求数据流

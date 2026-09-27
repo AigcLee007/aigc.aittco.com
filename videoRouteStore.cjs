@@ -36,6 +36,7 @@ const normalizeStaticRoute = (route, index) => ({
   base_url: trimTrailingSlash(route.baseUrl),
   generate_path: trimToString(route.generatePath || "/v2/videos/generations"),
   task_path: trimToNull(route.taskPath || "/v2/videos/generations/{taskId}"),
+  content_path: trimToNull(route.contentPath),
   upstream_model: trimToNull(route.upstreamModel),
   use_request_model: parseBoolean(route.useRequestModel, false),
   allow_user_api_key_without_login: parseBoolean(route.allowUserApiKeyWithoutLogin, false),
@@ -65,6 +66,7 @@ const mapRowToRoute = (row, { includeSecrets = false } = {}) => ({
   baseUrl: trimTrailingSlash(row.base_url || ""),
   generatePath: trimToString(row.generate_path || "/v2/videos/generations"),
   taskPath: trimToString(row.task_path || ""),
+  contentPath: trimToString(row.content_path || "") || undefined,
   upstreamModel: trimToString(row.upstream_model || ""),
   useRequestModel: parseBoolean(row.use_request_model, false),
   allowUserApiKeyWithoutLogin: parseBoolean(row.allow_user_api_key_without_login, false),
@@ -119,6 +121,7 @@ const ensureVideoRouteSchema = async () => {
           base_url VARCHAR(255) NOT NULL,
           generate_path VARCHAR(255) NOT NULL,
           task_path VARCHAR(255) NULL,
+          content_path VARCHAR(255) NULL,
           upstream_model VARCHAR(160) NULL,
           use_request_model TINYINT(1) NOT NULL DEFAULT 0,
           allow_user_api_key_without_login TINYINT(1) NOT NULL DEFAULT 0,
@@ -134,6 +137,14 @@ const ensureVideoRouteSchema = async () => {
           INDEX idx_video_routes_family_line (route_family, line_value)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
       `);
+
+      try {
+        await pool.execute(
+          'ALTER TABLE video_routes ADD COLUMN content_path VARCHAR(255) NULL AFTER task_path',
+        );
+      } catch (error) {
+        if (!/duplicate column/i.test(String(error?.message || ''))) throw error;
+      }
 
       const [allowUserKeyColumns] = await pool.execute(
         "SHOW COLUMNS FROM video_routes LIKE 'allow_user_api_key_without_login'",
@@ -171,12 +182,12 @@ const ensureVideoRouteSchema = async () => {
           await connection.execute(
             `INSERT IGNORE INTO video_routes (
               route_id,label,description,route_family,line_value,transport,mode,base_url,generate_path,
-              task_path,upstream_model,use_request_model,allow_user_api_key_without_login,api_key,api_key_env,point_cost,sort_order,
+              task_path,content_path,upstream_model,use_request_model,allow_user_api_key_without_login,api_key,api_key_env,point_cost,sort_order,
               is_active,is_default_route,created_at,updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
               row.route_id, row.label, row.description, row.route_family, row.line_value, row.transport, row.mode,
-              row.base_url, row.generate_path, row.task_path, row.upstream_model, row.use_request_model ? 1 : 0,
+              row.base_url, row.generate_path, row.task_path, row.content_path, row.upstream_model, row.use_request_model ? 1 : 0,
               row.allow_user_api_key_without_login ? 1 : 0,
               row.api_key, row.api_key_env, row.point_cost, row.sort_order, row.is_active ? 1 : 0,
               row.is_default_route ? 1 : 0, nowDb, nowDb,
@@ -270,6 +281,7 @@ const validateRoutePayload = (input = {}, { partial = false } = {}) => {
     if (value) next.generate_path = value;
   }
   if (!partial || Object.prototype.hasOwnProperty.call(input, "taskPath")) next.task_path = trimToNull(input.taskPath);
+  if (!partial || Object.prototype.hasOwnProperty.call(input, "contentPath")) next.content_path = trimToNull(input.contentPath);
   if (!partial || Object.prototype.hasOwnProperty.call(input, "upstreamModel")) next.upstream_model = trimToNull(input.upstreamModel);
   if (!partial || Object.prototype.hasOwnProperty.call(input, "useRequestModel")) next.use_request_model = parseBoolean(input.useRequestModel, false) ? 1 : 0;
   if (!partial || Object.prototype.hasOwnProperty.call(input, "allowUserApiKeyWithoutLogin")) {
@@ -306,12 +318,12 @@ const createManagedVideoRoute = async (input = {}) => {
     }
     await connection.execute(
       `INSERT INTO video_routes (
-        route_id,label,description,route_family,line_value,transport,mode,base_url,generate_path,task_path,
+        route_id,label,description,route_family,line_value,transport,mode,base_url,generate_path,task_path,content_path,
         upstream_model,use_request_model,allow_user_api_key_without_login,api_key,api_key_env,point_cost,sort_order,is_active,is_default_route,created_at,updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         payload.route_id, payload.label, payload.description || null, payload.route_family, payload.line_value, payload.transport,
-        payload.mode, payload.base_url, payload.generate_path, payload.task_path || null, payload.upstream_model || null,
+        payload.mode, payload.base_url, payload.generate_path, payload.task_path || null, payload.content_path || null, payload.upstream_model || null,
         payload.use_request_model || 0, payload.allow_user_api_key_without_login || 0, payload.api_key || null, payload.api_key_env || null, payload.point_cost || 0,
         payload.sort_order || 0, payload.is_active ?? 1, payload.is_default_route || 0, nowDb, nowDb,
       ],

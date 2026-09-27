@@ -35,6 +35,7 @@ export interface AdminVideoRoutePayload {
   baseUrl: string;
   generatePath: string;
   taskPath?: string;
+  contentPath?: string;
   upstreamModel?: string;
   useRequestModel?: boolean;
   allowUserApiKeyWithoutLogin?: boolean;

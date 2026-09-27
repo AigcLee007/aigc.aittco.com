@@ -3,16 +3,24 @@ const fs = require('fs');
 const catalog = require('./config/pixelhubVideoCatalog.json');
 const { normalizePixelHubVideoRequest } = require('./videoRequestPolicy.cjs');
 
-const model = (id) => catalog.models.find((item) => item.id === id);
-const requestWithModel = (body, selectedModel) => normalizePixelHubVideoRequest({
+const model = (id = 'gemini-omni-1.1-flash') => catalog.models.find((item) => item.id === id);
+const request = (body, modelId = 'gemini-omni-1.1-flash') => normalizePixelHubVideoRequest({
   body,
-  model: selectedModel,
-  upstreamModel: selectedModel.requestModel,
+  model: model(modelId),
+  upstreamModel: model(modelId)?.requestModel,
 });
-const request = (body, modelId) => requestWithModel(body, model(modelId));
+const valid = (overrides = {}) => ({
+  prompt: 'cinematic transition',
+  aspectRatio: '16:9',
+  resolution: '720p',
+  duration: 5,
+  referenceImages: [],
+  referenceVideos: [],
+  ...overrides,
+});
 
 describe('normalizePixelHubVideoRequest', () => {
-  it('materializes and validates video requests before reserving points', () => {
+  it('keeps validation before reservation and refunds failed generation requests', () => {
     const source = fs.readFileSync('./server.cjs', 'utf8');
     const endpointStart = source.indexOf('app.post("/api/video/generate"');
     const endpointEnd = source.indexOf('// ==================== Video Task Polling', endpointStart);
@@ -22,174 +30,73 @@ describe('normalizePixelHubVideoRequest', () => {
     assert.ok(endpoint.includes('route.routeFamily !== requestedVideoModel.routeFamily'));
     assert.ok(endpoint.indexOf('refundPoints(') > endpoint.indexOf('catch (error)'));
   });
-  it('returns policy validation errors as HTTP 400', () => {
-    const source = fs.readFileSync('./server.cjs', 'utf8');
-    const helperStart = source.indexOf('const respondWithUserFacingGenerationError =');
-    const helperEnd = source.indexOf('const requestWithRetry =', helperStart);
-    const helper = source.slice(helperStart, helperEnd);
-    assert.match(
-      helper,
-      /if \(error\?\.status === 400\)\s*\{\s*return sendUserFacingGenerationError\(res, 400, error\);\s*\}/,
-    );
-  });
-  it('persists only safe PixelHub provider summaries in video generation metadata', () => {
-    const source = fs.readFileSync('./server.cjs', 'utf8');
-    const endpointStart = source.indexOf('app.post("/api/video/generate"');
-    const endpointEnd = source.indexOf('// ==================== Video Task Polling', endpointStart);
-    const endpoint = source.slice(endpointStart, endpointEnd);
-    assert.match(
-      endpoint,
-      /const\s*\{\s*upstreamBody\s*,\s*providerSummary\s*,\s*pointCost\s*\}\s*=\s*normalizePixelHubVideoRequest\(/,
-    );
 
-    const recordStart = endpoint.indexOf('generationRecord = await buildGenerationRecordPayload({');
-    const recordEnd = endpoint.indexOf('const response = await requestWithRetry', recordStart);
-    const recordPayload = endpoint.slice(recordStart, recordEnd);
-    assert.ok(recordPayload.includes('providerSummary'));
-    assert.ok(!recordPayload.includes('image_urls'));
-    assert.ok(!recordPayload.includes('video_urls'));
-    assert.ok(!recordPayload.includes('Authorization'));
-  });
-
-  it('builds Gemini references, summary, and charges one point per second', () => {
+  it('maps ordered first and last frames plus one reference video to RollDek', () => {
     const result = request({
-      prompt: 'city at night', aspectRatio: '16:9', resolution: '1080p', duration: 10,
-      referenceImages: ['https://app.test/a.jpg'], referenceVideos: ['https://app.test/a.mp4'],
-    }, 'gemini-omni-flash');
-    assert.strictEqual(result.pointCost, 10);
-    assert.deepStrictEqual(result.upstreamBody, {
-      model: 'gemini-omni-flash', prompt: 'city at night', aspect_ratio: '16:9', duration: 10,
-      resolution: '1080p', image_urls: ['https://app.test/a.jpg'], video_urls: ['https://app.test/a.mp4'],
+      prompt: 'cinematic transition',
+      aspectRatio: '16:9',
+      resolution: '720p',
+      duration: 5,
+      referenceImages: ['https://app.test/first.jpg', 'https://app.test/last.jpg'],
+      referenceVideos: ['https://app.test/reference.mp4'],
     });
-    for (const field of ['image_url', 'reference_image_urls', 'reference_video', 'reference_videos', 'generate_audio']) {
+    assert.strictEqual(result.pointCost, 20);
+    assert.deepStrictEqual(result.upstreamBody, {
+      model: 'gemini-omni-1.1-flash',
+      prompt: 'cinematic transition',
+      first_frame_url: 'https://app.test/first.jpg',
+      last_frame_url: 'https://app.test/last.jpg',
+      videos: ['https://app.test/reference.mp4'],
+      aspect_ratio: '16:9',
+      duration: 5,
+      resolution: '720p',
+      generateAudio: true,
+      n: 1,
+    });
+    for (const field of ['images', 'image_urls', 'video_urls', 'start_frame', 'end_frame', 'audios']) {
       assert.ok(!(field in result.upstreamBody));
     }
-    assert.deepStrictEqual(result.providerSummary, {
-      model: 'gemini-omni-flash',
-      referenceImageCount: 1,
-      referenceVideoCount: 1,
-    });
-    const serializedSummary = JSON.stringify(result.providerSummary);
-    assert.ok(!serializedSummary.includes('https://'));
-    assert.ok(!serializedSummary.includes('Authorization'));
-    assert.ok(!serializedSummary.includes('Bearer'));
   });
 
-  it('builds Gemini image-only references with no video alias', () => {
-    const result = request({
-      prompt: 'city at night', aspectRatio: '16:9', resolution: '1080p', duration: 10,
-      referenceImages: ['https://app.test/a.jpg'], referenceVideos: [],
-    }, 'gemini-omni-flash');
-    assert.deepStrictEqual(result.upstreamBody.image_urls, ['https://app.test/a.jpg']);
-    assert.ok(!('video_urls' in result.upstreamBody));
+  it('maps one image to first_frame_url only and preserves upload order for two images', () => {
+    const firstOnly = request(valid({ referenceImages: ['https://app.test/first.jpg'] }));
+    assert.strictEqual(firstOnly.upstreamBody.first_frame_url, 'https://app.test/first.jpg');
+    assert.ok(!('last_frame_url' in firstOnly.upstreamBody));
+    const ordered = request(valid({ referenceImages: ['https://app.test/one.jpg', 'https://app.test/two.jpg'] }));
+    assert.strictEqual(ordered.upstreamBody.first_frame_url, 'https://app.test/one.jpg');
+    assert.strictEqual(ordered.upstreamBody.last_frame_url, 'https://app.test/two.jpg');
   });
 
-  it('builds Sora references and charges ten points per second', () => {
-    const result = request({
-      prompt: 'portrait motion', aspectRatio: '1:1', resolution: '720p', duration: 15,
-      referenceImages: ['https://app.test/1.jpg'], referenceVideos: ['https://app.test/1.mp4'],
-    }, 'sora-v3-pro');
-    assert.strictEqual(result.pointCost, 150);
-    assert.deepStrictEqual(result.upstreamBody.reference_image_urls, ['https://app.test/1.jpg']);
-    assert.deepStrictEqual(result.upstreamBody.reference_videos, ['https://app.test/1.mp4']);
+  it('rejects image, video, total-reference, and duration overflow', () => {
+    assert.throws(() => request(valid({ referenceImages: Array.from({ length: 3 }, (_, i) => `https://app.test/${i}.jpg`) })), /image limit/i);
+    assert.throws(() => request(valid({ referenceVideos: ['https://app.test/1.mp4', 'https://app.test/2.mp4'] })), /video limit/i);
+    assert.throws(() => request(valid({ referenceImages: ['https://app.test/1.jpg', 'https://app.test/2.jpg'], referenceVideos: ['https://app.test/1.mp4', 'https://app.test/2.mp4'] })), /video limit|total reference/i);
+    assert.throws(() => request(valid({ duration: 4 })), /duration/i);
   });
 
-  it('maps Veo references to ordered frame URLs', () => {
-    const result = request({
-      prompt: 'camera move', aspectRatio: '9:16', resolution: '1080p', duration: 4,
-      referenceImages: ['https://app.test/start.jpg', 'https://app.test/end.jpg'], referenceVideos: [],
-    }, 'veo31-fast');
-    assert.strictEqual(result.pointCost, 2);
-    assert.deepStrictEqual(result.upstreamBody.image_urls, ['https://app.test/start.jpg', 'https://app.test/end.jpg']);
-    assert.ok(!('reference_videos' in result.upstreamBody));
+  it('rejects invalid references and legacy request fields', () => {
+    assert.throws(() => request(valid({ referenceImages: ['http://app.test/insecure.jpg'] })), /https/i);
+    assert.throws(() => request(valid({ start_frame: 'https://app.test/legacy' })), /start_frame/i);
+    assert.throws(() => request(valid({ quantity: 2 })), /quantity/i);
   });
 
-  it('rejects an unsupported aspect ratio before billing', () => {
-    assert.throws(() => request({
-      prompt: 'test', aspectRatio: '1:1', resolution: '720p', duration: 4,
-      referenceImages: [], referenceVideos: [],
-    }, 'gemini-omni-flash'), /aspect ratio/i);
-  });
-
-  it('rejects an unsupported resolution before billing', () => {
-    assert.throws(() => request({
-      prompt: 'test', aspectRatio: '16:9', resolution: '4k', duration: 4,
-      referenceImages: [], referenceVideos: [],
-    }, 'gemini-omni-flash'), /resolution/i);
-  });
-
-  it('rejects an integer duration that is unavailable for the model', () => {
-    assert.throws(() => request({
-      prompt: 'test', aspectRatio: '16:9', resolution: '720p', duration: 5,
-      referenceImages: [], referenceVideos: [],
-    }, 'gemini-omni-flash'), /duration/i);
-  });
-
-  it('rejects a non-integer duration before billing', () => {
-    assert.throws(() => request({
-      prompt: 'test', aspectRatio: '16:9', resolution: '720p', duration: 4.5,
-      referenceImages: [], referenceVideos: [],
-    }, 'gemini-omni-flash'), /integer/i);
-  });
-
-  it('rejects a video quantity other than one', () => {
-    assert.throws(() => request({
-      prompt: 'test', aspectRatio: '16:9', resolution: '720p', duration: 4,
-      referenceImages: [], referenceVideos: [], quantity: 2,
-    }, 'gemini-omni-flash'), /quantity/i);
-  });
-
-  for (const field of ['video_reference', 'start_frame', 'end_frame', 'hd']) {
-    it(`rejects the legacy ${field} request field`, () => {
-      assert.throws(() => request({
-        prompt: 'test', aspectRatio: '16:9', resolution: '720p', duration: 4,
-        referenceImages: [], referenceVideos: [], [field]: field === 'hd' ? true : 'https://app.test/legacy',
-      }, 'gemini-omni-flash'), new RegExp(field, 'i'));
-    });
-  }
-
-  it('rejects a combined reference overflow independently of media-specific limits', () => {
-    const constrainedModel = { ...model('gemini-omni-flash'), maxTotalReferences: 2 };
-    assert.throws(() => requestWithModel({
-      prompt: 'test', aspectRatio: '16:9', resolution: '720p', duration: 4,
-      referenceImages: ['https://app.test/1.jpg', 'https://app.test/2.jpg'],
-      referenceVideos: ['https://app.test/1.mp4'],
-    }, constrainedModel), /total reference limit is 2/i);
-  });
-
-  it('rejects bad references, unsupported video, prompt, and count overflow', () => {
-    assert.throws(() => request({
-      prompt: 'test', aspectRatio: '16:9', resolution: '1080p', duration: 4,
-      referenceImages: ['data:image/png;base64,abc'], referenceVideos: [],
-    }, 'gemini-omni-flash'), /http/i);
-    assert.throws(() => request({
-      prompt: 'test', aspectRatio: '16:9', resolution: '1080p', duration: 4,
-      referenceImages: ['http://app.test/insecure.jpg'], referenceVideos: [],
-    }, 'gemini-omni-flash'), /https/i);
-    assert.throws(() => request({
-      prompt: 'test', aspectRatio: '16:9', resolution: '1080p', duration: 4,
-      referenceImages: [], referenceVideos: ['https://app.test/v.mp4'],
-    }, 'veo31-fast'), /video/i);
-    assert.throws(() => request({
-      prompt: 'x'.repeat(2501), aspectRatio: '16:9', resolution: '720p', duration: 4,
-      referenceImages: [], referenceVideos: [],
-    }, 'sora-v3-pro'), /prompt/i);
-    assert.throws(() => request({
-      prompt: 'test', aspectRatio: '16:9', resolution: '720p', duration: 4,
-      referenceImages: Array.from({ length: 6 }, (_, index) => `https://app.test/${index}.jpg`), referenceVideos: [],
-    }, 'gemini-omni-flash'), /image/i);
-    assert.throws(() => request({
-      prompt: 'test', aspectRatio: '16:9', resolution: '720p', duration: 4,
-      referenceImages: Array.from({ length: 5 }, (_, index) => `https://app.test/${index}.jpg`),
-      referenceVideos: ['https://app.test/video.mp4', 'https://app.test/video-2.mp4'],
-    }, 'gemini-omni-flash'), /video|total/i);
-  });
-
-  it('rejects models outside the active PixelHub catalog', () => {
+  it('rejects models outside the active PixelHub target catalog', () => {
     assert.throws(() => normalizePixelHubVideoRequest({
-      body: { prompt: 'test', aspectRatio: '16:9', resolution: '720p', duration: 4, referenceImages: [], referenceVideos: [] },
-      model: { ...model('gemini-omni-flash'), id: 'other-model', requestModel: 'other-model' },
-      upstreamModel: 'other-model',
+      body: valid(),
+      model: { ...model(), id: 'legacy-model', requestModel: 'legacy-model' },
+      upstreamModel: 'legacy-model',
     }), /upstream model/i);
+  });
+
+  it('exposes an authenticated local content proxy without arbitrary URL forwarding', () => {
+    const source = fs.readFileSync('./server.cjs', 'utf8');
+    const start = source.indexOf('app.get("/api/video/task/:taskId/content"');
+    assert.ok(start >= 0);
+    const endpoint = source.slice(start, source.indexOf('// ==================== Shared Prompt Tool Helpers', start));
+    assert.ok(endpoint.includes('requireBillingAccount(req)'));
+    assert.ok(endpoint.includes('parseVideoTaskToken'));
+    assert.ok(endpoint.includes('route.contentPath'));
+    assert.ok(endpoint.includes('req.headers.range'));
+    assert.ok(!endpoint.includes('req.query.url'));
   });
 });

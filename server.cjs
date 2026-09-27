@@ -332,6 +332,8 @@ const buildVideoTaskToken = (routeId, upstreamTaskId) =>
     JSON.stringify({ routeId, upstreamTaskId }),
     "utf8",
   ).toString("base64url");
+const buildLocalVideoContentUrl = (taskId) =>
+  `/api/video/task/${encodeURIComponent(String(taskId || "").trim())}/content`;
 const parseImageTaskToken = (token) => {
   try {
     const parsed = JSON.parse(
@@ -5223,6 +5225,10 @@ const isTaskFailureStatus = (status = "") =>
   ["FAILURE", "FAILED", "ERROR", "CANCELLED", "CANCELED"].includes(
     String(status || "").trim().toUpperCase(),
   );
+const isTaskInProgressStatus = (status = "") =>
+  ["QUEUED", "IN_PROGRESS", "PROCESSING", "STARTING", "PENDING"].includes(
+    String(status || "").trim().toUpperCase(),
+  );
 const buildImageTaskResponseFromGenerationRecord = (record, taskId) => {
   if (!record) return null;
 
@@ -5483,10 +5489,25 @@ const pollVideoTaskAndSettle = async ({
   const responseData = response.data;
   const taskStatus = extractResultStatus(responseData);
   if (isTaskSuccessStatus(taskStatus)) {
+    if (route.contentPath) {
+      const localContentUrl = buildLocalVideoContentUrl(normalizedTaskId);
+      responseData.video_url = localContentUrl;
+      responseData.url = localContentUrl;
+      if (responseData.data && typeof responseData.data === "object") {
+        responseData.data = {
+          ...responseData.data,
+          video_url: localContentUrl,
+          url: localContentUrl,
+        };
+      }
+    }
+    const resultUrls = route.contentPath
+      ? [buildLocalVideoContentUrl(normalizedTaskId)]
+      : extractResultUrlsFromPayload(responseData);
     await settlePendingTask(normalizedTaskId, "SUCCESS");
     await completeGenerationRecordSuccessSafe({
       taskId: normalizedTaskId,
-      resultUrls: extractResultUrlsFromPayload(responseData),
+      resultUrls,
       meta: {
         polledAt: new Date().toISOString(),
         source,
@@ -5502,6 +5523,8 @@ const pollVideoTaskAndSettle = async ({
         source,
       },
     });
+  } else if (isTaskInProgressStatus(taskStatus)) {
+    // RollDek queued/in_progress responses remain pending until the next poll.
   }
 
   return responseData;
@@ -5850,6 +5873,58 @@ app.get("/api/video/task/:taskId", pollingLimiter, async (req, res) => {
   } catch (error) {
     console.error("[Video Task Poll] Error:", error.message);
     respondWithUserFacingGenerationError(res, error, 500);
+  }
+});
+
+app.get("/api/video/task/:taskId/content", pollingLimiter, async (req, res) => {
+  try {
+    await requireBillingAccount(req);
+    const encodedTaskId = String(req.params.taskId || "").trim();
+    const decodedTask = parseVideoTaskToken(encodedTaskId);
+    if (!decodedTask?.routeId || !decodedTask?.upstreamTaskId) {
+      return res.status(400).json({ error: "Invalid video task token" });
+    }
+    const route = await getVideoRouteById(decodedTask.routeId, {
+      includeInactive: true,
+      includeSecrets: true,
+    });
+    if (!route?.contentPath) {
+      return res.status(404).json({ error: "Video content is unavailable" });
+    }
+    const authorization = getRouteAuthorization(route, "", { preferUserProvided: false });
+    const upstream = await axios.get(
+      buildRouteUrl(route, route.contentPath, { taskId: decodedTask.upstreamTaskId }),
+      {
+        responseType: "stream",
+        timeout: 120000,
+        httpsAgent: SHARED_HTTPS_AGENT,
+        validateStatus: (status) => status >= 200 && status < 500,
+        headers: {
+          Authorization: authorization,
+          ...(req.headers.range ? { Range: req.headers.range } : {}),
+        },
+      },
+    );
+    if (upstream.status >= 400) {
+      return res.status(upstream.status).send("Failed to fetch video content");
+    }
+    res.status(upstream.status === 206 ? 206 : 200);
+    res.setHeader("Content-Type", upstream.headers["content-type"] || "video/mp4");
+    res.setHeader("Accept-Ranges", upstream.headers["accept-ranges"] || "bytes");
+    if (upstream.headers["content-length"]) res.setHeader("Content-Length", upstream.headers["content-length"]);
+    if (upstream.headers["content-range"]) res.setHeader("Content-Range", upstream.headers["content-range"]);
+    if (upstream.headers["content-disposition"]) res.setHeader("Content-Disposition", upstream.headers["content-disposition"]);
+    if (upstream.headers["cache-control"]) res.setHeader("Cache-Control", upstream.headers["cache-control"]);
+    upstream.data.on("error", (streamError) => {
+      if (!res.headersSent) res.status(502).end();
+      else res.destroy(streamError);
+    });
+    upstream.data.pipe(res);
+  } catch (error) {
+    const status = error.response?.status || 500;
+    console.error("[Video Content Proxy] Error:", error.message, "status=", status);
+    if (!res.headersSent) res.status(status >= 400 && status < 600 ? status : 500).send("Failed to proxy video content");
+    else res.end();
   }
 });
 

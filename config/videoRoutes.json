@@ -1,6 +1,26 @@
 {
-  "defaultRouteId": "gemini-omni-flash-line1",
+  "defaultRouteId": "gemini-omni-1.1-flash-line1",
   "routes": [
+    {
+      "id": "gemini-omni-1.1-flash-line1",
+      "label": "RollDek",
+      "description": "RollDek Gemini Omni 1.1 Flash",
+      "routeFamily": "gemini-omni-1.1-flash",
+      "line": "line1",
+      "transport": "openai-video",
+      "mode": "async",
+      "baseUrl": "https://rolldek.com",
+      "generatePath": "/v1/videos",
+      "taskPath": "/v1/videos/{taskId}",
+      "contentPath": "/v1/videos/{taskId}/content",
+      "upstreamModel": "gemini-omni-1.1-flash",
+      "allowUserApiKeyWithoutLogin": false,
+      "apiKeyEnv": "ROLL_VEDIO_OMNI_KEY",
+      "pointCost": 20,
+      "isActive": true,
+      "isDefaultRoute": true,
+      "sortOrder": 0
+    },
     {
       "id": "gemini-omni-flash-line1",
       "label": "Line 1",
@@ -16,8 +36,8 @@
       "allowUserApiKeyWithoutLogin": false,
       "apiKeyEnv": "PIXELHUB_GEMINI_OMNI_FLASH_KEY",
       "pointCost": 4,
-      "isActive": true,
-      "isDefaultRoute": true,
+      "isActive": false,
+      "isDefaultRoute": false,
       "sortOrder": 0
     },
     {
@@ -129,8 +149,8 @@
       "apiKeyEnv": "PIXELHUB_SORA_V3_PRO_KEY",
       "pointCost": 40,
       "sortOrder": 1,
-      "isActive": true,
-      "isDefaultRoute": true
+      "isActive": false,
+      "isDefaultRoute": false
     },
     {
       "id": "sora-v3-fast-line1",
@@ -167,8 +187,8 @@
       "apiKeyEnv": "PIXELHUB_VEO31_FAST_KEY",
       "pointCost": 2,
       "sortOrder": 2,
-      "isActive": true,
-      "isDefaultRoute": true
+      "isActive": false,
+      "isDefaultRoute": false
     },
     {
       "id": "veo3.1-components-line1",

@@ -3,7 +3,7 @@ import { getAuthorizedBillingHeaders } from '../src/services/accountIdentity';
 import { AppError, extractErrorMessage } from '../src/utils/errorDebug';
 
 const API_BASE_URL = '/api';
-export const VIDEO_POLL_INTERVAL_MS = 12_000;
+export const VIDEO_POLL_INTERVAL_MS = 15_000;
 export const VIDEO_POLL_DEADLINE_MS = 30 * 60 * 1000;
 
 export interface GenerateVideoInput {
@@ -80,6 +80,17 @@ const toAppError = (error: any, fallback: string) =>
     },
   );
 
+export const extractVideoOutputUrl = (task: any): string =>
+  String(
+    task?.video_url || task?.url || task?.metadata?.url || task?.data?.metadata?.url ||
+    task?.image_url || task?.data?.output || '',
+  ).trim();
+
+export const isVideoTaskInProgressStatus = (status: string): boolean =>
+  ['processing', 'starting', 'pending', 'queued', 'in_progress'].includes(
+    String(status || '').trim().toLowerCase(),
+  );
+
 export const pollVideoTask = async (
   apiKey: string | undefined,
   taskId: string,
@@ -100,7 +111,7 @@ export const pollVideoTask = async (
         const pollRes = await axios.get(`${API_BASE_URL}/video/task/${taskId}`, { headers });
         const task = pollRes.data;
         const status = (task.state || task.status || task?.data?.status || '').toLowerCase();
-        const outputUrl = task.image_url || task.video_url || task.url || task.data?.output;
+        const outputUrl = extractVideoOutputUrl(task);
         const failReason = task.fail_reason || task.error || task?.data?.fail_reason || task?.data?.error || '';
         const progressStr = String(task.progress ?? task?.data?.progress ?? '');
 
@@ -121,7 +132,7 @@ export const pollVideoTask = async (
           return;
         }
 
-        if (['processing', 'starting', 'pending', 'queued'].includes(status)) {
+        if (isVideoTaskInProgressStatus(status)) {
           errorCount = 0;
         } else {
           console.warn(`[VideoPoll] Unknown status: ${status}`, task);

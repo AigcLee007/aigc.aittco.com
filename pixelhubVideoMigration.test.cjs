@@ -5,19 +5,23 @@ const {
 } = require('./pixelhubVideoMigration.cjs');
 
 describe('PixelHub video catalog migration', () => {
-  it('deactivates legacy catalog entries and upserts only three targets', () => {
+  it('deactivates legacy catalog entries and upserts one target', () => {
     const operations = buildPixelHubVideoMigrationOperations();
-    assert.strictEqual(operations.models.length, 3);
-    assert.strictEqual(operations.routes.length, 3);
+    assert.strictEqual(operations.models.length, 1);
+    assert.strictEqual(operations.routes.length, 1);
     assert.strictEqual(operations.deactivateLegacyModels, true);
     assert.strictEqual(operations.deactivateLegacyRoutes, true);
-    assert.strictEqual(operations.defaultModelId, 'gemini-omni-flash');
-    assert.strictEqual(operations.defaultRouteId, 'gemini-omni-flash-line1');
+    assert.strictEqual(operations.defaultModelId, 'gemini-omni-1.1-flash');
+    assert.strictEqual(operations.defaultRouteId, 'gemini-omni-1.1-flash-line1');
+    assert.strictEqual(operations.models[0].selectorCost, 20);
+    assert.strictEqual(operations.models[0].pricingMode, 'fixed');
+    assert.strictEqual(operations.routes[0].baseUrl, 'https://rolldek.com');
+    assert.strictEqual(operations.routes[0].contentPath, '/v1/videos/{taskId}/content');
   });
 
   it('clears direct database keys for all target routes', () => {
     const operations = buildPixelHubVideoMigrationOperations();
-    assert.deepStrictEqual(operations.routes.map((route) => route.apiKey), [null, null, null]);
+    assert.deepStrictEqual(operations.routes.map((route) => route.apiKey), [null]);
   });
 
   it('does not define operations for historical or billing tables', () => {

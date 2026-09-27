@@ -359,9 +359,6 @@ const normalizeManagedVideoModelInput = (input = {}, { partial = false } = {}) =
     if (next.max_total_references < next.max_reference_images || next.max_total_references < next.max_reference_videos) {
       throw new Error("Maximum total references must cover each reference limit");
     }
-    if (next.reference_image_mode === "frames" && next.supports_video_reference) {
-      throw new Error("Frame reference models cannot support reference videos");
-    }
   }
   if (!partial || Object.prototype.hasOwnProperty.call(input, "supportsHd")) next.supports_hd = parseBoolean(input.supportsHd, false) ? 1 : 0;
   if (!partial || Object.prototype.hasOwnProperty.call(input, "defaultHd")) next.default_hd = parseBoolean(input.defaultHd, false) ? 1 : 0;

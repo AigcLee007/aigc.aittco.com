@@ -54,4 +54,24 @@ describe('video model capability schema', () => {
       /default resolution|max total references/i,
     );
   });
+
+  it('allows frame models that explicitly support reference videos', () => {
+    assert.doesNotThrow(() => normalizeManagedVideoModelInput({
+      id: 'gemini-omni-1.1-flash',
+      label: 'Gemini Omni 1.1 Flash',
+      modelFamily: 'gemini-omni-1.1-flash',
+      routeFamily: 'gemini-omni-1.1-flash',
+      referenceImageMode: 'frames',
+      supportsVideoReference: true,
+      maxReferenceImages: 2,
+      maxReferenceVideos: 1,
+      maxTotalReferences: 3,
+      aspectRatioOptions: ['16:9'],
+      defaultAspectRatio: '16:9',
+      resolutionOptions: ['720p'],
+      defaultResolution: '720p',
+      durationOptions: ['5'],
+      defaultDuration: '5',
+    }));
+  });
 });
