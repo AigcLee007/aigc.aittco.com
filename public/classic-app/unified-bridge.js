@@ -40,14 +40,6 @@
     "admin_credit",
     "redeem_code",
   ]);
-  const CLASSIC_ALLOWED_IMAGE_MODEL_IDS = new Set([
-    "nano-banana",
-    "nano-banana-2",
-    "gpt-image-2",
-    "gpt-image-2.5",
-    "seedream-5-pro",
-  ]);
-
   let bridgeModelCatalog = {
     defaultModelId: "",
     models: [],
@@ -1528,7 +1520,7 @@
 
     const fetchedModels = (Array.isArray(modelsData.models) ? modelsData.models : [])
       .map(normalizeModel)
-      .filter((model) => CLASSIC_ALLOWED_IMAGE_MODEL_IDS.has(model.id));
+      .filter((model) => model.id && model.isActive !== false);
     const allowedRouteFamilies = new Set(
       fetchedModels
         .map((model) => String(model.routeFamily || model.modelFamily || model.id || "").trim())
@@ -1536,9 +1528,9 @@
     );
     const fetchedDefaultModelId = String(modelsData.defaultModelId || "").trim();
     bridgeModelCatalog = {
-      defaultModelId: CLASSIC_ALLOWED_IMAGE_MODEL_IDS.has(fetchedDefaultModelId)
+      defaultModelId: fetchedModels.some((model) => model.id === fetchedDefaultModelId)
         ? fetchedDefaultModelId
-        : "nano-banana",
+        : fetchedModels[0]?.id || "nano-banana",
       models: fetchedModels,
     };
     bridgeRouteCatalog = {
