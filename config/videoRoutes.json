@@ -279,6 +279,25 @@
       "pointCost": 50,
       "isActive": false,
       "isDefaultRoute": false
+    },
+    {
+      "id": "grok-imagine-video-1.5-mouxihub",
+      "label": "Mouxihub",
+      "description": "Mouxihub Grok Imagine Video 1.5",
+      "routeFamily": "grok-imagine-video-1.5",
+      "line": "mouxihub",
+      "transport": "mouxihub-video",
+      "mode": "async",
+      "baseUrl": "https://api.mouxihub.com",
+      "generatePath": "/v1/video/generations",
+      "taskPath": "/v1/videos/{taskId}",
+      "upstreamModel": "grok-imagine-video-1.5",
+      "allowUserApiKeyWithoutLogin": false,
+      "apiKeyEnv": "MOUXIHUB_GROK_VIDEO_API_KEY",
+      "pointCost": 12.5,
+      "isActive": true,
+      "isDefaultRoute": false,
+      "sortOrder": 20
     }
   ]
 }

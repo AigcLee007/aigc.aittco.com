@@ -1,4 +1,4 @@
-﻿import videoModelCatalog from '../../config/videoModels.json';
+import videoModelCatalog from '../../config/videoModels.json';
 import { roundNonNegativePoint } from '../utils/pointFormat';
 
 export interface VideoModelConfig {
@@ -17,6 +17,15 @@ export interface VideoModelConfig {
   referenceImageMode?: 'style' | 'general' | 'frames';
   supportsVideoReference?: boolean;
   referenceLabels?: string[];
+  supportsTextToVideo?: boolean;
+  supportsImageToVideo?: boolean;
+  supportsReferenceToVideo?: boolean;
+  supportsFirstLastFrame?: boolean;
+  supportsKeyframes?: boolean;
+  maxKeyframes?: number;
+  keyframeTimestampGrid?: number;
+  referenceMaxResolution?: string;
+  defaultGenerateAudio?: boolean;
   defaultAspectRatio?: string;
   aspectRatioOptions?: string[];
   defaultResolution?: string;
@@ -89,6 +98,15 @@ const normalizeModel = (model: Partial<VideoModelConfig> = {}): VideoModelConfig
     : 'general',
   supportsVideoReference: model.supportsVideoReference === true,
   referenceLabels: normalizeStringArray(model.referenceLabels || []),
+  supportsTextToVideo: model.supportsTextToVideo === true,
+  supportsImageToVideo: model.supportsImageToVideo === true,
+  supportsReferenceToVideo: model.supportsReferenceToVideo === true,
+  supportsFirstLastFrame: model.supportsFirstLastFrame === true,
+  supportsKeyframes: model.supportsKeyframes === true,
+  maxKeyframes: Math.max(0, Number(model.maxKeyframes ?? 0)),
+  keyframeTimestampGrid: Number(model.keyframeTimestampGrid || 0),
+  referenceMaxResolution: String(model.referenceMaxResolution || '').trim() || undefined,
+  defaultGenerateAudio: model.defaultGenerateAudio !== false,
   defaultAspectRatio: String(model.defaultAspectRatio || '16:9').trim(),
   aspectRatioOptions: normalizeStringArray(model.aspectRatioOptions || ['16:9', '9:16']),
   defaultResolution: String(model.defaultResolution || '720p').trim(),
@@ -263,4 +281,3 @@ export const getVideoModelRequestName = (modelId?: string) => {
   const model = getVideoModelById(modelId);
   return model.requestModel || model.id;
 };
-

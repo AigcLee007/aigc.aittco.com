@@ -1,4 +1,4 @@
-﻿const express = require("express");
+const express = require("express");
 const cors = require("cors");
 const axios = require("axios");
 const path = require("path");
@@ -302,12 +302,19 @@ const getRouteAuthorization = (
   const normalizedFallback = normalizeAuthorization(fallbackAuthorization);
   if (preferUserProvided && normalizedFallback) return normalizedFallback;
 
-  const directApiKey = route?.apiKey ? normalizeAuthorization(route.apiKey) : "";
-  if (directApiKey) return directApiKey;
-
+  const isMouxihubRoute = String(route?.transport || '').trim().toLowerCase() === "mouxihub-video";
+  if (!isMouxihubRoute) {
+    const directApiKey = route?.apiKey ? normalizeAuthorization(route.apiKey) : "";
+    if (directApiKey) return directApiKey;
+  }
   const configured = route?.apiKeyEnv ? process.env[route.apiKeyEnv] : "";
   const normalizedConfigured = normalizeAuthorization(configured);
   if (normalizedConfigured) return normalizedConfigured;
+
+  if (isMouxihubRoute) {
+    const envName = route?.apiKeyEnv || "unknown";
+    throw new Error(`Missing API key for video route ${route?.id || "unknown"} (${envName})`);
+  }
 
   if (normalizedFallback) return normalizedFallback;
 
@@ -5222,7 +5229,7 @@ app.get("/api/proxy/video", async (req, res) => {
 const isTaskSuccessStatus = (status = "") =>
   ["SUCCESS", "SUCCEEDED", "COMPLETED"].includes(String(status || "").trim().toUpperCase());
 const isTaskFailureStatus = (status = "") =>
-  ["FAILURE", "FAILED", "ERROR", "CANCELLED", "CANCELED"].includes(
+  ["FAILURE", "FAILED", "ERROR", "CANCELLED", "CANCELED", "EXPIRED", "TIMED_OUT", "TIMEOUT"].includes(
     String(status || "").trim().toUpperCase(),
   );
 const isTaskInProgressStatus = (status = "") =>
@@ -5713,6 +5720,8 @@ app.post("/api/video/generate", generateLimiter, async (req, res) => {
       body: materializedBody,
       model: requestedVideoModel,
       upstreamModel: route.upstreamModel || requestedVideoModel.requestModel || requestedVideoModel.id,
+      transport: route.transport,
+      route,
     });
     billingAccount = await requireBillingAccount(req);
     chargeRouteId = route.id;

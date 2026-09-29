@@ -21,9 +21,11 @@ afterEach(async () => {
 
 const targetModelIds = [
   'gemini-omni-1.1-flash',
+  'grok-imagine-video-1.5',
 ];
 const targetRouteIds = [
   'gemini-omni-1.1-flash-line1',
+  'grok-imagine-video-1.5-mouxihub',
 ];
 const legacyModelIds = [
   'gemini-omni-flash',
@@ -81,11 +83,16 @@ describe('PixelHub video catalog', () => {
     const activeRoutes = routeCatalog.routes.filter(
       (route) => route.isActive !== false,
     );
-    expect(activeRoutes.map((route) => route.apiKeyEnv)).toEqual(['ROLL_VEDIO_OMNI_KEY']);
-    expect(activeRoutes.every((route) => route.baseUrl === 'https://rolldek.com')).toBe(true);
-    expect(activeRoutes.every((route) => route.generatePath === '/v1/videos')).toBe(true);
-    expect(activeRoutes.every((route) => route.taskPath === '/v1/videos/{taskId}')).toBe(true);
-    expect(activeRoutes.every((route) => route.contentPath === '/v1/videos/{taskId}/content')).toBe(true);
+    expect(activeRoutes.map((route) => route.apiKeyEnv).sort()).toEqual(['MOUXIHUB_GROK_VIDEO_API_KEY', 'ROLL_VEDIO_OMNI_KEY'].sort());
+    const rollDek = activeRoutes.find((route) => route.id === 'gemini-omni-1.1-flash-line1')!;
+    expect(rollDek.baseUrl).toBe('https://rolldek.com');
+    expect(rollDek.generatePath).toBe('/v1/videos');
+    expect(rollDek.taskPath).toBe('/v1/videos/{taskId}');
+    expect(rollDek.contentPath).toBe('/v1/videos/{taskId}/content');
+    const mouxihub = activeRoutes.find((route) => route.id === 'grok-imagine-video-1.5-mouxihub')!;
+    expect(mouxihub.baseUrl).toBe('https://api.mouxihub.com');
+    expect(mouxihub.generatePath).toBe('/v1/video/generations');
+    expect(mouxihub.taskPath).toBe('/v1/videos/{taskId}');
 
     expect(routeCatalog.routes
       .filter((route) => !targetRouteIds.includes(route.id))
@@ -99,8 +106,8 @@ describe('PixelHub video catalog', () => {
   });
 
   it('matches the migration source of truth', () => {
-    expect(targetCatalog.models.map((model) => model.id)).toEqual(targetModelIds);
-    expect(targetCatalog.routes.map((route) => route.id)).toEqual(targetRouteIds);
+    expect(targetCatalog.models.map((model) => model.id)).toEqual(['gemini-omni-1.1-flash']);
+    expect(targetCatalog.routes.map((route) => route.id)).toEqual(['gemini-omni-1.1-flash-line1']);
     expect(targetCatalog.defaultModelId).toBe('gemini-omni-1.1-flash');
     expect(targetCatalog.defaultRouteId).toBe('gemini-omni-1.1-flash-line1');
     expect(modelCatalog.defaultModelId).toBe(targetCatalog.defaultModelId);

@@ -2,7 +2,7 @@ const staticCatalog = require("./config/videoRoutes.json");
 const { toNonNegativePoint } = require("./pointMath.cjs");
 const { fromDbDateTime, getPool, isMySqlConfigured, toDbDateTime, withTransaction } = require("./db.cjs");
 
-const VALID_TRANSPORTS = new Set(["openai-video"]);
+const VALID_TRANSPORTS = new Set(["openai-video", "mouxihub-video"]);
 const VALID_MODES = new Set(["async"]);
 
 const trimToString = (value = "") => String(value ?? "").trim();

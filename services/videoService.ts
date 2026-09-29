@@ -15,6 +15,12 @@ export interface GenerateVideoInput {
   duration: string | number;
   referenceImages?: string[];
   referenceVideos?: string[];
+  generationMode?: 'text' | 'image' | 'reference' | 'first_last' | 'keyframes';
+  image?: string;
+  startFrame?: string;
+  lastFrame?: string;
+  keyframes?: Array<{ image: string; timestamp_s: number }>;
+  generateAudio?: boolean;
 }
 
 export interface InternalVideoRequest {
@@ -26,6 +32,12 @@ export interface InternalVideoRequest {
   duration: number;
   referenceImages: string[];
   referenceVideos: string[];
+  generationMode?: 'text' | 'image' | 'reference' | 'first_last' | 'keyframes';
+  image?: string;
+  startFrame?: string;
+  lastFrame?: string;
+  keyframes?: Array<{ image: string; timestamp_s: number }>;
+  generateAudio?: boolean;
 }
 
 const sanitizeHeader = (value: string) => value.replace(/[^\x00-\x7F]/g, '').trim();
@@ -67,6 +79,12 @@ export const buildInternalVideoRequest = (
   duration: Number(input.duration),
   referenceImages: dedupeStrings(input.referenceImages),
   referenceVideos: dedupeStrings(input.referenceVideos),
+  ...(input.generationMode ? { generationMode: input.generationMode } : {}),
+  ...(input.image ? { image: String(input.image).trim() } : {}),
+  ...(input.startFrame ? { startFrame: String(input.startFrame).trim() } : {}),
+  ...(input.lastFrame ? { lastFrame: String(input.lastFrame).trim() } : {}),
+  ...(Array.isArray(input.keyframes) ? { keyframes: input.keyframes } : {}),
+  ...(input.generateAudio !== undefined ? { generateAudio: input.generateAudio === true } : {}),
 });
 
 const toAppError = (error: any, fallback: string) =>
@@ -83,11 +101,11 @@ const toAppError = (error: any, fallback: string) =>
 export const extractVideoOutputUrl = (task: any): string =>
   String(
     task?.video_url || task?.url || task?.metadata?.url || task?.data?.metadata?.url ||
-    task?.image_url || task?.data?.output || '',
+    task?.data?.video_url || task?.data?.url || task?.data?.output || (typeof task?.data === 'string' ? task.data : '') || task?.image_url || '',
   ).trim();
 
 export const isVideoTaskInProgressStatus = (status: string): boolean =>
-  ['processing', 'starting', 'pending', 'queued', 'in_progress'].includes(
+  ['processing', 'starting', 'pending', 'queued', 'in_progress', 'in-progress'].includes(
     String(status || '').trim().toLowerCase(),
   );
 

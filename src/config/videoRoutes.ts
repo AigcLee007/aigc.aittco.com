@@ -1,8 +1,8 @@
-﻿import videoRouteCatalog from '../../config/videoRoutes.json';
+import videoRouteCatalog from '../../config/videoRoutes.json';
 import { getVideoModelById, getVideoModelOptions } from './videoModels';
 import { roundNonNegativePoint } from '../utils/pointFormat';
 
-export type VideoRouteTransport = 'openai-video';
+export type VideoRouteTransport = 'openai-video' | 'mouxihub-video';
 export type VideoRouteMode = 'async';
 
 export interface VideoRouteConfig {
@@ -256,4 +256,3 @@ export const getVideoModelNameForRoute = ({
   if (route.useRequestModel) return model.requestModel || model.id;
   return model.requestModel || model.id;
 };
-

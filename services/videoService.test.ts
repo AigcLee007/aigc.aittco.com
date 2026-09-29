@@ -80,3 +80,13 @@ describe('videoService internal request contract', () => {
     expect(isVideoTaskInProgressStatus('completed')).toBe(false);
   });
 });
+
+describe('Grok video polling compatibility', () => {
+  it('extracts a nested Mouxihub video_url', () => {
+    expect(extractVideoOutputUrl({ status: 'completed', data: { video_url: 'https://cdn.example/video.mp4' } })).toBe('https://cdn.example/video.mp4');
+  });
+  it('recognizes in-progress variants', () => {
+    expect(isVideoTaskInProgressStatus('in_progress')).toBe(true);
+    expect(isVideoTaskInProgressStatus('in-progress')).toBe(true);
+  });
+});

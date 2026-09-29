@@ -139,6 +139,7 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
     videoDuration, setVideoDuration,
     videoResolution,
     videoReferenceVideos,
+    videoGenerationMode, videoStartFrame, videoLastFrame, videoKeyframes, videoGenerateAudio,
     imageModel, setImageModel,
     imageLine, setImageLine,
     gptImageQuality,
@@ -609,7 +610,7 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
     if (e.dataTransfer.types.includes('application/x-sort-index')) return;
 
     const max = isVideoMode
-      ? getVideoModelMaxReferenceImages(selectedVideoModelConfig.id)
+      ? (videoModel === 'grok-imagine-video-1.5' && videoGenerationMode === 'image' ? 1 : getVideoModelMaxReferenceImages(selectedVideoModelConfig.id))
       : (isGptImageCompatibleModel(selectedImageModelConfig.id) ? 16 : 10);
     
     // DEBUG ALERT
@@ -676,7 +677,7 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
     if (e.target.files) {
       const files = Array.from(e.target.files);
       const max = isVideoMode
-        ? getVideoModelMaxReferenceImages(selectedVideoModelConfig.id)
+        ? (videoModel === 'grok-imagine-video-1.5' && videoGenerationMode === 'image' ? 1 : getVideoModelMaxReferenceImages(selectedVideoModelConfig.id))
         : (isGptImageCompatibleModel(selectedImageModelConfig.id) ? 16 : 10);
       const remainingSlots = max - referenceImages.length;
 
@@ -869,7 +870,7 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    console.log("Submit triggered", { prompt, apiKey });
+    console.log("Submit triggered", { prompt });
     if (!prompt.trim()) {
       setError("请输入提示词");
       return;
@@ -1425,13 +1426,14 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
   };
 
   const handleVideoSubmit = async () => {
-    console.log("Video Submit triggered", { prompt, apiKey, videoModel });
-    if (!prompt.trim()) {
+    console.log("Video Submit triggered", { prompt, videoModel });
+    const grokMediaMode = videoModel === 'grok-imagine-video-1.5' && videoGenerationMode !== 'text';
+    if (!prompt.trim() && !grokMediaMode) {
       setError("请输入提示词");
       return;
     }
 
-    const parsedPromptResult = parsePromptReferenceTags(prompt, referenceImages.length);
+    const parsedPromptResult = prompt.trim() ? parsePromptReferenceTags(prompt, referenceImages.length) : { error: null, prompt: '', referencedIndexes: [] };
     if (parsedPromptResult.error) {
       setError(parsedPromptResult.error);
       return;
@@ -1455,8 +1457,9 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
     const maxTotalReferences = getVideoModelMaxTotalReferences(selectedVideoModelConfig.id);
     const maxReferenceImages = getVideoModelMaxReferenceImages(selectedVideoModelConfig.id);
 
-    if (effectiveVideoReferenceImages.length > maxReferenceImages) {
-      setError(`当前模型最多支持 ${maxReferenceImages} 张参考图`);
+    const effectiveMaxReferenceImages = videoModel === 'grok-imagine-video-1.5' && videoGenerationMode === 'image' ? 1 : maxReferenceImages;
+    if (effectiveVideoReferenceImages.length > effectiveMaxReferenceImages) {
+      setError(`当前模型最多支持 ${effectiveMaxReferenceImages} 张参考图`);
       return;
     }
     if (referenceVideoUrls.length > maxReferenceVideos) {
@@ -1583,7 +1586,7 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
         }
       }
 
-      const videoUrl = await generateVideo(apiKey, {
+      const videoUrl = await generateVideo(videoModel === 'grok-imagine-video-1.5' ? undefined : apiKey, {
         modelId: selectedVideoModelConfig.id,
         routeId: selectedVideoRoute.id,
         prompt: currentPrompt,
@@ -1592,6 +1595,14 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
         duration: videoDuration,
         referenceImages: base64Images,
         referenceVideos: referenceVideoUrls,
+        ...(videoModel === 'grok-imagine-video-1.5' ? {
+          generationMode: videoGenerationMode,
+          image: videoGenerationMode === 'image' ? base64Images[0] : undefined,
+          startFrame: videoStartFrame,
+          lastFrame: videoLastFrame,
+          keyframes: videoKeyframes,
+          generateAudio: videoGenerateAudio,
+        } : {}),
       }, (progress) => {
         if (onUpdateProgress) onUpdateProgress(pid, progress);
       });
@@ -1992,7 +2003,7 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
             <>
           {/* Reference image area (shared by image/video mode) */}
               <div id="reference-drop-zone" 
-                   className="border border-dashed border-gray-600 rounded-lg p-3 bg-gray-800/30 relative"
+                   className={`${isVideoMode && videoModel === 'grok-imagine-video-1.5' && !['image', 'reference'].includes(videoGenerationMode) ? 'hidden ' : ''}border border-dashed border-gray-600 rounded-lg p-3 bg-gray-800/30 relative`}
                    onDrop={handlePanelDrop} 
                    onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
                    // onClick={() => alert(`[Click Debug] Max=${isVideoMode ? (VIDEO_LOSS_CONFIG[videoModel as any]?.max) : 10}, Current=${referenceImages.length}`)}

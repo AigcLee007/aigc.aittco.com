@@ -44,6 +44,11 @@ interface SelectionStore {
   videoReferenceVideos: VideoReferenceItem[];
   videoHd: boolean;
   videoReferenceMode: 'images' | 'frames';
+  videoGenerationMode: 'text' | 'image' | 'reference' | 'first_last' | 'keyframes';
+  videoStartFrame: string;
+  videoLastFrame: string;
+  videoKeyframes: Array<{ image: string; timestamp_s: number }>;
+  videoGenerateAudio: boolean;
   videoReferenceUrl: string;
   brushSize: number;
   brushColor: string;
@@ -95,6 +100,11 @@ interface SelectionStore {
   removeVideoReferenceVideo: (index: number) => void;
   setVideoHd: (hd: boolean) => void;
   setVideoReferenceMode: (mode: 'images' | 'frames') => void;
+  setVideoGenerationMode: (mode: 'text' | 'image' | 'reference' | 'first_last' | 'keyframes') => void;
+  setVideoStartFrame: (url: string) => void;
+  setVideoLastFrame: (url: string) => void;
+  setVideoKeyframes: (items: Array<{ image: string; timestamp_s: number }>) => void;
+  setVideoGenerateAudio: (enabled: boolean) => void;
   setVideoReferenceUrl: (url: string) => void;
   setBrushSize: (size: number) => void;
   setBrushColor: (color: string) => void;
@@ -259,6 +269,11 @@ export const useSelectionStore = create<SelectionStore>()(
       videoReferenceVideos: [],
       videoHd: false,
       videoReferenceMode: 'images',
+      videoGenerationMode: 'text',
+      videoStartFrame: '',
+      videoLastFrame: '',
+      videoKeyframes: [],
+      videoGenerateAudio: true,
       videoReferenceUrl: '',
       brushSize: 40,
       brushColor: '#A855F7', // Purple default
@@ -342,6 +357,11 @@ export const useSelectionStore = create<SelectionStore>()(
       removeVideoReferenceVideo: (index) => set(state => { state.videoReferenceVideos.splice(index, 1); state.videoReferenceUrl = state.videoReferenceVideos[0]?.url || ''; }),
       setVideoHd: (val) => set(state => { state.videoHd = val; state.videoResolution = val ? '1080p' : '720p'; }),
       setVideoReferenceMode: (val) => set(state => { state.videoReferenceMode = val; }),
+      setVideoGenerationMode: (val) => set(state => { state.videoGenerationMode = val; }),
+      setVideoStartFrame: (val) => set(state => { state.videoStartFrame = val; }),
+      setVideoLastFrame: (val) => set(state => { state.videoLastFrame = val; }),
+      setVideoKeyframes: (val) => set(state => { state.videoKeyframes = val.slice(0, 4); }),
+      setVideoGenerateAudio: (val) => set(state => { state.videoGenerateAudio = val; }),
       setVideoReferenceUrl: (val) => set(state => {
         state.videoReferenceUrl = val;
         state.videoReferenceVideos = val ? [{ url: val }] : [];
@@ -633,6 +653,11 @@ export const useSelectionStore = create<SelectionStore>()(
         videoReferenceVideos: state.videoReferenceVideos,
         videoHd: state.videoHd,
         videoReferenceMode: state.videoReferenceMode,
+        videoGenerationMode: state.videoGenerationMode,
+        videoStartFrame: state.videoStartFrame,
+        videoLastFrame: state.videoLastFrame,
+        videoKeyframes: state.videoKeyframes,
+        videoGenerateAudio: state.videoGenerateAudio,
         videoReferenceUrl: state.videoReferenceUrl,
         brushSize: state.brushSize,
         brushColor: state.brushColor,
@@ -653,6 +678,11 @@ export const useSelectionStore = create<SelectionStore>()(
           ...persisted,
           referenceImages: sanitizePersistedReferenceImages(persisted?.referenceImages || []),
           videoReferenceMode: persisted?.videoReferenceMode === 'frames' ? 'frames' : 'images',
+          videoGenerationMode: ['text', 'image', 'reference', 'first_last', 'keyframes'].includes(String(persisted?.videoGenerationMode)) ? persisted?.videoGenerationMode as any : 'text',
+          videoStartFrame: String(persisted?.videoStartFrame || ''),
+          videoLastFrame: String(persisted?.videoLastFrame || ''),
+          videoKeyframes: Array.isArray(persisted?.videoKeyframes) ? persisted.videoKeyframes.slice(0, 4) : [],
+          videoGenerateAudio: persisted?.videoGenerateAudio !== false,
           videoReferenceUrl: String(persisted.videoReferenceVideos?.[0]?.url || '').trim(),
           videoHd: persisted.videoResolution === '1080p',
           videoResolution: String(persisted.videoResolution || '720p'),
