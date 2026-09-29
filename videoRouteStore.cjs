@@ -184,7 +184,7 @@ const ensureVideoRouteSchema = async () => {
               route_id,label,description,route_family,line_value,transport,mode,base_url,generate_path,
               task_path,content_path,upstream_model,use_request_model,allow_user_api_key_without_login,api_key,api_key_env,point_cost,sort_order,
               is_active,is_default_route,created_at,updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
               row.route_id, row.label, row.description, row.route_family, row.line_value, row.transport, row.mode,
               row.base_url, row.generate_path, row.task_path, row.content_path, row.upstream_model, row.use_request_model ? 1 : 0,
