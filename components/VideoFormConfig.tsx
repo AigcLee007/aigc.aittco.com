@@ -64,6 +64,9 @@ export const VideoFormConfig: React.FC<VideoFormConfigProps> = ({ restrictToDire
   const maxTotalReferences = getVideoModelById(currentModel.id).maxTotalReferences ?? maxReferenceImages + maxReferenceVideos;
   const showLineSelector = availableRoutes.length > 1;
   const isGrokImagine = currentModel.id === 'grok-imagine-video-1.5';
+  const isOmniFlash = currentModel.id === 'omni_flash-10s';
+  const showGenerationModeSelector = isGrokImagine || isOmniFlash;
+  const effectiveMaxReferenceImages = isOmniFlash && videoGenerationMode === 'first_last' ? 2 : maxReferenceImages;
 
   useEffect(() => {
     if (visibleVideoModels.length && !visibleVideoModels.some((model) => model.id === videoModel)) setVideoModel(visibleVideoModels[0].id);
@@ -80,6 +83,9 @@ export const VideoFormConfig: React.FC<VideoFormConfigProps> = ({ restrictToDire
   useEffect(() => {
     if (!resolutionOptions.includes(videoResolution)) setVideoResolution(getDefaultVideoResolutionForModel(currentModel.id));
   }, [currentModel.id, resolutionOptions, setVideoResolution, videoResolution]);
+  useEffect(() => {
+    if (isOmniFlash && videoGenerationMode === 'keyframes') setVideoGenerationMode('text');
+  }, [isOmniFlash, setVideoGenerationMode, videoGenerationMode]);
   useEffect(() => {
     if (videoReferenceVideos.length > maxReferenceVideos) videoReferenceVideos.slice(maxReferenceVideos).forEach((_, index) => removeVideoReferenceVideo(maxReferenceVideos + index));
   }, [maxReferenceVideos, removeVideoReferenceVideo, videoReferenceVideos]);
@@ -152,20 +158,20 @@ export const VideoFormConfig: React.FC<VideoFormConfigProps> = ({ restrictToDire
       <div><label className="mb-1 block text-[10px] text-gray-500">时长</label><DropUpSelect value={videoDuration} onChange={setVideoDuration} options={durationOptions.map((value) => ({ value, label: `${value}s` }))} /></div>
       {showLineSelector && <div><label className="mb-1 block text-[10px] text-gray-500">线路</label><DropUpSelect value={videoLine} onChange={setVideoLine} options={routeOptions} /></div>}
     </div>
-    {isGrokImagine && <div className="rounded-xl border border-cyan-400/20 bg-cyan-400/[0.04] p-3 space-y-3">
-      <div><label className="mb-1 block text-[10px] text-gray-500">生成模式</label><select value={videoGenerationMode} onChange={(event) => setVideoGenerationMode(event.target.value as any)} className="h-9 w-full rounded-lg border border-white/10 bg-black/20 px-2 text-xs text-gray-200"><option value="text">文生视频</option><option value="image">图生视频</option><option value="reference">参考生视频</option><option value="first_last">首帧和尾帧</option><option value="keyframes">关键帧</option></select></div>
-      {videoGenerationMode === 'first_last' && <div className="grid grid-cols-2 gap-2"><button type="button" onClick={() => startFrameInputRef.current?.click()} className="rounded-md border border-white/10 bg-black/20 px-2 py-2 text-[10px] text-cyan-200">{videoStartFrame ? '更换首帧' : '上传首帧'}</button><button type="button" onClick={() => lastFrameInputRef.current?.click()} className="rounded-md border border-white/10 bg-black/20 px-2 py-2 text-[10px] text-cyan-200">{videoLastFrame ? '更换尾帧' : '上传尾帧'}</button></div>}
-      <input ref={startFrameInputRef} type="file" accept="image/*" className="hidden" onChange={(event) => handleFrameFile(event, setVideoStartFrame)} />
+    {showGenerationModeSelector && <div className="rounded-xl border border-cyan-400/20 bg-cyan-400/[0.04] p-3 space-y-3">
+      <div><label className="mb-1 block text-[10px] text-gray-500">生成模式</label><select value={videoGenerationMode} onChange={(event) => setVideoGenerationMode(event.target.value as any)} className="h-9 w-full rounded-lg border border-white/10 bg-black/20 px-2 text-xs text-gray-200"><option value="text">文生视频</option><option value="image">图生视频</option><option value="reference">参考生视频</option><option value="first_last">首尾帧</option>{isGrokImagine && <option value="keyframes">关键帧</option>}</select></div>
+      {isGrokImagine && videoGenerationMode === 'first_last' && <div className="grid grid-cols-2 gap-2"><button type="button" onClick={() => startFrameInputRef.current?.click()} className="rounded-md border border-white/10 bg-black/20 px-2 py-2 text-[10px] text-cyan-200">{videoStartFrame ? '更换首帧' : '上传首帧'}</button><button type="button" onClick={() => lastFrameInputRef.current?.click()} className="rounded-md border border-white/10 bg-black/20 px-2 py-2 text-[10px] text-cyan-200">{videoLastFrame ? '更换尾帧' : '上传尾帧'}</button></div>}
+      {isGrokImagine && <><input ref={startFrameInputRef} type="file" accept="image/*" className="hidden" onChange={(event) => handleFrameFile(event, setVideoStartFrame)} />
       <input ref={lastFrameInputRef} type="file" accept="image/*" className="hidden" onChange={(event) => handleFrameFile(event, setVideoLastFrame)} />
       {videoGenerationMode === 'keyframes' && <div className="space-y-2"><button type="button" onClick={() => keyframeInputRef.current?.click()} className="rounded-md border border-white/10 bg-black/20 px-2 py-2 text-[10px] text-cyan-200">上传关键帧（最多 4 个）</button><input ref={keyframeInputRef} type="file" accept="image/*" className="hidden" onChange={handleKeyframeFile} />{videoKeyframes.map((item, index) => <div key={`${item.timestamp_s}-${index}`} className="flex items-center justify-between rounded-md bg-black/20 px-2 py-1 text-[10px] text-gray-300"><span>关键帧 {index + 1} · {item.timestamp_s}s</span><button type="button" onClick={() => setVideoKeyframes(videoKeyframes.filter((_, itemIndex) => itemIndex !== index))} className="text-gray-400 hover:text-white"><X size={12} /></button></div>)}</div>}
-      <label className="flex items-center gap-2 text-[10px] text-gray-300"><input type="checkbox" checked={videoGenerateAudio} onChange={(event) => setVideoGenerateAudio(event.target.checked)} />生成音频</label>
-      <div className="text-[10px] text-gray-400">参考生视频最多 7 张图；参考模式最高 720p，关键帧最多 4 个。</div>
+      <label className="flex items-center gap-2 text-[10px] text-gray-300"><input type="checkbox" checked={videoGenerateAudio} onChange={(event) => setVideoGenerateAudio(event.target.checked)} />生成音频</label></>}
+      <div className="text-[10px] text-gray-400">参考生视频最多 {effectiveMaxReferenceImages} 张图；参考视频最多 {maxReferenceVideos} 个。{isOmniFlash ? ' Omni 固定 720p、10s，音频由模型生成。' : ' 参考模式最高 720p，关键帧最多 4 个。'}</div>
     </div>}
     {supportsVideoReference && <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3 space-y-2">
       <div className="flex items-center justify-between"><label className="text-[10px] text-gray-500">参考视频（最多 {maxReferenceVideos} 个）</label><button type="button" onClick={() => videoReferenceInputRef.current?.click()} disabled={isUploadingReferenceVideo} className="inline-flex items-center gap-1 rounded-md border border-white/10 bg-black/20 px-2 py-1 text-[10px] text-blue-300 disabled:opacity-60"><Upload size={11} />{isUploadingReferenceVideo ? '上传中' : '上传视频'}</button></div>
       <input ref={videoReferenceInputRef} type="file" multiple accept="video/mp4,video/webm,video/quicktime,.mp4,.webm,.mov" className="hidden" onChange={handleSelectReferenceVideo} />
       {videoReferenceVideos.map((item, index) => <div key={item.id || item.url} className="flex h-8 items-center justify-between gap-2 rounded-md bg-black/20 px-2 text-xs text-gray-300"><span className="truncate">{item.name || item.url}</span><button type="button" aria-label={`移除参考视频 ${index + 1}`} onClick={() => removeVideoReferenceVideo(index)} className="text-gray-400 hover:text-white"><X size={14} /></button></div>)}
-      <div className="text-[10px] text-gray-400">参考图片最多 {maxReferenceImages} 张，参考视频最多 {maxReferenceVideos} 个，合计最多 {maxTotalReferences} 个</div>
+      <div className="text-[10px] text-gray-400">参考图片最多 {effectiveMaxReferenceImages} 张，参考视频最多 {maxReferenceVideos} 个，合计最多 {maxTotalReferences} 个</div>
     </div>}
     <div><div className="mb-1 flex items-center justify-between gap-2"><label className="block text-[10px] text-gray-500">视频模型</label><span className="text-[10px] font-medium text-yellow-300">{isPerSecondPricing ? `${pointCostPerSecond} 金币/s · 预计 ${estimatedCost} 金币` : `预计 ${estimatedCost} 金币`}</span></div><ModelSelector dropUp value={currentModel.id} onChange={(value) => { setVideoModel(value); setVideoAspectRatio(getDefaultVideoAspectRatioForModel(value)); setVideoDuration(getDefaultVideoDurationForModel(value)); setVideoResolution(getDefaultVideoResolutionForModel(value)); }} options={modelOptions} /></div>
     {referenceImageMode === 'frames' && <div className="text-[10px] text-cyan-300">参考图片将按首帧、尾帧顺序发送。</div>}

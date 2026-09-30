@@ -1,4 +1,7 @@
 const assert = require('assert');
+const nodeTest = require('node:test');
+const describe = globalThis.describe || nodeTest.describe;
+const it = globalThis.it || nodeTest.it;
 const modelCatalog = require('./config/videoModels.json');
 const routeCatalog = require('./config/videoRoutes.json');
 const { normalizePixelHubVideoRequest } = require('./videoRequestPolicy.cjs');

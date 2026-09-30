@@ -298,6 +298,25 @@
       "isActive": true,
       "isDefaultRoute": false,
       "sortOrder": 20
+    },
+    {
+      "id": "omni_flash-10s-mouxihub",
+      "label": "Mouxihub",
+      "description": "Mouxihub Gemini Omni Flash 10s",
+      "routeFamily": "omni_flash-10s",
+      "line": "mouxihub",
+      "transport": "openai-video",
+      "mode": "async",
+      "baseUrl": "https://api.mouxihub.com",
+      "generatePath": "/v1/videos",
+      "taskPath": "/v1/videos/{taskId}",
+      "upstreamModel": "omni_flash-10s",
+      "allowUserApiKeyWithoutLogin": false,
+      "apiKeyEnv": "MOUXIHUB_OMNI_FLASH_API_KEY",
+      "pointCost": 20,
+      "isActive": true,
+      "isDefaultRoute": false,
+      "sortOrder": 1
     }
   ]
 }

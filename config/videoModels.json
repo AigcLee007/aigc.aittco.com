@@ -568,6 +568,48 @@
       "isActive": true,
       "isDefaultModel": false,
       "sortOrder": 20
+    },
+    {
+      "id": "omni_flash-10s",
+      "label": "Gemini Omni Flash 10s",
+      "description": "Mouxihub Gemini Omni Flash 10s video generation",
+      "modelFamily": "omni_flash-10s",
+      "routeFamily": "omni_flash-10s",
+      "requestModel": "omni_flash-10s",
+      "selectorCost": 20,
+      "pricingMode": "fixed",
+      "pointCostPerSecond": 0,
+      "maxReferenceImages": 7,
+      "maxReferenceVideos": 1,
+      "maxTotalReferences": 7,
+      "referenceImageMode": "general",
+      "supportsVideoReference": true,
+      "supportsTextToVideo": true,
+      "supportsImageToVideo": true,
+      "supportsReferenceToVideo": true,
+      "supportsFirstLastFrame": true,
+      "supportsKeyframes": false,
+      "referenceLabels": [],
+      "defaultAspectRatio": "16:9",
+      "aspectRatioOptions": [
+        "16:9",
+        "9:16"
+      ],
+      "defaultResolution": "720p",
+      "resolutionOptions": [
+        "720p"
+      ],
+      "defaultDuration": "10",
+      "durationOptions": [
+        "10"
+      ],
+      "promptMaxLength": null,
+      "supportsHd": false,
+      "defaultHd": false,
+      "defaultGenerateAudio": true,
+      "isActive": true,
+      "isDefaultModel": false,
+      "sortOrder": 1
     }
   ]
 }

@@ -51,7 +51,7 @@ const toPublicVideoImageReference = (value: string) => {
 export const extractVideoOutputUrl = (task: any): string =>
   String(
     task?.video_url || task?.url || task?.metadata?.url || task?.data?.metadata?.url ||
-    task?.image_url || task?.data?.output || '',
+    task?.data?.video_url || task?.data?.url || task?.image_url || task?.data?.output || '',
   ).trim();
 
 // Extracted polling function for reuse in recovery

@@ -167,6 +167,8 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
   const selectedImageModelConfig = getImageModelById(imageModel);
   const selectedVideoRoute = getSelectedVideoRoute(videoModel, videoLine);
   const selectedVideoModelConfig = getVideoModelById(videoModel);
+  const isGrokVideoModel = videoModel === 'grok-imagine-video-1.5';
+  const isOmniFlashVideoModel = videoModel === 'omni_flash-10s';
 
   // State moved to store: const [prompt, setPrompt] = useState('')
   const [error, setError] = useState<string | null>(null);
@@ -610,7 +612,11 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
     if (e.dataTransfer.types.includes('application/x-sort-index')) return;
 
     const max = isVideoMode
-      ? (videoModel === 'grok-imagine-video-1.5' && videoGenerationMode === 'image' ? 1 : getVideoModelMaxReferenceImages(selectedVideoModelConfig.id))
+      ? ((videoModel === 'grok-imagine-video-1.5' || videoModel === 'omni_flash-10s') && videoGenerationMode === 'image'
+        ? 1
+        : (videoModel === 'omni_flash-10s' && videoGenerationMode === 'first_last'
+          ? 2
+          : getVideoModelMaxReferenceImages(selectedVideoModelConfig.id)))
       : (isGptImageCompatibleModel(selectedImageModelConfig.id) ? 16 : 10);
     
     // DEBUG ALERT
@@ -677,7 +683,11 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
     if (e.target.files) {
       const files = Array.from(e.target.files);
       const max = isVideoMode
-        ? (videoModel === 'grok-imagine-video-1.5' && videoGenerationMode === 'image' ? 1 : getVideoModelMaxReferenceImages(selectedVideoModelConfig.id))
+        ? ((videoModel === 'grok-imagine-video-1.5' || videoModel === 'omni_flash-10s') && videoGenerationMode === 'image'
+          ? 1
+          : (videoModel === 'omni_flash-10s' && videoGenerationMode === 'first_last'
+            ? 2
+            : getVideoModelMaxReferenceImages(selectedVideoModelConfig.id)))
         : (isGptImageCompatibleModel(selectedImageModelConfig.id) ? 16 : 10);
       const remainingSlots = max - referenceImages.length;
 
@@ -1457,7 +1467,9 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
     const maxTotalReferences = getVideoModelMaxTotalReferences(selectedVideoModelConfig.id);
     const maxReferenceImages = getVideoModelMaxReferenceImages(selectedVideoModelConfig.id);
 
-    const effectiveMaxReferenceImages = videoModel === 'grok-imagine-video-1.5' && videoGenerationMode === 'image' ? 1 : maxReferenceImages;
+    const effectiveMaxReferenceImages = ((videoModel === 'grok-imagine-video-1.5' || videoModel === 'omni_flash-10s') && videoGenerationMode === 'image')
+      ? 1
+      : (videoModel === 'omni_flash-10s' && videoGenerationMode === 'first_last' ? 2 : maxReferenceImages);
     if (effectiveVideoReferenceImages.length > effectiveMaxReferenceImages) {
       setError(`当前模型最多支持 ${effectiveMaxReferenceImages} 张参考图`);
       return;
@@ -1595,13 +1607,15 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
         duration: videoDuration,
         referenceImages: base64Images,
         referenceVideos: referenceVideoUrls,
-        ...(videoModel === 'grok-imagine-video-1.5' ? {
+        ...(isGrokVideoModel || isOmniFlashVideoModel ? {
           generationMode: videoGenerationMode,
-          image: videoGenerationMode === 'image' ? base64Images[0] : undefined,
-          startFrame: videoStartFrame,
-          lastFrame: videoLastFrame,
-          keyframes: videoKeyframes,
-          generateAudio: videoGenerateAudio,
+          ...(isGrokVideoModel ? {
+            image: videoGenerationMode === 'image' ? base64Images[0] : undefined,
+            startFrame: videoStartFrame,
+            lastFrame: videoLastFrame,
+            keyframes: videoKeyframes,
+            generateAudio: videoGenerateAudio,
+          } : {}),
         } : {}),
       }, (progress) => {
         if (onUpdateProgress) onUpdateProgress(pid, progress);
@@ -1733,7 +1747,7 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
     { label: '5:4', value: '5:4' }
   ];
   const maxReferenceImages = isVideoMode
-    ? getVideoModelMaxReferenceImages(selectedVideoModelConfig.id)
+    ? ((videoModel === 'omni_flash-10s' && videoGenerationMode === 'first_last') ? 2 : getVideoModelMaxReferenceImages(selectedVideoModelConfig.id))
     : (isGptImageCompatibleModel(selectedImageModelConfig.id) ? 16 : 10);
   const maxReferenceVideos = isVideoMode
     ? getVideoModelMaxReferenceVideos(selectedVideoModelConfig.id)
@@ -2055,7 +2069,7 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
                     const label = isVideoMode
                       ? getVideoReferenceThumbnailLabel(
                           selectedVideoModelConfig.id,
-                          undefined,
+                          videoGenerationMode === 'first_last' ? 'frames' : undefined,
                           idx,
                         )
                       : `图${idx + 1}`;

@@ -2,6 +2,7 @@ const { toNonNegativePoint } = require('./pointMath.cjs');
 const targetCatalog = require('./config/pixelhubVideoCatalog.json');
 const TARGET_MODEL_IDS = new Set((targetCatalog.models || []).map((model) => String(model.id || '')));
 const GROK_MODEL_ID = 'grok-imagine-video-1.5';
+const OMNI_FLASH_MODEL_ID = 'omni_flash-10s';
 
 const badRequest = (message) => {
   const error = new Error(message);
@@ -145,11 +146,83 @@ const normalizeGrokVideoRequest = ({ body = {}, model, upstreamModel }) => {
   };
 };
 
+const normalizeOmniFlashVideoRequest = ({ body = {}, model, upstreamModel }) => {
+  if (!model || String(model.id || '').trim() !== OMNI_FLASH_MODEL_ID || String(upstreamModel || '').trim() !== OMNI_FLASH_MODEL_ID) {
+    throw badRequest('upstream model does not match the selected model');
+  }
+
+  const prompt = String(body.prompt || '').trim();
+  const aspectRatio = String(body.aspectRatio || body.aspect_ratio || '').trim();
+  const resolution = String(body.resolution || '').trim().toLowerCase();
+  const duration = Number(body.duration);
+  const mode = normalizeMode(body.generationMode || body.videoMode || body.mode, body);
+  const images = uniqueUrls(body.referenceImages);
+  const videos = uniqueUrls(body.referenceVideos);
+  const startFrame = normalizeHttpsUrl(body.startFrame || body.firstFrame || body.start_frame, 'first frame');
+  const lastFrame = normalizeHttpsUrl(body.lastFrame || body.endFrame || body.last_frame || body.end_frame, 'last frame');
+
+  if (!prompt) throw badRequest('prompt is required');
+  if (!Number.isInteger(duration)) throw badRequest('duration must be an integer');
+  if (body.quantity !== undefined && Number(body.quantity) !== 1) throw badRequest('video quantity must be one');
+  if (body.n !== undefined && Number(body.n) !== 1) throw badRequest('video quantity must be one');
+  if (Object.prototype.hasOwnProperty.call(body, 'audioReference') || Object.prototype.hasOwnProperty.call(body, 'audio_reference')) {
+    throw badRequest('audio reference is not supported by the selected model');
+  }
+  if (Object.prototype.hasOwnProperty.call(body, 'seed') || Object.prototype.hasOwnProperty.call(body, 'preprocess')) {
+    throw badRequest('seed and preprocess are not supported by the selected model');
+  }
+  if (mode === 'keyframes' || Array.isArray(body.keyframes)) throw badRequest('keyframes are not supported by the selected model');
+  if (mode === 'first_last' && images.length > 2) throw badRequest('first and last frame accepts at most two images');
+  if (mode === 'image' && images.length > 1) throw badRequest('image to video accepts one image');
+  if (startFrame && images.length && startFrame !== images[0]) throw badRequest('first frame must match the first reference image');
+  if (lastFrame && images.length > 1 && lastFrame !== images[1]) throw badRequest('last frame must match the second reference image');
+
+  requireAllowedValue('aspect ratio', aspectRatio, model.aspectRatioOptions);
+  requireAllowedValue('resolution', resolution, model.resolutionOptions);
+  requireAllowedValue('duration', String(duration), model.durationOptions);
+  requireReferenceLimits({ images, videos, model });
+  requirePromptLength(prompt, model.promptMaxLength);
+
+  const upstreamBody = {
+    model: OMNI_FLASH_MODEL_ID,
+    prompt,
+    images,
+    videos,
+    aspect_ratio: aspectRatio,
+    size: aspectRatio === '9:16' ? '720x1280' : '1280x720',
+    resolution,
+    duration: 10,
+    generateAudio: true,
+    n: 1,
+  };
+
+  const first = startFrame || images[0];
+  const last = lastFrame || images[1];
+  if (mode === 'first_last' || startFrame || lastFrame) {
+    if (first) upstreamBody.first_frame_url = first;
+    if (last) upstreamBody.last_frame_url = last;
+  }
+
+  return {
+    upstreamBody,
+    providerSummary: {
+      model: OMNI_FLASH_MODEL_ID,
+      generationMode: mode,
+      referenceImageCount: images.length,
+      referenceVideoCount: videos.length,
+    },
+    pointCost: toNonNegativePoint(Number(model.selectorCost || 0), 0),
+  };
+};
+
 const normalizePixelHubVideoRequest = ({ body = {}, model, upstreamModel, transport, route } = {}) => {
-  const isGrok = String(transport || route?.transport || '').trim().toLowerCase() === 'mouxihub-video' || String(model?.id || '') === GROK_MODEL_ID || String(upstreamModel || '') === GROK_MODEL_ID;
+  const isGrok = String(model?.id || '') === GROK_MODEL_ID || String(model?.requestModel || '') === GROK_MODEL_ID || String(upstreamModel || '') === GROK_MODEL_ID;
   if (isGrok) return normalizeGrokVideoRequest({ body, model, upstreamModel });
   if (!model || typeof model !== 'object') throw badRequest('video model is required');
   if (!TARGET_MODEL_IDS.has(String(model.id || ''))) throw badRequest('upstream model does not match the selected model');
+  if (String(model.id || '').trim() === OMNI_FLASH_MODEL_ID) {
+    return normalizeOmniFlashVideoRequest({ body, model, upstreamModel });
+  }
   const prompt = String(body.prompt || '').trim();
   const aspectRatio = String(body.aspectRatio || '').trim();
   const resolution = String(body.resolution || '').trim().toLowerCase();
@@ -190,4 +263,4 @@ const normalizePixelHubVideoRequest = ({ body = {}, model, upstreamModel, transp
   return { upstreamBody, providerSummary: { model: expectedModel, referenceImageCount: images.length, referenceVideoCount: videos.length }, pointCost: toNonNegativePoint(model.pricingMode === 'per_second' ? duration * Number(model.pointCostPerSecond || 0) : Number(model.selectorCost || 0), 0) };
 };
 
-module.exports = { normalizePixelHubVideoRequest, normalizeGrokVideoRequest };
+module.exports = { normalizePixelHubVideoRequest, normalizeGrokVideoRequest, normalizeOmniFlashVideoRequest };

@@ -2,6 +2,9 @@ const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
 const { normalizeManagedVideoModelInput } = require('./videoModelStore.cjs');
+const nodeTest = require('node:test');
+const describe = globalThis.describe || nodeTest.describe;
+const it = globalThis.it || nodeTest.it;
 
 describe('video model capability schema', () => {
   const source = fs.readFileSync(path.join(__dirname, 'videoModelStore.cjs'), 'utf8');

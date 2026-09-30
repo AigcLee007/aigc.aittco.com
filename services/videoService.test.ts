@@ -6,6 +6,7 @@ import {
   VIDEO_POLL_DEADLINE_MS,
   VIDEO_POLL_INTERVAL_MS,
 } from './videoService';
+import { extractVideoOutputUrl as extractSrcVideoOutputUrl } from '../src/services/videoService';
 
 describe('videoService internal request contract', () => {
   it('polls RollDek every 15 seconds for at most 30 minutes', () => {
@@ -88,5 +89,14 @@ describe('Grok video polling compatibility', () => {
   it('recognizes in-progress variants', () => {
     expect(isVideoTaskInProgressStatus('in_progress')).toBe(true);
     expect(isVideoTaskInProgressStatus('in-progress')).toBe(true);
+  });
+
+  it('extracts all Mouxihub output URL shapes in the frontend service', () => {
+    expect(extractSrcVideoOutputUrl({ video_url: 'https://cdn.example/top.mp4' })).toBe('https://cdn.example/top.mp4');
+    expect(extractSrcVideoOutputUrl({ url: 'https://cdn.example/url.mp4' })).toBe('https://cdn.example/url.mp4');
+    expect(extractSrcVideoOutputUrl({ image_url: 'https://cdn.example/image.mp4' })).toBe('https://cdn.example/image.mp4');
+    expect(extractSrcVideoOutputUrl({ data: { video_url: 'https://cdn.example/nested-video.mp4' } })).toBe('https://cdn.example/nested-video.mp4');
+    expect(extractSrcVideoOutputUrl({ data: { url: 'https://cdn.example/nested-url.mp4' } })).toBe('https://cdn.example/nested-url.mp4');
+    expect(extractSrcVideoOutputUrl({ data: { output: 'https://cdn.example/output.mp4' } })).toBe('https://cdn.example/output.mp4');
   });
 });

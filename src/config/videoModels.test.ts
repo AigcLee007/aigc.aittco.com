@@ -22,10 +22,12 @@ afterEach(async () => {
 const targetModelIds = [
   'gemini-omni-1.1-flash',
   'grok-imagine-video-1.5',
+  'omni_flash-10s',
 ];
 const targetRouteIds = [
   'gemini-omni-1.1-flash-line1',
   'grok-imagine-video-1.5-mouxihub',
+  'omni_flash-10s-mouxihub',
 ];
 const legacyModelIds = [
   'gemini-omni-flash',
@@ -61,7 +63,7 @@ const legacyRouteIds = [
 ];
 
 describe('PixelHub video catalog', () => {
-  it('exposes only the new active model', () => {
+  it('keeps existing active models and exposes Omni Flash 10s', () => {
     const activeIds = modelCatalog.models
       .filter((model) => model.isActive !== false)
       .map((model) => model.id);
@@ -83,7 +85,7 @@ describe('PixelHub video catalog', () => {
     const activeRoutes = routeCatalog.routes.filter(
       (route) => route.isActive !== false,
     );
-    expect(activeRoutes.map((route) => route.apiKeyEnv).sort()).toEqual(['MOUXIHUB_GROK_VIDEO_API_KEY', 'ROLL_VEDIO_OMNI_KEY'].sort());
+    expect(activeRoutes.map((route) => route.apiKeyEnv).sort()).toEqual(['MOUXIHUB_GROK_VIDEO_API_KEY', 'MOUXIHUB_OMNI_FLASH_API_KEY', 'ROLL_VEDIO_OMNI_KEY'].sort());
     const rollDek = activeRoutes.find((route) => route.id === 'gemini-omni-1.1-flash-line1')!;
     expect(rollDek.baseUrl).toBe('https://rolldek.com');
     expect(rollDek.generatePath).toBe('/v1/videos');
@@ -93,6 +95,14 @@ describe('PixelHub video catalog', () => {
     expect(mouxihub.baseUrl).toBe('https://api.mouxihub.com');
     expect(mouxihub.generatePath).toBe('/v1/video/generations');
     expect(mouxihub.taskPath).toBe('/v1/videos/{taskId}');
+    const omni = activeRoutes.find((route) => route.id === 'omni_flash-10s-mouxihub')!;
+    expect(omni.baseUrl).toBe('https://api.mouxihub.com');
+    expect(omni.generatePath).toBe('/v1/videos');
+    expect(omni.taskPath).toBe('/v1/videos/{taskId}');
+    expect(omni.transport).toBe('openai-video');
+    expect(omni.apiKeyEnv).toBe('MOUXIHUB_OMNI_FLASH_API_KEY');
+    expect(omni.contentPath).toBeUndefined();
+    expect(omni.isDefaultRoute).toBe(false);
 
     expect(routeCatalog.routes
       .filter((route) => !targetRouteIds.includes(route.id))
@@ -105,9 +115,9 @@ describe('PixelHub video catalog', () => {
       .toBe(true);
   });
 
-  it('matches the migration source of truth', () => {
-    expect(targetCatalog.models.map((model) => model.id)).toEqual(['gemini-omni-1.1-flash']);
-    expect(targetCatalog.routes.map((route) => route.id)).toEqual(['gemini-omni-1.1-flash-line1']);
+  it('matches the migration source of truth without changing defaults', () => {
+    expect(targetCatalog.models.map((model) => model.id)).toEqual(['gemini-omni-1.1-flash', 'grok-imagine-video-1.5', 'omni_flash-10s']);
+    expect(targetCatalog.routes.map((route) => route.id)).toEqual(['gemini-omni-1.1-flash-line1', 'grok-imagine-video-1.5-mouxihub', 'omni_flash-10s-mouxihub']);
     expect(targetCatalog.defaultModelId).toBe('gemini-omni-1.1-flash');
     expect(targetCatalog.defaultRouteId).toBe('gemini-omni-1.1-flash-line1');
     expect(modelCatalog.defaultModelId).toBe(targetCatalog.defaultModelId);
@@ -129,6 +139,16 @@ describe('PixelHub video catalog', () => {
     expect(getVideoModelMaxReferenceVideos('gemini-omni-1.1-flash')).toBe(1);
     expect(getVideoModelReferenceImageMode('gemini-omni-1.1-flash')).toBe('frames');
     expect(getVideoModelDisplayCost('gemini-omni-1.1-flash', '5')).toBe(20);
+    const omni = modelCatalog.models.find((model) => model.id === 'omni_flash-10s')!;
+    expect(omni.isActive).toBe(true);
+    expect(omni.isDefaultModel).toBe(false);
+    expect(omni.routeFamily).toBe('omni_flash-10s');
+    expect(omni.aspectRatioOptions).toEqual(['16:9', '9:16']);
+    expect(omni.resolutionOptions).toEqual(['720p']);
+    expect(omni.durationOptions).toEqual(['10']);
+    expect(omni.maxReferenceImages).toBe(7);
+    expect(omni.maxReferenceVideos).toBe(1);
+    expect(getVideoModelDisplayCost('omni_flash-10s', '10')).toBe(20);
   });
 
   it('falls back to the default resolution when the server returns an empty option list', async () => {

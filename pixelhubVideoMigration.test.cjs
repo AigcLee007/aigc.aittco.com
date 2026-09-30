@@ -1,27 +1,35 @@
 const assert = require('assert');
+const nodeTest = require('node:test');
+const describe = globalThis.describe || nodeTest.describe;
+const it = globalThis.it || nodeTest.it;
 const {
   applyPixelHubVideoMigration,
   buildPixelHubVideoMigrationOperations,
 } = require('./pixelhubVideoMigration.cjs');
 
 describe('PixelHub video catalog migration', () => {
-  it('deactivates legacy catalog entries and upserts one target', () => {
+  it('upserts the full active catalog without requesting legacy deactivation', () => {
     const operations = buildPixelHubVideoMigrationOperations();
-    assert.strictEqual(operations.models.length, 1);
-    assert.strictEqual(operations.routes.length, 1);
-    assert.strictEqual(operations.deactivateLegacyModels, true);
-    assert.strictEqual(operations.deactivateLegacyRoutes, true);
+    assert.strictEqual(operations.models.length, 3);
+    assert.strictEqual(operations.routes.length, 3);
+    assert.strictEqual(operations.deactivateLegacyModels, false);
+    assert.strictEqual(operations.deactivateLegacyRoutes, false);
     assert.strictEqual(operations.defaultModelId, 'gemini-omni-1.1-flash');
     assert.strictEqual(operations.defaultRouteId, 'gemini-omni-1.1-flash-line1');
-    assert.strictEqual(operations.models[0].selectorCost, 20);
+    assert.strictEqual(operations.models.find((model) => model.id === 'gemini-omni-1.1-flash').isActive, true);
+    assert.strictEqual(operations.models.find((model) => model.id === 'grok-imagine-video-1.5').isActive, true);
+    assert.strictEqual(operations.routes.find((route) => route.id === 'gemini-omni-1.1-flash-line1').isActive, true);
+    assert.strictEqual(operations.routes.find((route) => route.id === 'grok-imagine-video-1.5-mouxihub').isActive, true);
+    assert.strictEqual(operations.models.find((model) => model.id === 'omni_flash-10s').selectorCost, 20);
     assert.strictEqual(operations.models[0].pricingMode, 'fixed');
-    assert.strictEqual(operations.routes[0].baseUrl, 'https://rolldek.com');
-    assert.strictEqual(operations.routes[0].contentPath, '/v1/videos/{taskId}/content');
+    const omni = operations.routes.find((route) => route.id === 'omni_flash-10s-mouxihub');
+    assert.strictEqual(omni.baseUrl, 'https://api.mouxihub.com');
+    assert.strictEqual(omni.contentPath, undefined);
   });
 
-  it('clears direct database keys for all target routes', () => {
+  it('does not carry API keys in catalog operations', () => {
     const operations = buildPixelHubVideoMigrationOperations();
-    assert.deepStrictEqual(operations.routes.map((route) => route.apiKey), [null]);
+    assert.ok(operations.routes.every((route) => !Object.prototype.hasOwnProperty.call(route, 'apiKey')));
   });
 
   it('does not define operations for historical or billing tables', () => {
@@ -32,8 +40,10 @@ describe('PixelHub video catalog migration', () => {
   });
 
   it('keeps migration insert columns, placeholders, and parameters aligned', async () => {
+    const statements = [];
     const connection = {
       execute: async (sql, params = []) => {
+        statements.push({ sql, params });
         if (!/^\s*INSERT INTO\s+/i.test(sql)) return [{}];
         const match = sql.match(/^\s*INSERT INTO\s+\w+\s*\(([\s\S]*?)\)\s*VALUES\s*\(([\s\S]*?)\)/i);
         assert.ok(match, 'expected a parameterized INSERT statement');
@@ -46,5 +56,7 @@ describe('PixelHub video catalog migration', () => {
     };
 
     await applyPixelHubVideoMigration(connection);
+    assert.ok(!statements.some(({ sql }) => /UPDATE video_(models|routes) SET is_active = 0/i.test(sql)));
+    assert.ok(!statements.some(({ sql }) => /ON DUPLICATE KEY UPDATE[\s\S]*api_key\s*=/i.test(sql)));
   });
 });

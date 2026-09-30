@@ -460,6 +460,13 @@ export const useSelectionStore = create<SelectionStore>()(
       setVideoModel: (model) =>
         set((state) => {
           state.videoModel = model;
+          if (model === 'omni_flash-10s') {
+            state.videoDuration = '10';
+            state.videoResolution = '720p';
+            state.videoHd = false;
+            state.videoGenerateAudio = true;
+            if (state.videoGenerationMode === 'keyframes') state.videoGenerationMode = 'text';
+          }
         }),
       setVideoLine: (line) =>
         set((state) => {

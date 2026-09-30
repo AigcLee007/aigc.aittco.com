@@ -8,10 +8,10 @@ const buildPixelHubVideoMigrationOperations = () => {
   return {
     defaultModelId: catalog.defaultModelId,
     defaultRouteId: catalog.defaultRouteId,
-    deactivateLegacyModels: true,
-    deactivateLegacyRoutes: true,
+    deactivateLegacyModels: false,
+    deactivateLegacyRoutes: false,
     models: catalog.models.map((model) => ({ ...model })),
-    routes: catalog.routes.map((route) => ({ ...route, apiKey: null })),
+    routes: catalog.routes.map((route) => ({ ...route })),
   };
 };
 
@@ -19,8 +19,6 @@ const json = (value) => JSON.stringify(Array.isArray(value) ? value : []);
 
 const applyPixelHubVideoMigration = async (connection) => {
   const operations = buildPixelHubVideoMigrationOperations();
-  await connection.execute('UPDATE video_models SET is_active = 0, is_default_model = 0');
-  await connection.execute('UPDATE video_routes SET is_active = 0, is_default_route = 0');
 
   for (const model of operations.models) {
     await connection.execute(
@@ -65,7 +63,7 @@ const applyPixelHubVideoMigration = async (connection) => {
         label = VALUES(label), description = VALUES(description), route_family = VALUES(route_family), line_value = VALUES(line_value),
         transport = VALUES(transport), mode = VALUES(mode), base_url = VALUES(base_url), generate_path = VALUES(generate_path),
         task_path = VALUES(task_path), content_path = VALUES(content_path), upstream_model = VALUES(upstream_model), use_request_model = VALUES(use_request_model),
-        allow_user_api_key_without_login = VALUES(allow_user_api_key_without_login), api_key = NULL, api_key_env = VALUES(api_key_env),
+        allow_user_api_key_without_login = VALUES(allow_user_api_key_without_login), api_key_env = VALUES(api_key_env),
         point_cost = VALUES(point_cost), sort_order = VALUES(sort_order), is_active = VALUES(is_active),
         is_default_route = VALUES(is_default_route), updated_at = VALUES(updated_at)`,
       [

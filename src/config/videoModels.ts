@@ -262,6 +262,10 @@ export const getVideoReferenceThumbnailLabel = (
     if (index === 0) return '首帧';
     if (index === 1) return '尾帧';
   }
+  if (referenceMode === 'frames' && normalizedId === 'omni_flash-10s') {
+    if (index === 0) return '首帧';
+    if (index === 1) return '尾帧';
+  }
   return getVideoModelReferenceLabels(modelId)?.[index] || `图${index + 1}`;
 };
 export const getVideoModelSupportsHd = (modelId?: string) => getVideoModelById(modelId).supportsHd === true;
