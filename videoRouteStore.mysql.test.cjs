@@ -21,4 +21,11 @@ describe("video route MySQL static catalog sync", () => {
       `video_routes INSERT has ${columns.length} columns but ${values.length} values`,
     );
   });
+
+  test("repairs an existing Grok Mouxihub route from the static contract", () => {
+    assert.match(source, /GROK_MOUXIHUB_ROUTE_ID\s*=\s*["']grok-imagine-video-1\.5-mouxihub["']/);
+    assert.match(source, /syncGrokMouxihubRoute\(connection, row, nowDb\)/);
+    assert.match(source, /base_url = \?, generate_path = \?, task_path = \?, content_path = \?, upstream_model = \?/);
+    assert.match(source, /api_key = NULL, api_key_env = \?/);
+  });
 });

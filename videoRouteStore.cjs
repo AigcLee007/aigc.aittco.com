@@ -4,6 +4,7 @@ const { fromDbDateTime, getPool, isMySqlConfigured, toDbDateTime, withTransactio
 
 const VALID_TRANSPORTS = new Set(["openai-video", "mouxihub-video"]);
 const VALID_MODES = new Set(["async"]);
+const GROK_MOUXIHUB_ROUTE_ID = "grok-imagine-video-1.5-mouxihub";
 
 const trimToString = (value = "") => String(value ?? "").trim();
 const trimToNull = (value = "") => {
@@ -54,6 +55,43 @@ const buildStaticRows = () =>
   Array.isArray(staticCatalog.routes)
     ? staticCatalog.routes.map((route, index) => normalizeStaticRoute(route, index))
     : [];
+
+const syncGrokMouxihubRoute = async (connection, row, nowDb) => {
+  if (row.route_id !== GROK_MOUXIHUB_ROUTE_ID) return;
+
+  await connection.execute(
+    `
+      UPDATE video_routes
+      SET label = ?, description = ?, route_family = ?, line_value = ?, transport = ?, mode = ?,
+          base_url = ?, generate_path = ?, task_path = ?, content_path = ?, upstream_model = ?,
+          use_request_model = ?, allow_user_api_key_without_login = ?, api_key = NULL, api_key_env = ?,
+          point_cost = ?, sort_order = ?, is_active = ?, is_default_route = ?, updated_at = ?
+      WHERE route_id = ?
+    `,
+    [
+      row.label,
+      row.description,
+      row.route_family,
+      row.line_value,
+      row.transport,
+      row.mode,
+      row.base_url,
+      row.generate_path,
+      row.task_path,
+      row.content_path,
+      row.upstream_model,
+      row.use_request_model ? 1 : 0,
+      row.allow_user_api_key_without_login ? 1 : 0,
+      row.api_key_env,
+      row.point_cost,
+      row.sort_order,
+      row.is_active ? 1 : 0,
+      row.is_default_route ? 1 : 0,
+      nowDb,
+      row.route_id,
+    ],
+  );
+};
 
 const mapRowToRoute = (row, { includeSecrets = false } = {}) => ({
   id: trimToString(row.route_id),
@@ -193,6 +231,7 @@ const ensureVideoRouteSchema = async () => {
               row.is_default_route ? 1 : 0, nowDb, nowDb,
             ],
           );
+          await syncGrokMouxihubRoute(connection, row, nowDb);
         }
       });
     })();
