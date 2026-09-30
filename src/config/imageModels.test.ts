@@ -63,6 +63,10 @@ describe('GPT-Image-2.5 catalog', () => {
     expect(getImageRoutePointCost(max, '1k')).toBe(5);
     expect(getImageRoutePointCost(max, '2k')).toBe(5.5);
     expect(getImageRoutePointCost(max, '4k')).toBe(6);
+    expect(getImageModelNameForRoute({ imageModel: sunburst.id, imageLine: '原生线路', imageSize: '1k' })).toBe('gpt-image-2.5-sunburst');
+    expect(getImageModelNameForRoute({ imageModel: sunburst.id, imageLine: '原生线路', imageSize: '2k' })).toBe('gpt-image-2.5-sunburst');
+    expect(getImageModelNameForRoute({ imageModel: sunburst.id, imageLine: '原生线路', imageSize: '4k' })).toBe('gpt-image-2.5-sunburst');
+    expect(getImageModelNameForRoute({ imageModel: sunburst.id, imageLine: '官渠高质', imageSize: '4k' })).toBe('gpt-image-2.5-sunburst');
     expect(getImageRouteSupportedQualities(native)).toEqual(['auto', 'low', 'medium', 'high', 'xhigh', 'max']);
     expect(getImageRouteSupportedQualities(max)).toEqual(['auto', 'low', 'medium', 'high', 'xhigh', 'max']);
     expect(getImageRouteSupportedQualities(backup)).toEqual(['auto', 'low', 'medium', 'high']);

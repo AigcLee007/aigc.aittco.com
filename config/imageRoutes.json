@@ -380,15 +380,12 @@
       "upstreamModel": "gpt-image-2.5-sunburst",
       "sizeOverrides": {
         "1k": {
-          "upstreamModel": "gpt-image-2.5-sunburst",
           "pointCost": 3.5
         },
         "2k": {
-          "upstreamModel": "gpt-image-2.5-sunburst-2k",
           "pointCost": 4
         },
         "4k": {
-          "upstreamModel": "gpt-image-2.5-sunburst-4k",
           "pointCost": 4.5
         }
       },
@@ -418,15 +415,12 @@
       "upstreamModel": "gpt-image-2.5-sunburst",
       "sizeOverrides": {
         "1k": {
-          "upstreamModel": "gpt-image-2.5-sunburst",
           "pointCost": 5
         },
         "2k": {
-          "upstreamModel": "gpt-image-2.5-sunburst-2k",
           "pointCost": 5.5
         },
         "4k": {
-          "upstreamModel": "gpt-image-2.5-sunburst-4k",
           "pointCost": 6
         }
       },
