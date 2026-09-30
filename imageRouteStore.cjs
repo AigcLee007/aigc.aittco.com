@@ -117,6 +117,10 @@ const stringifySizeOverrides = (value) => {
 };
 const hasSizeOverrideModel = (value) =>
   Object.values(normalizeSizeOverrides(value)).some((entry) => trimToString(entry.upstreamModel || ""));
+const hasLegacyRollDekSizeModels = (value) =>
+  Object.values(normalizeSizeOverrides(value)).some((entry) =>
+    /gpt-image-2\.5-sunburst-(?:2k|4k)$/i.test(trimToString(entry.upstreamModel || "")),
+  );
 
 const normalizeStaticRoute = (route, index) => ({
   route_id: trimToString(route.id),
@@ -406,6 +410,26 @@ const ensureImageRouteSchema = async () => {
               nowDb,
               nowDb,
             ],
+          );
+        }
+
+        const rollDekRouteIds = [
+          "gpt-image-2.5-sunburst-native",
+          "gpt-image-2.5-sunburst-max",
+        ];
+        for (const routeId of rollDekRouteIds) {
+          const defaults = getStaticRouteDefaults(routeId);
+          if (!defaults?.size_overrides) continue;
+          const [existingRouteRows] = await connection.execute(
+            "SELECT size_overrides FROM image_routes WHERE route_id = ? LIMIT 1",
+            [routeId],
+          );
+          if (!existingRouteRows?.[0] || !hasLegacyRollDekSizeModels(existingRouteRows[0].size_overrides)) {
+            continue;
+          }
+          await connection.execute(
+            "UPDATE image_routes SET size_overrides = ?, updated_at = ? WHERE route_id = ?",
+            [defaults.size_overrides, nowDb, routeId],
           );
         }
       });
