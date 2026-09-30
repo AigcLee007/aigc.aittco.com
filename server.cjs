@@ -267,6 +267,9 @@ const toPublicImageRoute = (route = {}) => ({
   allowUserApiKeyWithoutLogin: route.allowUserApiKeyWithoutLogin === true,
   pointCost: toPointNumber(route.pointCost || 0),
   sizeOverrides: toPublicImageRouteSizeOverrides(route.sizeOverrides),
+  supportedQualities: Array.isArray(route.supportedQualities)
+    ? route.supportedQualities
+    : undefined,
   sortOrder: Number(route.sortOrder || 0),
   isActive: route.isActive !== false,
   isDefaultRoute: route.isDefaultRoute === true,

@@ -10,6 +10,8 @@ import {
   getImageModelNameForRoute,
   getImageRouteOptions,
   getImageRoutesByModelFamily,
+  getImageRoutePointCost,
+  getImageRouteSupportedQualities,
 } from './imageRoutes';
 
 describe('GPT-Image-2.5 catalog', () => {
@@ -25,7 +27,7 @@ describe('GPT-Image-2.5 catalog', () => {
     expect(sunburst.requestModel).toBe('gpt-image-2.5-sunburst');
     expect(getImageModelSizeOptions(flare.id)).toEqual(['1k', '2k', '4k']);
     expect(flareRoutes).toHaveLength(3);
-    expect(sunburstRoutes).toHaveLength(3);
+    expect(sunburstRoutes).toHaveLength(5);
     expect(flareRoutes[0]).toEqual(expect.objectContaining({
       baseUrl: 'https://api.pixellelabs.com',
       generatePath: '/v1/images/generations',
@@ -39,7 +41,7 @@ describe('GPT-Image-2.5 catalog', () => {
     }));
     expect(sunburstRoutes[0]).toEqual(expect.objectContaining({ upstreamModel: 'gpt-image-2.5-sunburst', modelFamily: 'gpt-image-2.5-sunburst' }));
     expect(flareRoutes.map((route) => route.label)).toEqual(['稳定线路', '官key线路', '备用线路']);
-    expect(sunburstRoutes.map((route) => route.label)).toEqual(['稳定线路', '官key线路', '备用线路']);
+    expect(sunburstRoutes.map((route) => route.label)).toEqual(['稳定线路', '官key线路', '原生线路', '官渠高质', '备用线路']);
     expect(flareRoutes[1].sizeOverrides).toEqual({
       '1k': { upstreamModel: 'gpt-image-2.5-flare' },
       '2k': { upstreamModel: 'gpt-image-2.5-flare-2k' },
@@ -50,6 +52,20 @@ describe('GPT-Image-2.5 catalog', () => {
       '2k': { upstreamModel: 'gpt-image-2.5-sunburst-2k' },
       '4k': { upstreamModel: 'gpt-image-2.5-sunburst-4k' },
     });
+    const native = sunburstRoutes.find((route) => route.id === 'gpt-image-2.5-sunburst-native');
+    const max = sunburstRoutes.find((route) => route.id === 'gpt-image-2.5-sunburst-max');
+    const backup = sunburstRoutes.find((route) => route.id === 'gpt-image-2.5-sunburst-backup');
+    expect(native).toMatchObject({ baseUrl: 'https://rolldek.com', apiKeyEnv: 'ROLL_IMAGE2.5_BIG_KEY' });
+    expect(max).toMatchObject({ baseUrl: 'https://rolldek.com', apiKeyEnv: 'ROLL_IMAGE2.5_MAX_KEY' });
+    expect(getImageRoutePointCost(native, '1k')).toBe(3.5);
+    expect(getImageRoutePointCost(native, '2k')).toBe(4);
+    expect(getImageRoutePointCost(native, '4k')).toBe(4.5);
+    expect(getImageRoutePointCost(max, '1k')).toBe(5);
+    expect(getImageRoutePointCost(max, '2k')).toBe(5.5);
+    expect(getImageRoutePointCost(max, '4k')).toBe(6);
+    expect(getImageRouteSupportedQualities(native)).toEqual(['auto', 'low', 'medium', 'high', 'xhigh', 'max']);
+    expect(getImageRouteSupportedQualities(max)).toEqual(['auto', 'low', 'medium', 'high', 'xhigh', 'max']);
+    expect(getImageRouteSupportedQualities(backup)).toEqual(['auto', 'low', 'medium', 'high']);
     expect(
       getImageModelNameForRoute({ imageModel: flare.id, imageLine: '稳定线路', imageSize: '2k' }),
     ).toBe('gpt-image-2.5-flare');

@@ -48,6 +48,7 @@ export interface AdminImageRoutePayload {
   apiKey?: string;
   pointCost?: number;
   sizeOverrides?: ImageRouteSizeOverrideMap;
+  supportedQualities?: ImageRouteConfig['supportedQualities'];
   sortOrder?: number;
   isActive?: boolean;
   isDefaultRoute?: boolean;

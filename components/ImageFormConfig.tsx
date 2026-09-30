@@ -22,8 +22,10 @@ import {
   getImageRouteOptions,
   getImageRouteSizeOptions,
   getImageRoutesByModelFamily,
+  getImageRouteSupportedQualities,
   getSelectedImageRoute,
 } from '../src/config/imageRoutes';
+import type { ImageRouteQuality } from '../src/config/imageRoutes';
 import { useImageRouteCatalog } from '../src/hooks/useImageRouteCatalog';
 import { useImageModelCatalog } from '../src/hooks/useImageModelCatalog';
 
@@ -122,6 +124,21 @@ export const ImageFormConfig: React.FC<ImageFormConfigProps> = ({
     : sizeOptions[0] || getDefaultImageSizeForModel(currentModel.id);
   const currentUnitCost = getImageRoutePointCost(selectedRoute, effectiveSize);
   const currentTotalCost = currentUnitCost * Math.max(1, Number(quantity || 1));
+  const supportedQualities = useMemo(
+    () => getImageRouteSupportedQualities(selectedRoute),
+    [selectedRoute],
+  );
+  const gptQualityOptions = useMemo(() => {
+    const labels: Record<ImageRouteQuality, string> = {
+      auto: '自动',
+      low: '低',
+      medium: '中',
+      high: '高',
+      xhigh: '超高',
+      max: '最高',
+    };
+    return supportedQualities.map((value) => ({ value, label: labels[value] }));
+  }, [supportedQualities]);
 
   const commitGptCompression = (value: string) => {
     const trimmed = value.trim();
@@ -165,6 +182,12 @@ export const ImageFormConfig: React.FC<ImageFormConfigProps> = ({
     restrictToDirectKeyCompatible,
     setImageLine,
   ]);
+
+  useEffect(() => {
+    if (!supportedQualities.includes(gptImageQuality)) {
+      setGptImageQuality('auto');
+    }
+  }, [gptImageQuality, setGptImageQuality, supportedQualities]);
 
   useEffect(() => {
     if (availableRoutes.length === 0) return;
@@ -319,14 +342,9 @@ export const ImageFormConfig: React.FC<ImageFormConfigProps> = ({
             <DropUpSelect
               value={gptImageQuality}
               onChange={(value) =>
-                setGptImageQuality(value as 'auto' | 'low' | 'medium' | 'high')
+                setGptImageQuality(value as ImageRouteQuality)
               }
-              options={[
-                { value: 'auto', label: '自动' },
-                { value: 'low', label: '低' },
-                { value: 'medium', label: '中' },
-                { value: 'high', label: '高' },
-              ]}
+              options={gptQualityOptions}
             />
           </div>
         )}

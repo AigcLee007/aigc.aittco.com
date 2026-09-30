@@ -13,6 +13,8 @@ const {
 
 const VALID_TRANSPORTS = new Set(["openai-image", "gemini-native"]);
 const VALID_MODES = new Set(["async", "sync"]);
+const DEFAULT_SUPPORTED_QUALITIES = ["auto", "low", "medium", "high", "xhigh", "max"];
+const VALID_SUPPORTED_QUALITIES = new Set(DEFAULT_SUPPORTED_QUALITIES);
 
 const trimToString = (value = "") => String(value ?? "").trim();
 const trimToNull = (value = "") => {
@@ -41,6 +43,25 @@ const parseInteger = (value, fallback = 0) => {
   return Number.isFinite(parsed) ? parsed : fallback;
 };
 const parsePoint = (value, fallback = 0) => toNonNegativePoint(value, fallback);
+const normalizeSupportedQualities = (value) => {
+  let source = value;
+  if (typeof source === "string") {
+    const trimmed = source.trim();
+    if (!trimmed) return [...DEFAULT_SUPPORTED_QUALITIES];
+    try {
+      source = JSON.parse(trimmed);
+    } catch (error) {
+      source = trimmed.split(",");
+    }
+  }
+  if (!Array.isArray(source)) return [...DEFAULT_SUPPORTED_QUALITIES];
+  const normalized = source
+    .map((item) => trimToString(item).toLowerCase())
+    .filter((item) => VALID_SUPPORTED_QUALITIES.has(item));
+  return normalized.length ? [...new Set(normalized)] : [...DEFAULT_SUPPORTED_QUALITIES];
+};
+const stringifySupportedQualities = (value) =>
+  JSON.stringify(normalizeSupportedQualities(value));
 const trimTrailingSlash = (value = "") => trimToString(value).replace(/\/+$/, "");
 const normalizeSizeKey = (value = "") => {
   const normalized = trimToString(value).toLowerCase();
@@ -117,6 +138,7 @@ const normalizeStaticRoute = (route, index) => ({
   api_key_env: trimToNull(route.apiKeyEnv),
   point_cost: parsePoint(route.pointCost, 0),
   size_overrides: stringifySizeOverrides(route.sizeOverrides),
+  supported_qualities: stringifySupportedQualities(route.supportedQualities),
   sort_order: index,
   is_active: true,
   is_default_route:
@@ -141,6 +163,12 @@ const getMergedSizeOverrides = (row) => ({
   ...normalizeSizeOverrides(getStaticRouteDefaults(row.route_id)?.size_overrides),
   ...normalizeSizeOverrides(row.size_overrides),
 });
+const getMergedSupportedQualities = (row) => {
+  const staticValue = getStaticRouteDefaults(row.route_id)?.supported_qualities;
+  return normalizeSupportedQualities(
+    row.supported_qualities || staticValue || DEFAULT_SUPPORTED_QUALITIES,
+  );
+};
 
 const mapRowToRoute = (row, { includeSecrets = false } = {}) =>
   normalizeImageRouteCompatibility({
@@ -162,6 +190,7 @@ const mapRowToRoute = (row, { includeSecrets = false } = {}) =>
     apiKeyEnv: trimToString(row.api_key_env || ""),
     pointCost: parsePoint(row.point_cost, 0),
     sizeOverrides: getMergedSizeOverrides(row),
+    supportedQualities: getMergedSupportedQualities(row),
     sortOrder: parseInteger(row.sort_order, 0),
     isActive: parseBoolean(row.is_active, true),
     isDefaultRoute: parseBoolean(row.is_default_route, false),
@@ -246,6 +275,7 @@ const ensureImageRouteSchema = async () => {
           api_key_env VARCHAR(128) NULL,
           point_cost DECIMAL(10,1) NOT NULL DEFAULT 0,
           size_overrides LONGTEXT NULL,
+          supported_qualities LONGTEXT NULL,
           sort_order INT NOT NULL DEFAULT 0,
           is_active TINYINT(1) NOT NULL DEFAULT 1,
           is_default_route TINYINT(1) NOT NULL DEFAULT 0,
@@ -285,6 +315,16 @@ const ensureImageRouteSchema = async () => {
         await pool.execute(`
           ALTER TABLE image_routes
           MODIFY COLUMN point_cost DECIMAL(10,1) NOT NULL DEFAULT 0
+        `);
+      }
+      const [supportedQualitiesColumns] = await pool.execute(
+        "SHOW COLUMNS FROM image_routes LIKE 'supported_qualities'",
+      );
+      if (!supportedQualitiesColumns?.length) {
+        await pool.execute(`
+          ALTER TABLE image_routes
+          ADD COLUMN supported_qualities LONGTEXT NULL
+            AFTER size_overrides
         `);
       }
       await withTransaction(async (connection) => {
@@ -333,9 +373,10 @@ const ensureImageRouteSchema = async () => {
                 transport, mode, base_url, generate_path, task_path,
                 edit_path, chat_path, upstream_model, use_request_model,
                 allow_user_api_key_without_login,
-                api_key, api_key_env, point_cost, size_overrides, sort_order, is_active,
+                api_key, api_key_env, point_cost, size_overrides, supported_qualities,
+                sort_order, is_active,
                 is_default_route, is_default_nano_banana_line, created_at, updated_at
-              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             `,
             [
               row.route_id,
@@ -357,6 +398,7 @@ const ensureImageRouteSchema = async () => {
               row.api_key_env,
               row.point_cost,
               row.size_overrides,
+              row.supported_qualities,
               row.sort_order,
               row.is_active ? 1 : 0,
               row.is_default_route ? 1 : 0,
@@ -570,6 +612,10 @@ const validateRoutePayload = (input = {}, { partial = false } = {}) => {
     next.size_overrides = stringifySizeOverrides(input.sizeOverrides);
   }
 
+  if (!partial || Object.prototype.hasOwnProperty.call(input, "supportedQualities")) {
+    next.supported_qualities = stringifySupportedQualities(input.supportedQualities);
+  }
+
   if (!partial || Object.prototype.hasOwnProperty.call(input, "sortOrder")) {
     next.sort_order = parseInteger(input.sortOrder, 0);
   }
@@ -698,9 +744,9 @@ const createManagedImageRoute = async (input = {}) => {
           transport, mode, base_url, generate_path, task_path,
           edit_path, chat_path, upstream_model, use_request_model,
           allow_user_api_key_without_login,
-          api_key, api_key_env, point_cost, size_overrides, sort_order, is_active,
+          api_key, api_key_env, point_cost, size_overrides, supported_qualities, sort_order, is_active,
           is_default_route, is_default_nano_banana_line, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `,
       [
         payload.route_id,
@@ -722,6 +768,7 @@ const createManagedImageRoute = async (input = {}) => {
         payload.api_key_env || null,
         payload.point_cost || 0,
         payload.size_overrides || null,
+        payload.supported_qualities || null,
         payload.sort_order || 0,
         payload.is_active ?? 1,
         payload.is_default_route || 0,

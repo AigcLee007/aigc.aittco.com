@@ -28,6 +28,7 @@ const GPT_IMAGE_DEFAULTS = {
   outputCompression: null,
   moderation: "auto",
 };
+const GPT_IMAGE_QUALITY_VALUES = ["auto", "low", "medium", "high", "xhigh", "max"];
 const NOTICE_READ_TS_KEY = "nb_notice_last_read_ts";
 const NOTICE_POPUP_DISMISSED_KEY = "nb_notice_popup_dismissed_id";
 const CREATE_MODE_STORAGE_KEY = "preferred-create-ui";
@@ -1352,13 +1353,25 @@ function readClassicGptOutputCompression() {
   }
 }
 
+function getClassicSupportedGptQualities() {
+  if (!isClassicGptImageModel()) return GPT_IMAGE_QUALITY_VALUES;
+  const route = getClassicSelectedRoute();
+  const configured = Array.isArray(route?.supportedQualities)
+    ? route.supportedQualities
+        .map((value) => String(value || "").trim().toLowerCase())
+        .filter((value) => GPT_IMAGE_QUALITY_VALUES.includes(value))
+    : [];
+  return configured.length ? Array.from(new Set(configured)) : GPT_IMAGE_QUALITY_VALUES;
+}
+
 function getClassicGptSettings() {
   try {
     const quality = String(localStorage.getItem(GPT_IMAGE_QUALITY_KEY) || GPT_IMAGE_DEFAULTS.quality).trim().toLowerCase();
+    const supportedQualities = getClassicSupportedGptQualities();
     const outputFormat = String(localStorage.getItem(GPT_IMAGE_OUTPUT_FORMAT_KEY) || GPT_IMAGE_DEFAULTS.outputFormat).trim().toLowerCase();
     const moderation = String(localStorage.getItem(GPT_IMAGE_MODERATION_KEY) || GPT_IMAGE_DEFAULTS.moderation).trim().toLowerCase();
     return {
-      quality: ["auto", "low", "medium", "high"].includes(quality) ? quality : GPT_IMAGE_DEFAULTS.quality,
+      quality: supportedQualities.includes(quality) ? quality : GPT_IMAGE_DEFAULTS.quality,
       outputFormat: ["png", "jpeg", "webp"].includes(outputFormat) ? outputFormat : GPT_IMAGE_DEFAULTS.outputFormat,
       outputCompression: readClassicGptOutputCompression(),
       moderation: ["auto", "low"].includes(moderation) ? moderation : GPT_IMAGE_DEFAULTS.moderation,
@@ -1437,10 +1450,25 @@ function updateClassicGptSettingsUi() {
   }
 
   const settings = getClassicGptSettings();
+  const supportedQualities = getClassicSupportedGptQualities();
+  const storedQuality = String(
+    localStorage.getItem(GPT_IMAGE_QUALITY_KEY) || GPT_IMAGE_DEFAULTS.quality,
+  ).trim().toLowerCase();
   const qualityPill = document.getElementById("gptQualityPill");
   const formatPill = document.getElementById("gptOutputFormatPill");
   const moderationPill = document.getElementById("gptModerationPill");
   const compressionInput = document.getElementById("gptOutputCompressionInput");
+
+  if (!supportedQualities.includes(storedQuality)) {
+    localStorage.setItem(GPT_IMAGE_QUALITY_KEY, GPT_IMAGE_DEFAULTS.quality);
+  }
+  if (!supportedQualities.includes(settings.quality)) {
+    localStorage.removeItem(GPT_IMAGE_QUALITY_KEY);
+  }
+  qualityPill?.querySelectorAll(".dropdown-item").forEach((item) => {
+    const value = String(item.getAttribute("data-value") || "").trim().toLowerCase();
+    item.style.display = supportedQualities.includes(value) ? "" : "none";
+  });
 
   const syncPill = (pill, value) => {
     if (!pill) return;
@@ -1895,6 +1923,7 @@ window.selectPill = function(pillId, element, costLabel = null) {
     if (typeof window.refreshClassicCatalogUi === 'function') {
       window.refreshClassicCatalogUi();
     }
+    updateClassicGptSettingsUi();
   }
 
   // 关闭菜单
@@ -2252,6 +2281,7 @@ async function loadClassicPricingCatalog() {
       : null;
     selectClassicLineSilently(storedRoute || getLowestClassicRouteForModel(imageModel));
     updateCurrentPriceCard();
+    updateClassicGptSettingsUi();
   } catch (error) {
     console.warn("加载价格表失败，使用本地价格兜底", error);
   }

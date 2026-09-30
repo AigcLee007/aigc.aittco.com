@@ -5,6 +5,16 @@ import { roundNonNegativePoint } from '../utils/pointFormat';
 export type ImageRouteTransport = 'openai-image' | 'gemini-native';
 export type ImageRouteMode = 'async' | 'sync';
 export type ImageRouteSizeKey = '1k' | '2k' | '4k';
+export type ImageRouteQuality = 'auto' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+
+export const DEFAULT_IMAGE_ROUTE_QUALITIES: ImageRouteQuality[] = [
+  'auto',
+  'low',
+  'medium',
+  'high',
+  'xhigh',
+  'max',
+];
 
 export interface ImageRouteSizeOverrideConfig {
   upstreamModel?: string;
@@ -34,6 +44,7 @@ export interface ImageRouteConfig {
   apiKeyEnv?: string;
   pointCost?: number;
   sizeOverrides?: ImageRouteSizeOverrideMap;
+  supportedQualities?: ImageRouteQuality[];
   isActive?: boolean;
   isDefaultRoute?: boolean;
   isDefaultNanoBananaLine?: boolean;
@@ -60,6 +71,19 @@ export interface ImageRouteOption {
 const API_BASE_URL = '/api';
 
 const cleanUrl = (url: string) => url.replace(/\/$/, '');
+
+const isImageRouteQuality = (value: unknown): value is ImageRouteQuality =>
+  DEFAULT_IMAGE_ROUTE_QUALITIES.includes(value as ImageRouteQuality);
+
+const normalizeSupportedQualities = (value: unknown): ImageRouteQuality[] => {
+  if (!Array.isArray(value)) return [...DEFAULT_IMAGE_ROUTE_QUALITIES];
+  const normalized = value
+    .map((item) => String(item || '').trim().toLowerCase())
+    .filter(isImageRouteQuality);
+  return normalized.length > 0
+    ? Array.from(new Set(normalized))
+    : [...DEFAULT_IMAGE_ROUTE_QUALITIES];
+};
 
 const normalizeSizeKey = (value?: string): ImageRouteSizeKey | '' => {
   const normalized = String(value || '').trim().toLowerCase();
@@ -116,6 +140,7 @@ const normalizeRoute = (route: Partial<ImageRouteConfig> = {}): ImageRouteConfig
   apiKeyEnv: String(route.apiKeyEnv || '').trim(),
   pointCost: roundNonNegativePoint(route.pointCost || 0, 0),
   sizeOverrides: normalizeSizeOverrides(route.sizeOverrides),
+  supportedQualities: normalizeSupportedQualities(route.supportedQualities),
   isActive: route.isActive !== false,
   isDefaultRoute: route.isDefaultRoute === true,
   isDefaultNanoBananaLine: route.isDefaultNanoBananaLine === true,
@@ -404,6 +429,10 @@ export const getImageRoutePointCost = (
   }
   return roundNonNegativePoint(route?.pointCost || 0, 0);
 };
+
+export const getImageRouteSupportedQualities = (
+  route?: ImageRouteConfig | null,
+): ImageRouteQuality[] => normalizeSupportedQualities(route?.supportedQualities);
 
 export const getImageRouteSizeOptions = (
   route?: ImageRouteConfig | null,

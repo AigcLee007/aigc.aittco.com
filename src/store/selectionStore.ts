@@ -8,6 +8,7 @@ import { isGptImageCompatibleModel } from '../config/imageModels';
 import { assetStorage } from '../services/assetStorage';
 import { v4 as uuidv4 } from 'uuid';
 import { migrateVideoSelectionState, type VideoReferenceItem } from '../utils/videoSelectionMigration';
+import type { ImageRouteQuality } from '../config/imageRoutes';
 
 export interface ReferenceImage {
   id: string; // Unique UI ID
@@ -53,7 +54,7 @@ interface SelectionStore {
   brushSize: number;
   brushColor: string;
   imageLine: string;
-  gptImageQuality: 'auto' | 'low' | 'medium' | 'high';
+  gptImageQuality: ImageRouteQuality;
   gptImageOutputFormat: 'png' | 'jpeg' | 'webp';
   gptImageOutputCompression: number | null;
   gptImageModeration: 'auto' | 'low';
@@ -109,7 +110,7 @@ interface SelectionStore {
   setBrushSize: (size: number) => void;
   setBrushColor: (color: string) => void;
   setImageLine: (line: string) => void;
-  setGptImageQuality: (quality: 'auto' | 'low' | 'medium' | 'high') => void;
+  setGptImageQuality: (quality: ImageRouteQuality) => void;
   setGptImageOutputFormat: (format: 'png' | 'jpeg' | 'webp') => void;
   setGptImageOutputCompression: (compression: number | null) => void;
   setGptImageModeration: (moderation: 'auto' | 'low') => void;
