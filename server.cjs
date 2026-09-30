@@ -5736,7 +5736,7 @@ app.post("/api/video/generate", generateLimiter, async (req, res) => {
       mode: route.mode,
       model: upstreamBody.model,
       modelId: requestedVideoModel?.id || null,
-      duration: upstreamBody.duration,
+      duration: providerSummary?.duration ?? requestBody.duration,
       pricingMode: requestedVideoModel?.pricingMode || "fixed",
       pointCostPerSecond: requestedVideoModel?.pointCostPerSecond || null,
     });
@@ -5759,7 +5759,7 @@ app.post("/api/video/generate", generateLimiter, async (req, res) => {
       meta: {
         transport: route.transport,
         routeMode: route.mode,
-        duration: upstreamBody.duration,
+        duration: providerSummary?.duration ?? requestBody.duration,
         pricingMode: requestedVideoModel?.pricingMode || "fixed",
         pointCostPerSecond: requestedVideoModel?.pointCostPerSecond || null,
         providerSummary,
@@ -5827,7 +5827,7 @@ app.post("/api/video/generate", generateLimiter, async (req, res) => {
       meta: {
         transport: route.transport,
         routeMode: route.mode,
-        duration: upstreamBody.duration,
+        duration: providerSummary?.duration ?? requestBody.duration,
       },
     });
 

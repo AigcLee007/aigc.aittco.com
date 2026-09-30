@@ -40,15 +40,15 @@ describe('Grok Imagine Video 1.5 Mouxihub contract', () => {
   });
   it('maps text to video with audio default enabled', () => {
     assert.deepStrictEqual(request(base({ prompt: 'a fox runs' })).upstreamBody, {
-      model: 'grok-imagine-video-1.5', prompt: 'a fox runs', duration: 8,
-      aspect_ratio: '16:9', resolution: '480p', generate_audio: true,
+      model: 'grok-imagine-video-1.5', prompt: 'a fox runs', seconds: '8',
+      aspect_ratio: '16:9', resolution: '480p',
     });
   });
   it('maps image, reference, first/last and keyframes', () => {
     assert.deepStrictEqual(request(base({ generationMode: 'image', image: 'https://app.test/image.jpg' })).upstreamBody.image, { url: 'https://app.test/image.jpg' });
     assert.deepStrictEqual(request(base({ generationMode: 'reference', referenceImages: ['https://app.test/a.jpg', 'https://app.test/b.jpg'] })).upstreamBody.reference_images, [{ url: 'https://app.test/a.jpg' }, { url: 'https://app.test/b.jpg' }]);
     assert.deepStrictEqual(request(base({ generationMode: 'first_last', startFrame: 'https://app.test/a.jpg', lastFrame: 'https://app.test/b.jpg' })).upstreamBody, {
-      model: 'grok-imagine-video-1.5', duration: 8, aspect_ratio: '16:9', resolution: '480p', generate_audio: true,
+      model: 'grok-imagine-video-1.5', seconds: '8', aspect_ratio: '16:9', resolution: '480p',
       image: { url: 'https://app.test/a.jpg' }, last_frame: { url: 'https://app.test/b.jpg' },
     });
     assert.deepStrictEqual(request(base({ generationMode: 'keyframes', keyframes: [{ image: 'https://app.test/a.jpg', timestamp_s: 2 }, { image: 'https://app.test/b.jpg', timestamp_s: 4.333333333333333 }] })).upstreamBody.keyframes, [

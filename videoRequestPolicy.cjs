@@ -107,12 +107,11 @@ const normalizeGrokVideoRequest = ({ body = {}, model, upstreamModel }) => {
 
   const upstreamBody = { model: GROK_MODEL_ID };
   if (prompt) upstreamBody.prompt = prompt;
-  upstreamBody.duration = duration;
+  // Mouxihub's strict video gateway expects the duration as a string in
+  // `seconds`; it rejects the shared PixelHub `duration` field.
+  upstreamBody.seconds = String(duration);
   upstreamBody.aspect_ratio = aspectRatio;
   upstreamBody.resolution = resolution;
-  upstreamBody.generate_audio = body.generateAudio === undefined && body.generate_audio === undefined
-    ? true
-    : Boolean(body.generateAudio ?? body.generate_audio);
 
   if (mode === 'image') {
     const url = directImage || referenceImages[0];
@@ -141,7 +140,7 @@ const normalizeGrokVideoRequest = ({ body = {}, model, upstreamModel }) => {
 
   return {
     upstreamBody,
-    providerSummary: { model: GROK_MODEL_ID, generationMode: mode, referenceImageCount: referenceImages.length, keyframeCount: keyframes.length },
+    providerSummary: { model: GROK_MODEL_ID, generationMode: mode, duration, referenceImageCount: referenceImages.length, keyframeCount: keyframes.length },
     pointCost: toNonNegativePoint(model.pricingMode === 'per_second' ? duration * Number(model.pointCostPerSecond || 0) : Number(model.selectorCost || 0), 0),
   };
 };
