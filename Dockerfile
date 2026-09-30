@@ -54,6 +54,7 @@ COPY generatedAssetService.cjs ./
 COPY videoReferenceUpload.cjs ./
 COPY videoFrameUpload.cjs ./
 COPY videoRequestPolicy.cjs ./
+COPY videoTaskUtils.cjs ./
 COPY videoReferenceMedia.cjs ./
 COPY pixelhubVideoMigration.cjs ./
 COPY generationRecordStore.cjs ./

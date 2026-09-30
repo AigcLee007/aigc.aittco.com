@@ -14,6 +14,7 @@ const {
 } = require("./videoReferenceUpload.cjs");
 const { materializeVideoReferenceMedia } = require("./videoReferenceMedia.cjs");
 const { normalizePixelHubVideoRequest } = require("./videoRequestPolicy.cjs");
+const { extractVideoTaskId, extractVideoTaskStatus } = require("./videoTaskUtils.cjs");
 const { getSeedreamSizeError } = require("./seedreamImagePolicy.cjs");
 const { isGptImageCompatibleModel } = require("./imageModelCompatibility.cjs");
 
@@ -1112,11 +1113,7 @@ const collectResultUrls = (value, bucket = []) => {
 const extractResultUrlsFromPayload = (payload) =>
   dedupeResultUrls(collectResultUrls(payload, []));
 const extractResultStatus = (payload) =>
-  String(
-    payload?.status || payload?.state || payload?.data?.status || "",
-  )
-    .trim()
-    .toUpperCase();
+  extractVideoTaskStatus(payload);
 const hasExplicitImageTaskId = (payload) =>
   Boolean(
     payload?.task_id ||
@@ -5787,10 +5784,7 @@ app.post("/api/video/generate", generateLimiter, async (req, res) => {
     );
 
     console.log("[Video Generate] Upstream response:", response.data);
-    const upstreamTaskId =
-      response.data?.id ||
-      response.data?.task_id ||
-      response.data?.data?.task_id;
+    const upstreamTaskId = extractVideoTaskId(response.data);
 
     if (upstreamTaskId) {
       const pendingTaskId = buildVideoTaskToken(route.id, upstreamTaskId);
