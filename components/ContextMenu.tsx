@@ -17,6 +17,8 @@ import {
   CheckCircle2,
 } from 'lucide-react';
 import { ToolMode } from '../types';
+import { readOriginalBlob } from '../src/services/imageAssetCache';
+import { assetActionSource } from '../src/services/imageAssetActions';
 
 interface ContextMenuProps {
   onDuplicate: () => void;
@@ -62,19 +64,18 @@ const ContextMenu: React.FC<ContextMenuProps> = ({
   };
 
   const handleView = () => {
-    if (node?.src) openLightbox(node.src);
+    if (node && (node.src || node.assetId)) openLightbox(node.type === 'IMAGE' ? node : node.src!);
     closeContextMenu();
   };
 
-  const handleSetReference = () => {
+  const handleSetReference = async () => {
     closeContextMenu();
-    if (node?.src && node.type === 'IMAGE' && nodeId) {
-      const src = node.src;
-      setTimeout(() => {
-        addReferenceImage(src);
+    if (node && (node.src || node.assetId) && node.type === 'IMAGE' && nodeId) {
+      try {
+        await addReferenceImage(assetActionSource(node), await readOriginalBlob(node));
         clearSelection();
         setToolMode(ToolMode.GENERATE);
-      }, 10);
+      } catch { alert('原图读取失败，请重试'); }
     }
   };
 
@@ -89,7 +90,7 @@ const ContextMenu: React.FC<ContextMenuProps> = ({
   };
 
   const handleApplyToSource = () => {
-    if (!node || node.type !== 'IMAGE' || !node.sourceNodeId || !node.src) return;
+    if (!node || node.type !== 'IMAGE' || !node.sourceNodeId || (!node.src && !node.assetId)) return;
     const sourceNode = nodes.find((item) => item.id === node.sourceNodeId);
     if (!sourceNode || sourceNode.type !== 'IMAGE') return;
 
@@ -97,7 +98,7 @@ const ContextMenu: React.FC<ContextMenuProps> = ({
       sourceNode.history && sourceNode.history.length > 0
         ? sourceNode.history
         : sourceNode.src
-          ? [{ src: sourceNode.src, prompt: sourceNode.prompt }]
+          ? [{ src: sourceNode.src, assetId:sourceNode.assetId, thumbnailSrc:sourceNode.thumbnailSrc, prompt: sourceNode.prompt }]
           : [];
     const previousIndex =
       typeof sourceNode.historyIndex === 'number'
@@ -106,7 +107,9 @@ const ContextMenu: React.FC<ContextMenuProps> = ({
     const nextHistory = [
       ...previousHistory.slice(0, previousIndex + 1),
       {
-        src: node.src,
+        src: node.src || '',
+        assetId: node.assetId,
+        thumbnailSrc: node.thumbnailSrc,
         prompt: node.prompt || sourceNode.prompt,
       },
     ];
@@ -114,6 +117,7 @@ const ContextMenu: React.FC<ContextMenuProps> = ({
     useCanvasStore.getState().updateNode(sourceNode.id, {
       src: node.src,
       assetId: node.assetId,
+      thumbnailSrc: node.thumbnailSrc,
       prompt: node.prompt || sourceNode.prompt,
       width: node.width,
       height: node.height,

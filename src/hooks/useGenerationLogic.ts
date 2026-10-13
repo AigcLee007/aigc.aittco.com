@@ -3,6 +3,7 @@ import { useCanvasStore } from '../store/canvasStore';
 import { useSelectionStore } from '../store/selectionStore';
 import { useHistoryStore } from '../store/historyStore';
 import { assetStorage } from '../services/assetStorage';
+import { cacheImageSource } from '../services/imageAssetCache';
 import { arrangeNodes } from '../utils/layout';
 import { getLocalLine4ThumbnailUrl } from '../utils/generatedImageStorage';
 import { getProxiedImageUrl, unwrapMiswrappedImageUrl } from '../utils/mediaProxy';
@@ -46,8 +47,7 @@ const triggerDownload = (href: string, filename: string) => {
 const fetchBlobForDownload = async (src: string): Promise<Blob | null> => {
     try {
         if (src.startsWith('data:') || src.startsWith('blob:') || src.startsWith('/') || src.startsWith('http')) {
-            const res = await fetch(resolveFetchUrl(src));
-            if (res.ok) return await res.blob();
+            return (await cacheImageSource(src)).blob;
         }
     } catch (err) {
         console.warn('Auto download fetch failed:', err);
@@ -246,6 +246,7 @@ export const useGenerationLogic = () => {
 
         updateNode(id, {
             src: displaySrc,
+            assetId: undefined,
             thumbnailSrc,
             loading: false,
             error: false,
@@ -265,57 +266,27 @@ export const useGenerationLogic = () => {
             void autoDownloadGeneratedImage(displaySrc, currentNode.prompt, id);
         }
 
-        // 2) Update image dimensions asynchronously (do not block UI).
+        // Share the same original read with display and automatic download.
         if (!isVideo) {
-          const img = new Image();
-          img.crossOrigin = "Anonymous";
-          img.onload = () => {
-            if (img.naturalWidth > 0 && img.naturalHeight > 0) {
-              const latestNode = useCanvasStore.getState().nodes.find(n => n.id === id);
-              if (!latestNode) return;
-              const aspectRatio = img.naturalHeight / img.naturalWidth;
-              updateNode(id, { height: latestNode.width * aspectRatio }, true);
-            }
-          };
-          img.src = canvasSafeSrc;
-        }
-
-        // 3) Persist asset in background (best effort), then backfill node/history.
-        const shouldCache = !isVideo && (
-          rawSrc.startsWith('data:image') ||
-          rawSrc.startsWith('http') ||
-          displaySrc.startsWith('/api/proxy/image?url=')
-        );
-        if (shouldCache) {
           void (async () => {
             try {
-              const fetchUrl = getProxiedImageUrl(rawSrc);
-              const res = await fetch(fetchUrl);
-              if (!res.ok) return;
-              const blob = await res.blob();
-              const assetId = await assetStorage.storeBlob(blob);
-              const cachedUrl = await assetStorage.getAssetUrl(assetId);
-
-              if (cachedUrl) {
-                // Some browsers/proxies can block blob: URL rendering in strict contexts.
-                // Keep the display URL as the original remote/proxy URL and only persist assetId.
-                if (cachedUrl.startsWith('blob:')) {
-                  updateNode(id, { assetId }, true);
-                  updateLogAsset(logId, assetId);
-                } else {
-                  const cachedThumb = getLocalLine4ThumbnailUrl(cachedUrl) || thumbnailSrc;
-                  updateNode(id, { src: cachedUrl, thumbnailSrc: cachedThumb, assetId }, true);
-                  updateLogAsset(logId, assetId, cachedUrl, cachedThumb);
-                }
-              } else {
-                updateNode(id, { assetId }, true);
+              const {assetId} = await cacheImageSource(rawSrc);
+              const sameResult = () => {
+                const latest = useCanvasStore.getState().nodes.find(n => n.id === id);
+                return latest && latest.src === displaySrc && latest.createdAt === generatedAt ? latest : undefined;
+              };
+              if (assetId) {
+                if (sameResult()) updateNode(id, { assetId }, true);
                 updateLogAsset(logId, assetId);
+                await assetStorage.ensurePreview(assetId);
+                const meta = await assetStorage.getMeta(assetId);
+                const latest = sameResult();
+                if (latest && meta?.width && meta?.height) updateNode(id, { height: latest.width * meta.height / meta.width }, true);
               }
-            } catch (e) {
-              console.warn("Background asset cache failed", e);
-            }
+            } catch (e) { console.warn('Background asset cache failed', e); }
           })();
         }
+
     }, [autoDownloadGeneratedImage, updateNode]);
 
     return { handleInitGenerations, handleUpdateGeneration, handleUpdateProgress };

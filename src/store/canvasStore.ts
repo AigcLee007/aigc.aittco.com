@@ -5,6 +5,8 @@ import { get, set, del } from 'idb-keyval';
 import { NodeData, CanvasState, Point } from '../../types';
 import { historyManager } from '../commands/HistoryManager';
 import { AddNodeCommand, DeleteNodeCommand, UpdateNodeCommand, SetNodesCommand, MoveNodeCommand } from '../commands/nodeCommands';
+import { bounded } from '../services/imageAssetTypes';
+import { beginLocalRead, deferLocalRecoveryWrite, finishLocalRead, localStoreWritable, mergeRecoveredLocalState, setLocalReadFailed } from '../services/localHydrationSafety';
 
 // Simple UUID generator
 const generateId = () => Math.random().toString(36).substring(2, 11);
@@ -22,7 +24,7 @@ const cleanPersistedUrl = (value?: string | null): string | undefined => {
   return url.length > 2048 ? undefined : url;
 };
 
-const sanitizePersistedNode = (node: NodeData): NodeData => {
+export const sanitizePersistedNode = (node: NodeData): NodeData => {
   const cleanSrc = cleanPersistedUrl(node.src);
   const cleanThumbnail = cleanPersistedUrl(node.thumbnailSrc);
   const sanitized: NodeData = {
@@ -48,6 +50,13 @@ const sanitizePersistedNode = (node: NodeData): NodeData => {
   if (node.videoDuration) sanitized.videoDuration = String(node.videoDuration);
   if (node.taskId) sanitized.taskId = String(node.taskId);
   if (typeof node.loading === 'boolean') sanitized.loading = node.loading;
+  if (typeof node.error === 'boolean') sanitized.error = node.error;
+  if (node.errorMessage) sanitized.errorMessage = String(node.errorMessage);
+  if (node.history) sanitized.history = node.history.slice(-50).map(item => ({
+    src: cleanPersistedUrl(item.src) || '', assetId: item.assetId,
+    thumbnailSrc: cleanPersistedUrl(item.thumbnailSrc), prompt: item.prompt,
+  }));
+  if (node.historyIndex !== undefined) sanitized.historyIndex = Math.min(node.historyIndex, (sanitized.history?.length || 1) - 1);
   if (node.groupId) sanitized.groupId = String(node.groupId);
   if (node.sourceNodeId) sanitized.sourceNodeId = String(node.sourceNodeId);
   return sanitized;
@@ -118,7 +127,7 @@ const parsePersistedCanvasValue = (rawValue: unknown, storageKey: string) => {
 const canvasPersistStorage: PersistStorage<any> = {
   getItem: async (name) => {
     try {
-      const rawValue = await get(name);
+      const rawValue = await bounded(get(name), 8000);
       const parsed = parsePersistedCanvasValue(rawValue, name);
       if (!parsed && rawValue != null) {
         await del(name);
@@ -126,13 +135,13 @@ const canvasPersistStorage: PersistStorage<any> = {
       return parsed;
     } catch (error) {
       console.warn(`[CanvasStore] Failed to read persisted state for ${name}`, error);
-      try {
-        await del(name);
-      } catch (_) {}
+      setLocalReadFailed(name);
+      // Keep persisted data on a transient read failure or timeout.
       return null;
     }
   },
   setItem: async (name, value) => {
+    if (!localStoreWritable(name)) return;
     try {
       await set(name, value);
     } catch (error) {
@@ -290,18 +299,34 @@ export const useCanvasStore = create<CanvasStore>()(
     {
       name: 'infinitemuse-storage',
       storage: canvasPersistStorage,
+      onRehydrateStorage: state => {
+        const name = 'infinitemuse-storage';
+        beginLocalRead(name, state);
+        return (merged, error) => {
+          if (finishLocalRead(name, error) && merged) {
+            deferLocalRecoveryWrite(name, () => {
+              const latest = useCanvasStore.getState();
+              return canvasPersistStorage.setItem(name, {state: {
+                nodes: sanitizePersistedNodes(latest.nodes),
+                canvasState: sanitizePersistedCanvasState(latest.canvasState),
+              }, version: 0});
+            });
+          }
+        };
+      },
       partialize: (state) => ({
         nodes: sanitizePersistedNodes(state.nodes),
         canvasState: sanitizePersistedCanvasState(state.canvasState)
       }),
       merge: (persistedState, currentState) => {
         const persisted = persistedState as Partial<CanvasStore> | null;
-        return {
+        if (!persisted) return currentState;
+        return mergeRecoveredLocalState('infinitemuse-storage', {
           ...currentState,
           ...persisted,
           nodes: sanitizePersistedNodes(persisted?.nodes || []),
           canvasState: sanitizePersistedCanvasState(persisted?.canvasState),
-        };
+        }, currentState, ['nodes']);
       },
     }
   )

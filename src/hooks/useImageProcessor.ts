@@ -2,6 +2,7 @@ import { useCallback } from 'react';
 import { useCanvasStore } from '../store/canvasStore';
 import { useSelectionStore } from '../store/selectionStore';
 import { assetStorage } from '../services/assetStorage';
+import { cacheImageSource } from '../services/imageAssetCache';
 import { NodeData, ToolMode, Point } from '../../types';
 import { useToast } from '../context/ToastContext';
 
@@ -16,91 +17,39 @@ export const useImageProcessor = () => {
     
         const createNodeFromBlob = async (blob: Blob, prompt: string): Promise<NodeData> => {
            const assetId = await assetStorage.storeBlob(blob);
-           const src = await assetStorage.getAssetUrl(assetId);
-           
-           return new Promise((resolve) => {
-              const img = new Image(); 
-              img.crossOrigin = "Anonymous";
-              img.onload = () => {
-                 let width = img.width; 
-                 let height = img.height; 
-                 const maxSize = 512;
-                 if (width > maxSize || height > maxSize) {
-                   const ratio = width / height;
-                   if (width > height) { width = maxSize; height = maxSize / ratio; }
-                   else { height = maxSize; width = maxSize * ratio; }
-                 }
-                 resolve({ 
-                     id: generateId(), 
-                     type: 'IMAGE', 
-                     x: 0, 
-                     y: 0, 
-                     width, 
-                     height, 
-                     opacity: 1, 
-                     locked: false, 
-                      src: src!, // managed by assetStorage
-                      assetId: assetId,
-                      prompt: prompt, 
-                      createdAt: importedAt,
-                      history: [], 
-                      historyIndex: 0 
-                 });
-              };
-              img.onerror = () => { 
-                 resolve({ 
-                     id: generateId(), 
-                     type: 'IMAGE', 
-                     x: 0, 
-                     y: 0, 
-                     width: 100, 
-                     height: 100, 
-                     src: '', 
-                     error: true, 
-                     errorMessage: "Failed to load image" 
-                 } as any); 
-              };
-              img.src = src!;
-           });
+           try { await assetStorage.ensurePreview(assetId); } catch { /* Retain original and allow a controlled display fallback. */ }
+           const meta = await assetStorage.getMeta(assetId);
+           const ratio = (meta?.height || 512) / (meta?.width || 512);
+           const width = ratio > 1 ? 512 / ratio : 512;
+           return {id:generateId(),type:'IMAGE',x:0,y:0,width,height:width*ratio,assetId,src:'',prompt,createdAt:importedAt,history:[{src:'',assetId,prompt}],historyIndex:0};
         };
-    
-        const createNodeFromSrc = (src: string, prompt: string): Promise<NodeData> => {
-          // For web images/strings, we still use the old way unless we want to fetch and store them?
-          // For now, keep as is for strings, but if it is long base64, maybe convert to blob?
-          // Let's keep simple: strings (URLs) stay as src without assetId.
-          return new Promise((resolve) => {
-            const img = new Image(); img.crossOrigin = "Anonymous";
-            img.onload = () => {
-              let width = img.width; let height = img.height; const maxSize = 512;
-              if (width > maxSize || height > maxSize) {
-                const ratio = width / height;
-                if (width > height) { width = maxSize; height = maxSize / ratio; }
-                else { height = maxSize; width = maxSize * ratio; }
-              }
-              // If we want to store web images locally to avoid CORS/broken links:
-              // handle separately. For now, just pass src.
-              resolve({ id: generateId(), type: 'IMAGE', x: 0, y: 0, width, height, opacity: 1, locked: false, src: src, prompt: prompt, createdAt: importedAt, history: [{ src: src, prompt: prompt }], historyIndex: 0 });
-            };
-            img.onerror = () => { resolve({ id: generateId(), type: 'IMAGE', x: 0, y: 0, width: 100, height: 100, src: '', error: true, errorMessage: "Failed to load image" } as any); };
-            img.src = src;
-          });
+
+        const createNodeFromSrc = async (src: string, prompt: string): Promise<NodeData> => {
+          const cached = await cacheImageSource(src);
+          if (!cached.assetId && /^(blob:|data:)/i.test(src)) return createNodeFromBlob(cached.blob,prompt);
+          if(cached.assetId)try { await assetStorage.ensurePreview(cached.assetId); } catch { /* Original remains usable. */ }
+          const meta = cached.assetId ? await assetStorage.getMeta(cached.assetId) : undefined;
+          const ratio = (meta?.height || 512) / (meta?.width || 512);
+          const width = ratio > 1 ? 512 / ratio : 512;
+          const canonical = /^(blob:|data:)/i.test(src) ? '' : src;
+          return {id:generateId(),type:'IMAGE',x:0,y:0,width,height:width*ratio,src:canonical,assetId:cached.assetId,prompt,createdAt:importedAt,history:[{src:canonical,assetId:cached.assetId,prompt}],historyIndex:0};
         };
-    
-        const loadPromises = items.map(async (item) => {
+
+        const results:Array<NodeData|null> = [];
+        for (const item of items) {
+          try {
             if (item instanceof File) {
                 const isImage = item.type.startsWith('image/') || /\.(jpe?g|png|gif|webp|svg|bmp)$/i.test(item.name);
                 if (!isImage) {
                     console.warn("Skipping non-image file:", item.name, item.type);
-                    return null;
+                    results.push(null);continue;
                 }
-                return createNodeFromBlob(item, "");
+                results.push(await createNodeFromBlob(item, ""));
             } else if (typeof item === 'string') {
-                return createNodeFromSrc(item, "Web Image");
+                results.push(await createNodeFromSrc(item, "Web Image"));
             }
-            return null;
-        });
-    
-        const results = await Promise.all(loadPromises);
+          }catch { results.push({error:true} as NodeData); }
+        }
         const loadedNodes = results.filter((n): n is NodeData => n !== null && !n.error);
         
         if (loadedNodes.length === 0) {

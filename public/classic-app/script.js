@@ -176,9 +176,10 @@ let classicPricingCatalog = {
 
 const HISTORY_CACHE_DB = "nb_history_cache_db";
 const HISTORY_CACHE_STORE = "images";
+const HISTORY_PREVIEW_STORE = "previews";
 const HISTORY_RECORD_STORE = "records";
 const HISTORY_META_STORE = "meta";
-const HISTORY_DB_VERSION = 2;
+const HISTORY_DB_VERSION = 3;
 const HISTORY_MAX_RECORDS = isClassicMobileViewport() ? 60 : 200;
 const HISTORY_MIGRATION_KEY = "localStorageMigrationV1";
 
@@ -190,6 +191,9 @@ function openHistoryCacheDB() {
       if (!db.objectStoreNames.contains(HISTORY_CACHE_STORE)) {
         db.createObjectStore(HISTORY_CACHE_STORE, { keyPath: "id" });
       }
+      if (!db.objectStoreNames.contains(HISTORY_PREVIEW_STORE)) {
+        db.createObjectStore(HISTORY_PREVIEW_STORE, { keyPath: "id" });
+      }
       if (!db.objectStoreNames.contains(HISTORY_RECORD_STORE)) {
         db.createObjectStore(HISTORY_RECORD_STORE, { keyPath: "id" });
       }
@@ -197,39 +201,25 @@ function openHistoryCacheDB() {
         db.createObjectStore(HISTORY_META_STORE, { keyPath: "id" });
       }
     };
-    req.onsuccess = () => resolve(req.result);
+    req.onsuccess = () => {
+      req.result.onversionchange = () => req.result.close();
+      resolve(req.result);
+    };
     req.onerror = () => reject(req.error);
+    req.onblocked = () => reject(new Error("图片缓存升级被其他页面阻塞，请关闭旧页面后重试"));
   });
 }
 
 function fetchAsBlob(src) {
-  return fetch(src).then((res) => {
-    if (!res.ok) throw new Error(`fetch failed: ${res.status}`);
-    return res.blob();
-  });
+  return fetchClassicImageBlob(src);
 }
 
 async function cacheHistoryImage(recordId, src) {
   if (!recordId || !src) return false;
-  try {
-    const blob = await fetchAsBlob(src);
-    const db = await openHistoryCacheDB();
-    await new Promise((resolve, reject) => {
-      const tx = db.transaction(HISTORY_CACHE_STORE, "readwrite");
-      tx.objectStore(HISTORY_CACHE_STORE).put({
-        id: recordId,
-        blob,
-        updatedAt: Date.now(),
-      });
-      tx.oncomplete = resolve;
-      tx.onerror = () => reject(tx.error);
-    });
-    db.close();
-    return true;
-  } catch (e) {
-    console.warn("cacheHistoryImage failed:", e);
-    return false;
-  }
+  const asset = await getClassicImageReader().acquire({ id: recordId, src, variant: "original" });
+  const ready = asset.status === "ready";
+  asset.release();
+  return ready;
 }
 
 async function getCachedHistoryImage(recordId) {
@@ -255,8 +245,9 @@ async function removeCachedHistoryImage(recordId) {
   try {
     const db = await openHistoryCacheDB();
     await new Promise((resolve, reject) => {
-      const tx = db.transaction(HISTORY_CACHE_STORE, "readwrite");
+      const tx = db.transaction([HISTORY_CACHE_STORE, HISTORY_PREVIEW_STORE], "readwrite");
       tx.objectStore(HISTORY_CACHE_STORE).delete(recordId);
+      tx.objectStore(HISTORY_PREVIEW_STORE).delete(recordId);
       tx.oncomplete = resolve;
       tx.onerror = () => reject(tx.error);
     });
@@ -270,8 +261,9 @@ async function clearCachedHistoryImages() {
   try {
     const db = await openHistoryCacheDB();
     await new Promise((resolve, reject) => {
-      const tx = db.transaction(HISTORY_CACHE_STORE, "readwrite");
+      const tx = db.transaction([HISTORY_CACHE_STORE, HISTORY_PREVIEW_STORE], "readwrite");
       tx.objectStore(HISTORY_CACHE_STORE).clear();
+      tx.objectStore(HISTORY_PREVIEW_STORE).clear();
       tx.oncomplete = resolve;
       tx.onerror = () => reject(tx.error);
     });
@@ -306,6 +298,155 @@ function getHistoryDisplayUrl(item) {
   return String(item?.previewUrl || item?.displayUrl || item?.url || "").trim();
 }
 
+let classicImageReader = null;
+let classicImageBinder = null;
+let classicHistoryRenderGeneration = 0;
+let classicLightboxGeneration = 0;
+let classicLightboxLease = null;
+const classicImageBindings = new Map();
+const classicAssetIdsBySource = new Map();
+let classicReferenceDecodeQueue = null;
+
+async function readClassicImageCache(store, id) {
+  if (!id) return null;
+  const db = await openHistoryCacheDB();
+  try {
+    return await new Promise((resolve, reject) => {
+      const tx = db.transaction(store, "readonly");
+      const request = tx.objectStore(store).get(id);
+      request.onsuccess = () => resolve(request.result || null);
+      request.onerror = () => reject(request.error);
+      tx.onabort = () => reject(tx.error || new Error("图片缓存读取已中止"));
+    });
+  } finally { db.close(); }
+}
+
+async function writeClassicImageCache(store, id, data) {
+  if (!id) return;
+  const db = await openHistoryCacheDB();
+  try {
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction(store, "readwrite");
+      tx.objectStore(store).put({ id, ...data, updatedAt: Date.now() });
+      tx.oncomplete = resolve;
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error || new Error("图片缓存写入已中止"));
+    });
+  } finally { db.close(); }
+}
+
+async function fetchClassicImageBlob(src, signal) {
+  const controller = new AbortController();
+  const abort = () => controller.abort();
+  if (signal?.aborted) abort();
+  signal?.addEventListener("abort", abort, { once: true });
+  const fetchUrl = /^https?:\/\//i.test(src)
+    ? `/api/proxy/image?url=${encodeURIComponent(src)}`
+    : src;
+  try {
+    return await window.ClassicImageRuntime.withTimeout(async () => {
+      const response = await fetch(fetchUrl, { signal: controller.signal });
+      if (!response.ok) throw new Error(`图片读取失败 (${response.status})`);
+      const blob = await response.blob();
+      if (!blob.size || !blob.type.startsWith("image/")) throw new Error("返回内容不是有效图片");
+      return blob;
+    }, 15000, abort);
+  } finally { signal?.removeEventListener("abort", abort); }
+}
+
+function registerClassicImageAsset(input) {
+  if (!input.src) return;
+  const ids = classicAssetIdsBySource.get(input.src) || new Set();
+  if (input.id) ids.add(input.id);
+  classicAssetIdsBySource.set(input.src, ids);
+  getClassicImageReader().register(input);
+}
+
+function getClassicImageReader() {
+  if (classicImageReader) return classicImageReader;
+  const runtime = window.ClassicImageRuntime;
+  classicImageReader = runtime.createAssetReader({
+    readOriginal: async (id, src) => {
+      const ids = [id, ...(classicAssetIdsBySource.get(src) || []), src].filter(Boolean);
+      for (const candidate of new Set(ids)) {
+        const blob = (await readClassicImageCache(HISTORY_CACHE_STORE, candidate))?.blob;
+        if (blob) return blob;
+      }
+      // Legacy records retain their original id; resolve it without duplicating their Blob.
+      const records = await readHistoryRecordsFromDB();
+      const record = records.find((item) => getHistoryFullUrl(item) === src);
+      return record?.id ? (await readClassicImageCache(HISTORY_CACHE_STORE, record.id))?.blob || null : null;
+    },
+    readPreview: (id) => readClassicImageCache(HISTORY_PREVIEW_STORE, id),
+    writeOriginal: (id, blob) => writeClassicImageCache(HISTORY_CACHE_STORE, id, { blob }),
+    writePreview: (id, preview) => writeClassicImageCache(HISTORY_PREVIEW_STORE, id, preview),
+    fetchBlob: fetchClassicImageBlob,
+    makePreview: runtime.makeBrowserPreview,
+    validateBlob: async (blob) => {
+      if (!blob?.size || !blob.type?.startsWith("image/")) return false;
+      const bitmap = await runtime.decodeBrowserBlob(blob);
+      const valid = bitmap.width > 0 && bitmap.height > 0;
+      bitmap.close();
+      return valid;
+    },
+  });
+  return classicImageReader;
+}
+
+function setClassicImageState(img, state) {
+  if (!img?.isConnected) return;
+  const parent = img.parentElement;
+  let message = parent.querySelector(":scope > .classic-image-status");
+  if (state === "ready") {
+    message?.remove();
+    const card = img.closest(".history-item");
+    if (card) setHistoryCacheBadge(card, "local");
+    return;
+  }
+  if (!message) {
+    message = document.createElement("div");
+    message.className = "classic-image-status";
+    message.style.cssText = "position:absolute;inset:0;display:flex;align-items:center;justify-content:center;gap:8px;z-index:1;background:var(--bg-card,#111);font-size:12px;color:var(--text-sub,#aaa);flex-direction:column";
+    if (getComputedStyle(parent).position === "static") parent.style.position = "relative";
+    parent.appendChild(message);
+  }
+  message.textContent = state === "reading" ? "正在读取图片…" : state === "missing" ? "本地图片已清理或链接已失效" : "图片读取失败";
+  if (state !== "reading") {
+    const retry = document.createElement("button");
+    retry.type = "button";
+    retry.textContent = "重试读取";
+    retry.className = "classic-live-action-btn";
+    retry.onclick = (event) => {
+      event.stopPropagation();
+      const input = classicImageBindings.get(img);
+      if (!input) return;
+      classicImageBinder.unbind(img);
+      classicImageBinder.bind(img, { ...input, retry: true });
+    };
+    message.appendChild(retry);
+  }
+}
+
+function bindClassicPreviewImage(img, input) {
+  if (!img) return;
+  registerClassicImageAsset(input);
+  if (!classicImageBinder) classicImageBinder = window.ClassicImageRuntime.createImageBinder({ reader: getClassicImageReader(), onState: setClassicImageState });
+  classicImageBindings.set(img, input);
+  classicImageBinder.bind(img, input);
+}
+
+function releaseClassicImageTree(root) {
+  if (!root) return;
+  root.querySelectorAll("img").forEach((img) => {
+    classicImageBinder?.unbind(img);
+    classicImageBindings.delete(img);
+  });
+}
+
+function getClassicOriginalAsset(src, retry = false) {
+  return getClassicImageReader().acquire({ src, variant: "original", retry });
+}
+
 const CLASSIC_LIVE_TASKS_KEY = "nb_classic_live_tasks_v1";
 const CLASSIC_LIVE_MAX_TASKS = isClassicMobileViewport() ? 8 : 30;
 const CLASSIC_LIVE_TTL_MS = 72 * 60 * 60 * 1000;
@@ -313,6 +454,7 @@ const CLASSIC_LIVE_STALE_RUNNING_MS = 30 * 60 * 1000;
 let classicLiveTasks = [];
 let classicLiveSelectedId = "";
 let classicLiveResizeTimer = null;
+let classicLiveRenderSignature = "";
 
 function isClassicMobileViewport() {
   try {
@@ -667,6 +809,37 @@ function renderClassicLiveTasks() {
   const container = document.getElementById("imgContainer");
   if (container) container.style.display = "flex";
 
+  const isDesktopLive =
+    typeof window.matchMedia === "function" &&
+    window.matchMedia("(min-width: 769px)").matches &&
+    !CLASSIC_VIP_MODE;
+  const renderSignature = JSON.stringify([isDesktopLive, classicLiveSelectedId, classicLiveTasks.map((task) => ({
+    id: task.id || task.taskId || "",
+    status: task.status || "",
+    originalUrl: getClassicLiveFullUrl(task),
+    previewUrl: getClassicLivePreviewUrl(task),
+    errorMessage: task.errorMessage || "",
+    updatedAt: task.updatedAt || 0,
+  }))]);
+  if (renderSignature === classicLiveRenderSignature && grid.childElementCount > 0) return;
+  classicLiveRenderSignature = renderSignature;
+
+  const previousCards = new Map(
+    Array.from(grid.querySelectorAll(".classic-live-card")).map((card) => [card.dataset.liveId || card.dataset.fullUrl, card]),
+  );
+  const previousImages = Array.from(grid.querySelectorAll("img"));
+  const releaseRemovedImages = () => previousImages.forEach((img) => {
+    if (!img.isConnected) {
+      classicImageBinder?.unbind(img);
+      classicImageBindings.delete(img);
+    }
+  });
+  grid.querySelectorAll(".classic-live-card").forEach((card) => {
+    if (!classicLiveTasks.some((task) => (task.id || task.taskId || "") === (card.dataset.liveId || ""))) {
+      releaseClassicImageTree(card);
+    }
+  });
+
   const runningCount = classicLiveTasks.filter((task) =>
     ["submitting", "running"].includes(String(task.status || "")),
   ).length;
@@ -692,13 +865,9 @@ function renderClassicLiveTasks() {
       <div class="classic-live-empty-sub">任务生成期间，你可以继续修改参数并提交下一组。</div>
     `;
     grid.appendChild(empty);
+    releaseRemovedImages();
     return;
   }
-
-  const isDesktopLive =
-    typeof window.matchMedia === "function" &&
-    window.matchMedia("(min-width: 769px)").matches &&
-    !CLASSIC_VIP_MODE;
 
   if (isDesktopLive) {
     const existingSelected = classicLiveSelectedId
@@ -715,8 +884,7 @@ function renderClassicLiveTasks() {
       const isSuccess = status === "success" && fullUrl;
       const isFailed = status === "failed";
       if (isSuccess) {
-        const displayUrl = getClassicImageDisplayUrl(fullUrl, getClassicLivePreviewUrl(task));
-        return `<img src="${escapeHtml(displayUrl)}" alt="生成结果" loading="lazy" decoding="async" referrerpolicy="no-referrer">`;
+        return `<img alt="生成结果" loading="lazy" decoding="async" referrerpolicy="no-referrer">`;
       }
       if (isFailed) {
         return `<div class="classic-live-error">${escapeHtml(task.errorMessage || "生成失败，请重试")}</div>`;
@@ -815,6 +983,7 @@ function renderClassicLiveTasks() {
       .join(" ");
     primaryCard.dataset.fullUrl = primaryFullUrl;
     primaryCard.dataset.previewUrl = primaryPreviewUrl;
+    primaryCard.dataset.liveId = primaryTask.id || primaryTask.taskId || "";
     primaryCard.innerHTML = `
       <div class="classic-live-media">
         ${buildMediaHtml(primaryTask)}
@@ -825,16 +994,17 @@ function renderClassicLiveTasks() {
         ${buildActionsHtml(primaryTask, true)}
       </div>
     `;
-    const primaryImg = primaryCard.querySelector("img");
-    if (primaryImg && primaryPreviewUrl && primaryPreviewUrl !== primaryFullUrl) {
-      primaryImg.addEventListener("error", () => {
-        if (primaryImg.dataset.fallbackApplied === "1") return;
-        primaryImg.dataset.fallbackApplied = "1";
-        primaryImg.src = primaryPreviewUrl;
-      });
+    const previousPrimary = previousCards.get(primaryCard.dataset.liveId);
+    const reusablePrimaryImg = previousPrimary?.dataset.fullUrl === primaryFullUrl &&
+      previousPrimary?.dataset.previewUrl === primaryPreviewUrl ? previousPrimary.querySelector("img") : null;
+    if (reusablePrimaryImg && primaryCard.querySelector("img")) {
+      primaryCard.querySelector("img").replaceWith(reusablePrimaryImg);
     }
     bindLiveActions(primaryCard, primaryTask);
     grid.appendChild(primaryCard);
+    primaryCard.querySelectorAll("img").forEach((img) => {
+      if (img !== reusablePrimaryImg) bindClassicPreviewImage(img, { id: primaryTask.id || primaryTask.taskId, src: primaryFullUrl, previewSrc: primaryPreviewUrl });
+    });
 
     const selectedInfo = document.createElement("div");
     selectedInfo.className = "classic-live-selected-info";
@@ -863,11 +1033,12 @@ function renderClassicLiveTasks() {
           .join(" ");
         thumb.dataset.liveId = task.id || task.taskId || "";
         thumb.dataset.fullUrl = fullUrl;
+        thumb.dataset.previewUrl = previewUrl;
         thumb.innerHTML = `
           <div class="classic-live-thumb-media">
             ${
               thumbSrc
-                ? `<img src="${escapeHtml(thumbSrc)}" alt="生成结果缩略图" loading="lazy" decoding="async" referrerpolicy="no-referrer">`
+                ? `<img alt="生成结果缩略图" loading="lazy" decoding="async" referrerpolicy="no-referrer">`
                 : `<div class="classic-live-thumb-pending">${escapeHtml(getClassicLiveStatusLabel(status))}</div>`
             }
           </div>
@@ -881,9 +1052,15 @@ function renderClassicLiveTasks() {
           renderClassicLiveTasks();
         });
         strip.appendChild(thumb);
+        const thumbImg = thumb.querySelector("img");
+        if (thumbImg) {
+          thumbImg.removeAttribute("src");
+          bindClassicPreviewImage(thumbImg, { id: task.id || task.taskId, src: fullUrl, previewSrc: previewUrl });
+        }
       });
       grid.appendChild(strip);
     }
+    releaseRemovedImages();
     return;
   }
 
@@ -893,6 +1070,13 @@ function renderClassicLiveTasks() {
     const previewUrl = getClassicLivePreviewUrl(task);
     const isSuccess = status === "success" && fullUrl;
     const isFailed = status === "failed";
+    const taskSignature = JSON.stringify([status, fullUrl, previewUrl, task.prompt, task.modelLabel, task.routeLabel, task.size, task.ratio, task.referenceCount, task.index, task.errorMessage, task.completedAt || task.createdAt]);
+    const previousCard = previousCards.get(task.id || task.taskId || "");
+    if (previousCard?.dataset.taskSignature === taskSignature) {
+      previousCard.classList.toggle("is-primary", index === 0);
+      grid.appendChild(previousCard);
+      return;
+    }
     const card = document.createElement("div");
     card.className = [
       "classic-live-card",
@@ -904,6 +1088,8 @@ function renderClassicLiveTasks() {
       .join(" ");
     card.dataset.fullUrl = fullUrl;
     card.dataset.previewUrl = previewUrl;
+    card.dataset.liveId = task.id || task.taskId || "";
+    card.dataset.taskSignature = taskSignature;
 
     const timeValue = task.completedAt || task.createdAt;
     const prompt = task.prompt || "未记录提示词";
@@ -914,8 +1100,7 @@ function renderClassicLiveTasks() {
 
     let mediaHtml = "";
     if (isSuccess) {
-      const displayUrl = getClassicImageDisplayUrl(fullUrl, previewUrl);
-      mediaHtml = `<img src="${escapeHtml(displayUrl)}" alt="生成结果" loading="lazy" decoding="async" referrerpolicy="no-referrer">`;
+      mediaHtml = `<img alt="生成结果" loading="lazy" decoding="async" referrerpolicy="no-referrer">`;
     } else if (isFailed) {
       mediaHtml = `<div class="classic-live-error">${escapeHtml(task.errorMessage || "生成失败，请重试")}</div>`;
     } else {
@@ -968,13 +1153,6 @@ function renderClassicLiveTasks() {
     `;
 
     const img = card.querySelector("img");
-    if (img && previewUrl && previewUrl !== fullUrl) {
-      img.addEventListener("error", () => {
-        if (img.dataset.fallbackApplied === "1") return;
-        img.dataset.fallbackApplied = "1";
-        img.src = previewUrl;
-      });
-    }
 
     const readFullUrl = () => card.dataset.fullUrl || card.dataset.previewUrl || "";
     const media = card.querySelector(".classic-live-media");
@@ -997,7 +1175,12 @@ function renderClassicLiveTasks() {
     if (deleteBtn) deleteBtn.addEventListener("click", () => removeClassicLiveTask(task.id || task.taskId || ""));
 
     grid.appendChild(card);
+    if (img) {
+      img.removeAttribute("src");
+      bindClassicPreviewImage(img, { id: task.id || task.taskId, src: fullUrl, previewSrc: previewUrl });
+    }
   });
+  releaseRemovedImages();
 }
 
 function createClassicLiveTask(snapshot = {}) {
@@ -1307,6 +1490,8 @@ window.addEventListener("resize", () => {
 });
 
 function clearHistoryObjectUrlRefs() {
+  classicHistoryRenderGeneration += 1;
+  releaseClassicImageTree(document.getElementById("historyGrid"));
   historyObjectUrls.forEach((url) => URL.revokeObjectURL(url));
   historyObjectUrls = [];
 }
@@ -2786,37 +2971,16 @@ function closeSupportModal() {
 }
 
 // 图片压缩与上传逻辑
-function compressImage(file) {
-  return new Promise((resolve) => {
+async function compressImage(file) {
+  const runtime = window.ClassicImageRuntime;
+  if (!classicReferenceDecodeQueue) classicReferenceDecodeQueue = runtime.createPreviewDecodeQueue(1);
+  const preview = await classicReferenceDecodeQueue.run(() => runtime.makeBrowserPreview(file, { maxEdge: 1024, mimeType: "image/jpeg" }));
+  return runtime.withTimeout(() => new Promise((resolve, reject) => {
     const reader = new FileReader();
-    reader.onload = (e) => {
-      const img = new Image();
-      img.onload = () => {
-        const canvas = document.createElement("canvas");
-        let width = img.width;
-        let height = img.height;
-        const maxDim = 1024;
-        if (width > height) {
-          if (width > maxDim) {
-            height *= maxDim / width;
-            width = maxDim;
-          }
-        } else {
-          if (height > maxDim) {
-            width *= maxDim / height;
-            height = maxDim;
-          }
-        }
-        canvas.width = width;
-        canvas.height = height;
-        const ctx = canvas.getContext("2d");
-        ctx.drawImage(img, 0, 0, width, height);
-        resolve(canvas.toDataURL("image/jpeg", 0.8));
-      };
-      img.src = e.target.result;
-    };
-    reader.readAsDataURL(file);
-  });
+    reader.onload = (event) => resolve(event.target.result);
+    reader.onerror = () => reject(reader.error || new Error("参考图读取失败"));
+    reader.readAsDataURL(preview.blob);
+  }), 15000);
 }
 
 async function buildGrokReferenceFusionImage(imageList) {
@@ -4161,40 +4325,11 @@ function handleSingleError(msg, size) {
 }
 
 // --- 新功能：网络图片转 Base64 ---
-function urlToBase64(url) {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.crossOrigin = "Anonymous"; // 允许跨域读取
-    img.onload = () => {
-      const canvas = document.createElement("canvas");
-      let width = img.width;
-      let height = img.height;
-      // 限制最大尺寸防止 Base64 爆表
-      const maxDim = 1024;
-      if (width > height) {
-        if (width > maxDim) {
-          height *= maxDim / width;
-          width = maxDim;
-        }
-      } else {
-        if (height > maxDim) {
-          width *= maxDim / height;
-          height = maxDim;
-        }
-      }
-      canvas.width = width;
-      canvas.height = height;
-      const ctx = canvas.getContext("2d");
-      ctx.drawImage(img, 0, 0, width, height);
-      try {
-        resolve(canvas.toDataURL("image/jpeg", 0.8));
-      } catch (e) {
-        reject(e);
-      }
-    };
-    img.onerror = () => reject(new Error("图片跨域或加载失败"));
-    img.src = url;
-  });
+async function urlToBase64(url) {
+  const asset = await getClassicOriginalAsset(url, true);
+  if (asset.status !== "ready") throw new Error("原图读取失败");
+  try { return await compressImage(asset.blob); }
+  finally { asset.release(); }
 }
 
 // --- 新功能：一键设为参考图 ---
@@ -4522,6 +4657,7 @@ function clearHistory() {
 
 async function loadHistory() {
   clearHistoryObjectUrlRefs();
+  const renderGeneration = classicHistoryRenderGeneration;
   let history = [];
   try {
     await migrateLocalStorageHistoryToIndexedDB();
@@ -4559,6 +4695,7 @@ async function loadHistory() {
   if (migrated) {
     await writeHistoryRecordsToDB(history);
   }
+  if (renderGeneration !== classicHistoryRenderGeneration) return;
   const grid = document.getElementById("historyGrid");
   if (!grid) return;
   grid.innerHTML = "";
@@ -4602,7 +4739,7 @@ async function loadHistory() {
     div.dataset.displayUrl = url;
 
     div.innerHTML = `
-            <img src="${url}" loading="lazy" decoding="async" onclick="openLightbox(this.closest('.history-item').dataset.fullUrl || this.src)">
+            <img loading="lazy" decoding="async" onclick="openLightbox(this.closest('.history-item').dataset.fullUrl || this.src)">
             <!-- Timestamp Display -->
             ${time ? `<div class="history-time-tag">${time}</div>` : ""}
             <div class="history-cache-badge syncing">缓存中</div>
@@ -4619,32 +4756,7 @@ async function loadHistory() {
     grid.appendChild(div);
     setHistoryCacheBadge(div, "cloud");
 
-    if (recordId) {
-      getCachedHistoryImage(recordId).then((blob) => {
-        if (!blob) {
-          setHistoryCacheBadge(div, "cloud");
-          if (!shouldAutoCacheHistoryImages()) return;
-          cacheHistoryImage(recordId, fullUrl).then(async (ok) => {
-            if (!ok) return;
-            const cachedBlob = await getCachedHistoryImage(recordId);
-            if (!cachedBlob) return;
-            const localUrl = URL.createObjectURL(cachedBlob);
-            historyObjectUrls.push(localUrl);
-            const imgEl = div.querySelector("img");
-            if (imgEl) imgEl.src = localUrl;
-            div.dataset.displayUrl = localUrl;
-            setHistoryCacheBadge(div, "local");
-          });
-          return;
-        }
-        const localUrl = URL.createObjectURL(blob);
-        historyObjectUrls.push(localUrl);
-        const imgEl = div.querySelector("img");
-        if (imgEl) imgEl.src = localUrl;
-        div.dataset.displayUrl = localUrl;
-        setHistoryCacheBadge(div, "local");
-      });
-    }
+    bindClassicPreviewImage(div.querySelector("img"), { id: recordId, src: fullUrl, previewSrc: url });
   });
 }
 
@@ -4741,10 +4853,12 @@ function useAsRefByFetch(url) {
   // Let's try to fetch and add to input if possible, or just open the file dialog.
   // simpler: Fetch blob -> File -> DataTransfer -> Input
 
-  fetch(url)
-    .then((res) => res.blob())
-    .then((blob) => {
+  getClassicOriginalAsset(url, true)
+    .then((asset) => {
+      if (asset.status !== "ready") throw new Error("原图读取失败");
+      const blob = asset.blob;
       const file = new File([blob], "ref_image.png", { type: "image/png" });
+      asset.release();
       const dataTransfer = new DataTransfer();
       dataTransfer.items.add(file);
 
@@ -4768,28 +4882,55 @@ function useAsRefByFetch(url) {
     });
 }
 
-function openLightbox(src) {
+async function openLightbox(src) {
   if (!src) return;
-  document.getElementById("lbImg").src = src;
-  document.getElementById("lightbox").style.display = "flex";
+  closeLightbox();
+  const generation = classicLightboxGeneration;
+  const lightbox = document.getElementById("lightbox");
+  const img = document.getElementById("lbImg");
+  lightbox.style.display = "flex";
+  img.alt = "正在读取原图…";
+  const asset = await getClassicOriginalAsset(src, true);
+  if (generation !== classicLightboxGeneration || lightbox.style.display === "none") {
+    asset.release();
+    return;
+  }
+  if (asset.status !== "ready") {
+    img.alt = "原图读取失败，请关闭后重试";
+    showSoftToast("原图读取失败，请关闭后重试");
+    return;
+  }
+  classicLightboxLease = asset;
+  img.alt = "原图";
+  img.src = asset.url;
 }
 function closeLightbox() {
+  classicLightboxGeneration += 1;
   document.getElementById("lightbox").style.display = "none";
+  document.getElementById("lbImg").removeAttribute("src");
+  if (classicLightboxLease) classicLightboxLease.release();
+  classicLightboxLease = null;
 }
 
 async function downloadSingleImg(src) {
+  let asset;
   try {
-    const res = await fetch(src);
-    const blob = await res.blob();
-    const url = URL.createObjectURL(blob);
+    asset = await getClassicOriginalAsset(src, true);
+    if (asset.status !== "ready") throw new Error("原图不可用");
     const a = document.createElement("a");
-    a.href = url;
-    a.download = `NanoBanana_${Date.now()}.png`;
+    a.href = asset.url;
+    const extension = ({ "image/jpeg": "jpg", "image/webp": "webp", "image/gif": "gif", "image/avif": "avif" })[asset.blob.type] || "png";
+    a.download = `NanoBanana_${Date.now()}.${extension}`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
+    const completedAsset = asset;
+    asset = null;
+    setTimeout(() => completedAsset.release(), 1000);
   } catch {
     window.open(src, "_blank");
+  } finally {
+    asset?.release();
   }
 }
 
@@ -5030,19 +5171,23 @@ window.addEventListener("load", () => {
 });
 
 async function tryBackfillHistoryCache() {
-  let history = [];
-  try {
-    await migrateLocalStorageHistoryToIndexedDB();
-    history = await readHistoryRecordsFromDB();
-  } catch {
-    return;
-  }
-  for (const item of history) {
-    if (!item?.id || !getHistoryFullUrl(item)) continue;
-    const exists = await getCachedHistoryImage(item.id);
-    if (exists) continue;
-    await cacheHistoryImage(item.id, getHistoryFullUrl(item));
-  }
+  if (!isClassicHistoryTabActive()) return;
+  const generation = classicHistoryRenderGeneration;
+  const cards = Array.from(document.querySelectorAll("#historyGrid .history-item")).filter((card) => {
+    const bounds = card.getBoundingClientRect();
+    return bounds.bottom > 0 && bounds.top < window.innerHeight;
+  }).slice(0, 4);
+  const work = async () => {
+    for (const card of cards) {
+      if (generation !== classicHistoryRenderGeneration || !card.isConnected || !isClassicHistoryTabActive()) return;
+      const input = classicImageBindings.get(card.querySelector("img"));
+      if (!input) continue;
+      const preview = await getClassicImageReader().acquire({ ...input, variant: "preview" });
+      preview.release();
+    }
+  };
+  if (window.requestIdleCallback) window.requestIdleCallback(() => void work(), { timeout: 2000 });
+  else setTimeout(() => void work(), 300);
 }
 
 // 监听 API Key 输入

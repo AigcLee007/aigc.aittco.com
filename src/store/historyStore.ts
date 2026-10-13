@@ -1,6 +1,8 @@
 import { create } from 'zustand';
 import { createJSONStorage, persist, type StateStorage } from 'zustand/middleware';
 import { get, set, del } from 'idb-keyval';
+import { bounded } from '../services/imageAssetTypes';
+import { beginLocalRead, deferLocalRecoveryWrite, finishLocalRead, localStoreWritable, mergeRecoveredLocalState, setLocalReadFailed } from '../services/localHydrationSafety';
 
 const MAX_HISTORY_LOGS = 50;
 
@@ -27,7 +29,7 @@ const isInlineDataUrl = (value?: string | null): boolean =>
   typeof value === 'string' && value.trim().toLowerCase().startsWith('data:');
 
 const cleanUrlForLocalHistory = (value?: string | null): string =>
-  isInlineDataUrl(value) ? '' : String(value || '').trim();
+  isInlineDataUrl(value) || String(value || '').startsWith('blob:') ? '' : String(value || '').trim();
 
 const sanitizeHistoryLog = (log: Partial<GenerationLog> | null | undefined, allowEmptyAsset = false): GenerationLog | null => {
   if (!log || typeof log !== 'object') return null;
@@ -54,7 +56,8 @@ const sanitizeHistoryLogs = (logs: Partial<GenerationLog>[] = []): GenerationLog
 
 const indexedDbHistoryStorage: StateStorage = {
   getItem: async (name: string) => {
-    const value = await get<string>(name);
+    let value: string | undefined;
+    try { value = await bounded(get<string>(name), 8000); } catch { setLocalReadFailed(name);return null; }
     if (typeof value === 'string') return value;
     if (typeof window !== 'undefined' && window.localStorage) {
       const legacyValue = window.localStorage.getItem(name);
@@ -67,6 +70,7 @@ const indexedDbHistoryStorage: StateStorage = {
     return null;
   },
   setItem: async (name: string, value: string) => {
+    if (!localStoreWritable(name)) return;
     await set(name, value);
   },
   removeItem: async (name: string) => {
@@ -126,11 +130,26 @@ export const useHistoryStore = create<HistoryStore>()(
     {
       name: 'infinitemuse-history',
       storage: createJSONStorage(() => indexedDbHistoryStorage),
+      onRehydrateStorage: state => {
+        const name = 'infinitemuse-history';
+        beginLocalRead(name, state);
+        return (merged, error) => {
+          if (finishLocalRead(name, error) && merged) {
+            deferLocalRecoveryWrite(name, () => indexedDbHistoryStorage.setItem(name, JSON.stringify({
+              state:{logs:sanitizeHistoryLogs(useHistoryStore.getState().logs)},version:0,
+            })));
+          }
+        };
+      },
       partialize: (state) => ({ logs: sanitizeHistoryLogs(state.logs) }),
-      merge: (persistedState, currentState) => ({
-        ...currentState,
-        logs: sanitizeHistoryLogs((persistedState as Partial<HistoryStore> | null)?.logs || []),
-      }),
+      merge: (persistedState, currentState) => {
+        if (!persistedState) return currentState;
+        const merged = mergeRecoveredLocalState('infinitemuse-history', {
+          ...currentState,
+          logs: sanitizeHistoryLogs((persistedState as Partial<HistoryStore>).logs || []),
+        }, currentState, ['logs']);
+        return { ...merged, logs: merged.logs.slice(0, MAX_HISTORY_LOGS) };
+      },
     }
   )
 );

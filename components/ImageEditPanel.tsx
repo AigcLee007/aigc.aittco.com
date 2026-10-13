@@ -16,6 +16,7 @@ import { useCanvasStore } from '../src/store/canvasStore';
 import { useSelectionStore } from '../src/store/selectionStore';
 import { renderMaskToDataURL } from '../src/utils/imageUtils';
 import { editImageApi, normalizeImageResultValue } from '../services/api';
+import { acquireImageAsset, type ImageLease } from '../src/services/imageAssetCache';
 import ModelSelector, { type ModelOption } from './ModelSelector';
 import DropUpSelect from './DropUpSelect';
 import ImageModelIcon from './ImageModelIcon';
@@ -443,7 +444,7 @@ const ImageEditPanel: React.FC<ImageEditPanelProps> = ({
       );
       return;
     }
-    if (!selectedNode || selectedNode.type !== 'IMAGE' || !selectedNode.src) {
+    if (!selectedNode || selectedNode.type !== 'IMAGE' || (!selectedNode.src && !selectedNode.assetId)) {
       setError('请先在画布上选中一张图片');
       return;
     }
@@ -464,11 +465,11 @@ const ImageEditPanel: React.FC<ImageEditPanelProps> = ({
     setIsSubmitting(true);
     setStatus(AppStatus.LOADING);
 
+    let original: ImageLease | undefined;
     try {
-      const safeSource = selectedNode.src.startsWith('http')
-        ? `/api/proxy/image?url=${encodeURIComponent(selectedNode.src)}`
-        : selectedNode.src;
-      const image = await loadImage(safeSource);
+      original = await acquireImageAsset(selectedNode, {variant:'original'});
+      if (!original.image) throw new Error(original.message || '原图读取失败');
+      const image = original.image;
       const intrinsicWidth = image.naturalWidth;
       const intrinsicHeight = image.naturalHeight;
       const effectiveRatio =
@@ -586,6 +587,7 @@ const ImageEditPanel: React.FC<ImageEditPanelProps> = ({
     } catch (submitError: any) {
       setError(submitError?.message || '编辑任务提交失败');
     } finally {
+      original?.release();
       setIsSubmitting(false);
       setStatus(AppStatus.IDLE);
     }

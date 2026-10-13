@@ -6,6 +6,8 @@ import InstructionsModal from '../../components/InstructionsModal';
 import ContextMenu from '../../components/ContextMenu';
 import AnnouncementPopup from '../../components/AnnouncementPopup';
 import { X } from 'lucide-react';
+import type { ImageAssetRef } from '../services/imageAssetTypes';
+import { AssetImage } from '../components/AssetImage';
 
 interface ModalsContainerProps {
   settingsOpen: boolean;
@@ -30,7 +32,7 @@ interface ModalsContainerProps {
   instructionsOpen: boolean;
   onCloseInstructions: () => void;
 
-  lightboxImage: string | null;
+  lightboxImage: string | ImageAssetRef | null;
   onCloseLightbox: () => void;
 
   showClearConfirm: boolean;
@@ -109,7 +111,7 @@ export const ModalsContainer: React.FC<ModalsContainerProps> = ({
         <div className="fixed inset-0 z-[70] bg-black/90 backdrop-blur-md flex items-center justify-center p-8" onClick={onCloseLightbox}>
           <button onClick={onCloseLightbox} className="absolute top-4 right-4 p-2 text-white/70 hover:text-white bg-white/10 rounded-full"><X size={24} /></button>
           
-          {(lightboxImage.toLowerCase().endsWith('.mp4') || lightboxImage.toLowerCase().includes('format=mp4')) ? (
+          {(typeof lightboxImage === 'string' && (lightboxImage.toLowerCase().endsWith('.mp4') || lightboxImage.toLowerCase().includes('format=mp4'))) ? (
              <video 
                src={lightboxImage} 
                className="max-w-full max-h-full object-contain shadow-2xl rounded-sm"
@@ -119,7 +121,7 @@ export const ModalsContainer: React.FC<ModalsContainerProps> = ({
                onClick={(e) => e.stopPropagation()} 
              />
           ) : (
-             <img src={lightboxImage} className="max-w-full max-h-full object-contain shadow-2xl rounded-sm" onClick={(e) => e.stopPropagation()} />
+             <AssetImage asset={typeof lightboxImage === 'string' ? {src:lightboxImage} : lightboxImage} variant="original" className="max-w-full max-h-full overflow-auto shadow-2xl rounded-sm" onClick={(e) => e.stopPropagation()} />
           )}
         </div>
       )}

@@ -13,6 +13,7 @@ import {
 import { ToolMode } from '../types';
 import logo from '../src/assets/logo.svg';
 import { getPreferredImageDisplayUrl } from '../src/utils/generatedImageStorage';
+import { AssetImage } from '../src/components/AssetImage';
 
 interface MobileViewProps {
   onOpenSettings: () => void;
@@ -109,9 +110,9 @@ const MobileView: React.FC<MobileViewProps> = ({
               key={node.id}
               type="button"
               className="aspect-square relative rounded-xl overflow-hidden bg-white/5 border border-white/10 shadow-sm active:scale-95 transition-transform text-left"
-              onClick={() => node.src && openLightbox(node.src)}
+              onClick={() => (node.src || node.assetId) && openLightbox(node.type === 'IMAGE' ? node : node.src!)}
             >
-              {node.src ? (
+              {(node.src || node.assetId) && !node.loading && !node.error ? (
                 <>
                   {node.type === 'VIDEO' ? (
                     <video
@@ -122,12 +123,7 @@ const MobileView: React.FC<MobileViewProps> = ({
                       playsInline
                     />
                   ) : (
-                    <img
-                      src={getPreferredImageDisplayUrl(node.src, node.thumbnailSrc)}
-                      alt={node.prompt || '作品'}
-                      className="w-full h-full object-cover"
-                      loading="lazy"
-                    />
+                    <AssetImage asset={node} alt={node.prompt || '作品'} className="w-full h-full" lazy />
                   )}
 
                   {node.type === 'VIDEO' && (

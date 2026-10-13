@@ -14,6 +14,8 @@ export type NodeType = 'IMAGE' | 'VIDEO';
 
 export interface HistoryItem {
   src: string;
+  assetId?: string;
+  thumbnailSrc?: string;
   prompt?: string;
 }
 

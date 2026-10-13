@@ -20,6 +20,8 @@ import { useImageRouteCatalog } from '../../src/hooks/useImageRouteCatalog';
 import { useImageModelCatalog } from '../../src/hooks/useImageModelCatalog';
 import { useVideoModelCatalog } from '../../src/hooks/useVideoModelCatalog';
 import { useVideoRouteCatalog } from '../../src/hooks/useVideoRouteCatalog';
+import { readOriginalBlob } from '../../src/services/imageAssetCache';
+import { blobToDataUrl } from '../../src/services/imageBlobUtils';
 
 interface SatelliteLayerProps {
   onInitGenerations: (count: number, prompt: string, aspectRatio?: string, baseNode?: NodeData, type?: 'IMAGE' | 'VIDEO') => string[];
@@ -51,7 +53,7 @@ export const SatelliteLayer: React.FC<SatelliteLayerProps> = ({ onInitGeneration
 
   // Render Logic
   const showPrompter = selectedIds.length === 0;
-  const showSatellite = !!primaryNode && (primaryNode.type === 'IMAGE' || primaryNode.type === 'VIDEO') && primaryNode.src && !primaryNode.loading;
+  const showSatellite = !!primaryNode && (primaryNode.type === 'IMAGE' || primaryNode.type === 'VIDEO') && (primaryNode.src || primaryNode.assetId) && !primaryNode.loading;
 
   // Position Calculation
   const getScreenCoords = (node: NodeData) => {
@@ -114,22 +116,22 @@ export const SatelliteLayer: React.FC<SatelliteLayerProps> = ({ onInitGeneration
     // For now, logging to console
     console.log("Satellite Action:", action, "on node", primaryNode?.id);
     
-    if (action === 'animate' && primaryNode && primaryNode.type === 'IMAGE' && primaryNode.src) {
+    if (action === 'animate' && primaryNode && primaryNode.type === 'IMAGE' && (primaryNode.src || primaryNode.assetId)) {
         // Quick Animate Logic
         const prompt = primaryNode.prompt || "Animate this image";
         const placeholderIds = onInitGenerations(1, prompt, defaultVideoAspectRatio, primaryNode, 'VIDEO');
         const pid = placeholderIds[0];
         
-        generateVideo(apiKey, {
+        readOriginalBlob(primaryNode).then(blobToDataUrl).then(referenceImage=>generateVideo(apiKey, {
           modelId: defaultVideoModel.id,
           routeId: defaultVideoRoute.id,
           prompt,
           aspectRatio: defaultVideoAspectRatio,
           resolution: defaultVideoResolution,
           duration: defaultVideoDuration,
-          referenceImages: [primaryNode.src],
+          referenceImages: [referenceImage],
           referenceVideos: [],
-        })
+        }))
             .then(url => onUpdateGeneration(pid, url))
             .catch(err => onUpdateGeneration(pid, null, err.message));
     }

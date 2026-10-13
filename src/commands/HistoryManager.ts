@@ -42,6 +42,14 @@ export class HistoryManager implements CommandManager {
         this.future = [];
     }
 
+    getAssetIds(): string[] {
+        return [...this.history, ...this.future].flatMap(command => command.getAssetIds?.() || []);
+    }
+
+    getAssetSources(): string[] {
+        return [...this.history, ...this.future].flatMap(command => command.getAssetSources?.() || []);
+    }
+
     canUndo(): boolean {
         return this.history.length > 0;
     }

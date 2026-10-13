@@ -1,77 +1,62 @@
-import { get, set, del, keys } from 'idb-keyval';
+import { get, keys, setMany, delMany } from 'idb-keyval';
 import { v4 as uuidv4 } from 'uuid';
+import { createPreview, PREVIEW_VERSION } from './imagePreview';
+import { bounded, ImageAssetError } from './imageAssetTypes';
+import { takePreviewPreparationSlot } from './imagePreparationQueue';
 
-const ASSET_STORE_PREFIX = 'asset-';
+export interface AssetMeta { createdAt: number; width?: number; height?: number; bytes: number; mime: string; previewVersion?: number }
+const previews = new Map<string, Promise<Blob>>();
+const pins = new Map<string, number>();
+export const pinAsset = (id: string): (() => void) => {
+  pins.set(id, (pins.get(id) || 0) + 1);
+  let released=false;
+  return () => { if(released)return;released=true;const count = (pins.get(id) || 1) - 1; if (count) pins.set(id,count); else pins.delete(id); };
+};
+export const pinnedAssetIds = () => Array.from(pins.keys());
+export const isValidAssetBlob = (value: unknown): value is Blob => value instanceof Blob && value.size > 0 && (!value.type || value.type.startsWith('image/'));
 
 export const assetStorage = {
-  /**
-   * Stores a blob in IndexedDB and returns a unique asset ID.
-   */
   async storeBlob(blob: Blob): Promise<string> {
-    const assetId = uuidv4();
-    const key = `${ASSET_STORE_PREFIX}${assetId}`;
-    await set(key, blob);
-    return assetId;
+    if (!isValidAssetBlob(blob)) throw new ImageAssetError('DECODE', '不是有效图片');
+    const id=uuidv4();
+    // Original commits first; failed preview creation never loses original bytes.
+    await bounded(setMany([[`asset-${id}`,blob],[`asset-meta-${id}`,{createdAt:Date.now(),bytes:blob.size,mime:blob.type} satisfies AssetMeta]]));
+    return id;
   },
-
-  /**
-   * Retrieves a blob by asset ID.
-   */
-  async getBlob(assetId: string): Promise<Blob | undefined> {
-    const key = `${ASSET_STORE_PREFIX}${assetId}`;
-    return await get(key);
+  async getBlob(id: string): Promise<Blob | undefined> { return bounded(get(`asset-${id}`)); },
+  async getMeta(id: string): Promise<AssetMeta | undefined> { return bounded(get(`asset-meta-${id}`)); },
+  async ensurePreview(id: string, force = false): Promise<Blob> {
+    const existing=previews.get(id); if (existing) return existing;
+    const unpin=pinAsset(id);
+    const work=(async () => {
+      const releasePreparation=await takePreviewPreparationSlot();
+      try {
+      const [cached,meta]=await Promise.all([bounded(get<Blob>(`asset-preview-${id}`)),this.getMeta(id)]);
+      if (!force && isValidAssetBlob(cached) && meta?.previewVersion === PREVIEW_VERSION) return cached;
+      const original=await this.getBlob(id);
+      if (!isValidAssetBlob(original)) throw new ImageAssetError('NOT_FOUND', '本地图片不存在');
+      const preview=await createPreview(original);
+      try { await bounded(setMany([[`asset-preview-${id}`,preview.blob],[`asset-meta-${id}`,{
+        createdAt:meta?.createdAt || Date.now(),bytes:original.size,mime:original.type,width:preview.width,height:preview.height,previewVersion:PREVIEW_VERSION
+      } satisfies AssetMeta]])); } catch { /* A full local cache must not discard a usable small preview. */ }
+      return preview.blob;
+      }finally{releasePreparation();}
+    })();
+    previews.set(id,work);
+    try { return await work; } finally { previews.delete(id); unpin(); }
   },
-
-  /**
-   * Removes a blob by asset ID.
-   */
-  async deleteBlob(assetId: string): Promise<void> {
-    const key = `${ASSET_STORE_PREFIX}${assetId}`;
-    await del(key);
-  },
-
-  async cleanupUnusedAssets(activeAssetIds: Iterable<string>): Promise<{ removed: number; kept: number }> {
-    const active = new Set(
-      Array.from(activeAssetIds || [])
-        .map((item) => String(item || '').trim())
-        .filter(Boolean)
-    );
-    const allKeys = await keys();
-    let removed = 0;
-    let kept = 0;
-
-    await Promise.all(
-      allKeys.map(async (key) => {
-        if (typeof key !== 'string' || !key.startsWith(ASSET_STORE_PREFIX)) return;
-        const assetId = key.slice(ASSET_STORE_PREFIX.length);
-        if (active.has(assetId)) {
-          kept += 1;
-          return;
-        }
-        await del(key);
-        removed += 1;
-      })
-    );
-
-    return { removed, kept };
-  },
-
-  /**
-   * Creates an Object URL for the given asset ID.
-   * This handles fetching the blob and creating the URL.
-   * Note: The caller is responsible for revoking the URL if needed, 
-   * though typically we reuse these for the session lifetime.
-   */
-  async getAssetUrl(assetId: string): Promise<string | null> {
-    const blob = await this.getBlob(assetId);
-    if (blob) {
-      return URL.createObjectURL(blob);
+  async deleteBlob(id: string): Promise<void> { if (!pins.has(id)) await delMany([`asset-${id}`,`asset-preview-${id}`,`asset-meta-${id}`]); },
+  async cleanupUnusedAssets(activeIds: Iterable<string>, currentReferences?: () => Iterable<string>): Promise<{removed:number;kept:number}> {
+    const active=new Set([...activeIds,...pins.keys()]); let removed=0,kept=0;
+    for (const key of await keys()) {
+      if (typeof key!=='string' || !key.startsWith('asset-') || key.startsWith('asset-meta-') || key.startsWith('asset-preview-') || key.startsWith('asset-source-')) continue;
+      const id=key.slice(6), meta=await this.getMeta(id);
+      // Unknown legacy assets remain recoverable; do not guess their ownership.
+      if (active.has(id) || pins.has(id) || !meta || Date.now()-meta.createdAt < 7*86400000 || (currentReferences && new Set(currentReferences()).has(id))) { kept++; continue; }
+      await this.deleteBlob(id); removed++;
     }
-    return null;
+    return {removed,kept};
   },
-
-  /**
-   * Cleaning up unused assets could be added here later.
-   * We would compare all keys in IDB with all assetIds in the store.
-   */
+  // Compatibility: this short-lived URL is owned and revoked by its caller.
+  async getAssetUrl(id: string): Promise<string | null> { const blob=await this.getBlob(id); return isValidAssetBlob(blob) ? URL.createObjectURL(blob) : null; },
 };

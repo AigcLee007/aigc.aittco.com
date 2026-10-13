@@ -1,3 +1,6 @@
+import { AssetImage } from '../src/components/AssetImage';
+import { assetActionSource } from '../src/services/imageAssetActions';
+import { readOriginalBlob } from '../src/services/imageAssetCache';
 ﻿import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { X, Key, CreditCard, ShoppingCart, Loader2, History, Settings, RotateCcw, Trash2, Eye, EyeOff, Download, ImagePlus, Maximize2, DownloadCloud, Info, Film, AlertCircle, ChevronLeft, ChevronRight, ShieldCheck, Save } from 'lucide-react';
 import JSZip from 'jszip';
@@ -59,7 +62,7 @@ const ResolvedHistoryItem = ({
   const [hasError, setHasError] = useState(false);
   const touchStartRef = useRef<{ x: number; y: number } | null>(null);
   const touchMovedRef = useRef(false);
-  const originalUrl = log.imageUrl || resolvedUrl;
+  const originalUrl = log.type === 'VIDEO' ? log.imageUrl : assetActionSource({src:log.imageUrl,assetId:log.assetId});
   const extractRawFromProxy = (url: string): string | null => {
     if (!url?.startsWith('/api/proxy/image?url=')) return null;
     try {
@@ -83,25 +86,6 @@ const ResolvedHistoryItem = ({
     setHasError(false);
   }, [log.imageUrl, log.thumbnailUrl]);
 
-  useEffect(() => {
-    let active = true;
-    const resolveAsset = async () => {
-      if (log.assetId && (!log.imageUrl || log.imageUrl.startsWith('blob:') || hasError)) {
-        try {
-          const freshUrl = await import('../src/services/assetStorage').then(m => m.assetStorage.getAssetUrl(log.assetId!));
-          if (freshUrl && active) {
-            setResolvedUrl(freshUrl);
-            setHasError(false);
-          }
-        } catch (e) {
-          console.warn("Could not resolve asset blob for history item", log.assetId);
-        }
-      }
-    };
-    resolveAsset();
-    return () => { active = false; };
-  }, [log.assetId, log.imageUrl, hasError]);
-
   const actionBtnClass = isMobile
     ? "min-w-9 min-h-9 px-2 bg-white/10 active:bg-white/20 text-white rounded-lg transition-colors touch-manipulation active:scale-95"
     : "min-w-8 min-h-8 px-2 bg-white/10 hover:bg-white/20 text-white rounded-lg transition-colors";
@@ -115,7 +99,7 @@ const ResolvedHistoryItem = ({
         title={fullTime ? `生成时间：${fullTime}` : undefined}
         draggable
         onDragStart={(e) => {
-          e.dataTransfer.setData('text/plain', resolvedUrl);
+          e.dataTransfer.setData('text/plain', originalUrl);
           e.dataTransfer.effectAllowed = 'copy';
         }}
       >
@@ -131,13 +115,7 @@ const ResolvedHistoryItem = ({
             onError={handleMediaLoadError}
           />
         ) : (
-          <img
-            src={resolvedUrl}
-            alt={log.prompt}
-            className="w-full h-auto block"
-            loading="lazy"
-            onError={handleMediaLoadError}
-          />
+          <AssetImage asset={{assetId:log.assetId,src:log.imageUrl,thumbnailSrc:log.thumbnailUrl}} alt={log.prompt} className="w-full h-auto block" lazy />
         )}
 
         {relativeTime && (
@@ -224,7 +202,7 @@ const ResolvedHistoryItem = ({
       onTouchStart={handleTouchStart}
       onTouchMove={handleTouchMove}
       onDragStart={(e) => {
-        e.dataTransfer.setData('text/plain', resolvedUrl);
+        e.dataTransfer.setData('text/plain', originalUrl);
         e.dataTransfer.effectAllowed = 'copy';
       }}
     >
@@ -246,13 +224,7 @@ const ResolvedHistoryItem = ({
             onError={handleMediaLoadError}
           />
         ) : (
-          <img
-            src={resolvedUrl}
-            alt={log.prompt}
-            className="w-full h-full object-cover"
-            loading="lazy"
-            onError={handleMediaLoadError}
-          />
+          <AssetImage asset={{assetId:log.assetId,src:log.imageUrl,thumbnailSrc:log.thumbnailUrl}} alt={log.prompt} className="w-full h-full object-cover" lazy />
         )}
         {historyMediaType === 'video' && (
           <div className="absolute top-1.5 right-1.5 w-5 h-5 rounded-full bg-black/60 border border-white/20 flex items-center justify-center">
@@ -548,28 +520,14 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
     try {
       const zip = new JSZip();
 
-      const downloadPromises = effectiveLogs.map(async (log, index) => {
+      for (let index=0;index<effectiveLogs.length;index++) {
+        const log=effectiveLogs[index];
         try {
-          let downloadUrl = log.imageUrl;
-          if (!downloadUrl && log.assetId) {
-            downloadUrl = await import('../src/services/assetStorage').then(m => m.assetStorage.getAssetUrl(log.assetId!)) || '';
-          }
-          if (!downloadUrl) return;
-          // fetch works for both URL and DataURL
-          const response = await fetch(downloadUrl);
-          const blob = await response.blob();
-
-          const cleanPrompt = (log.prompt || 'image').slice(0, 30).replace(/[^a-z0-9]/gi, '_').trim();
-          const ext = blob.type.split('/')[1] || 'png';
-          // reverse index so newest is highest number or just keep it simple
-          const filename = `${String(effectiveLogs.length - index).padStart(3, '0')}_${cleanPrompt}.${ext}`;
-          zip.file(filename, blob);
-        } catch (e) {
-          console.error("Batch download: failed to fetch image", log.imageUrl, e);
-        }
-      });
-
-      await Promise.all(downloadPromises);
+          const blob=log.type==='VIDEO' ? await (await fetch(log.imageUrl)).blob() : await readOriginalBlob({assetId:log.assetId,src:log.imageUrl});
+          const cleanPrompt=(log.prompt || 'image').slice(0,30).replace(/[^a-z0-9]/gi,'_');
+          zip.file(String(effectiveLogs.length-index).padStart(3,'0')+'_'+cleanPrompt+'.'+(blob.type.split('/')[1] || 'png'),blob);
+        } catch (error) { console.error('Batch download failed',error); }
+      }
       const content = await zip.generateAsync({ type: "blob" });
       saveAs(content, `history_images_${new Date().toISOString().split('T')[0]}.zip`);
     } catch (err) {

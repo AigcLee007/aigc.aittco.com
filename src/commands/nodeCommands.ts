@@ -1,8 +1,12 @@
 import { Command } from './types';
 import { useCanvasStore } from '../store/canvasStore';
 import { NodeData } from '../../types';
+const assetIds = (node: Partial<NodeData>): string[] => [node.assetId, ...(node.history || []).map(item => item.assetId)].filter((id): id is string => Boolean(id));
+const assetSources = (node: Partial<NodeData>): string[] => [node.src, ...(node.history || []).map(item => item.src)].filter((src): src is string => Boolean(src));
 
 export class AddNodeCommand implements Command {
+    getAssetIds() { return assetIds(this.node); }
+    getAssetSources() { return assetSources(this.node); }
     private node: NodeData;
 
     constructor(node: NodeData) {
@@ -20,6 +24,8 @@ export class AddNodeCommand implements Command {
 }
 
 export class DeleteNodeCommand implements Command {
+    getAssetIds() { return this.nodesToDelete.flatMap(assetIds); }
+    getAssetSources() { return this.nodesToDelete.flatMap(assetSources); }
     private nodesToDelete: NodeData[];
 
     constructor(nodesToDelete: NodeData[]) {
@@ -61,6 +67,8 @@ export class MoveNodeCommand implements Command {
 }
 
 export class UpdateNodeCommand implements Command {
+    getAssetIds() { return [...assetIds(this.oldData), ...assetIds(this.newData)]; }
+    getAssetSources() { return [...assetSources(this.oldData), ...assetSources(this.newData)]; }
     private nodeId: string;
     private oldData: Partial<NodeData>;
     private newData: Partial<NodeData>;
@@ -82,6 +90,8 @@ export class UpdateNodeCommand implements Command {
 }
 
 export class SetNodesCommand implements Command {
+    getAssetIds() { return [...this.oldNodes, ...this.newNodes].flatMap(assetIds); }
+    getAssetSources() { return [...this.oldNodes, ...this.newNodes].flatMap(assetSources); }
     private newNodes: NodeData[];
     private oldNodes: NodeData[];
 

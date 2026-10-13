@@ -1,3 +1,5 @@
+import { createPreview, decodeImage } from '../src/services/imagePreview';
+import { readOriginalBlob } from '../src/services/imageAssetCache';
 ﻿import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { AppStatus, NodeData, ToolMode } from '../types';
 import { useSelectionStore, type ReferenceImage } from '../src/store/selectionStore';
@@ -6,6 +8,7 @@ import { editImageApi, generateImageApi, generateGeminiImage, normalizeImageResu
 import { generateVideo } from '../services/videoService';
 import { checkBalance } from '../services/geminiService';
 import { assetStorage } from '../src/services/assetStorage';
+import { AssetImage } from '../src/components/AssetImage';
 import { fetchPromptToolConfig, optimizePrompt, PromptOption } from '../services/promptService';
 import { useHistoryStore } from '../src/store/historyStore';
 import { Wand2, Loader2, ImagePlus, X, Upload, Plus, Move, Sparkles, Minus, Maximize2, ChevronLeft, ChevronRight, Check, Clapperboard, Film, HelpCircle, LayoutGrid, MonitorPlay, Zap, Pin, PinOff, Eraser, Trash2, ShieldCheck } from 'lucide-react';
@@ -529,48 +532,22 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
   // findClosestRatio and extractRatioFromPrompt moved to imageUtils.ts
 
   const createCollageFromSrcs = async (srcs: string[]): Promise<string> => {
-    if (srcs.length === 0) return '';
-    // Removed short-circuit: Always convert to base64 via canvas to ensure valid data payload
-    // if (srcs.length === 1) return srcs[0];
-    return new Promise((resolve, reject) => {
-      const loadedImages: HTMLImageElement[] = [];
-      let loadedCount = 0;
-      let hasError = false;
-      srcs.forEach(src => {
-        const img = new Image();
-        img.crossOrigin = "anonymous";
-        img.onload = () => {
-          if (hasError) return;
-          loadedCount++;
-          if (loadedCount === srcs.length) renderCollage();
-        };
-        img.onerror = () => { hasError = true; reject(new Error("加载参考图失败")); };
-        img.src = src;
-        loadedImages.push(img);
-      });
-      const renderCollage = () => {
-        const gap = 10;
-        let maxHeight = 0;
-        loadedImages.forEach(img => { maxHeight = Math.max(maxHeight, img.height); });
-        const scale = maxHeight > 1024 ? 1024 / maxHeight : 1;
-        let scaledTotalWidth = 0;
-        loadedImages.forEach(img => { scaledTotalWidth += (img.width * scale) + gap; });
-        const canvas = document.createElement('canvas');
-        canvas.width = scaledTotalWidth - gap;
-        canvas.height = maxHeight * scale;
-        const ctx = canvas.getContext('2d');
-        if (!ctx) { reject(new Error("Canvas 创建失败")); return; }
-        ctx.fillStyle = '#ffffff';
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-        let currentX = 0;
-        loadedImages.forEach(img => {
-          const w = img.width * scale;
-          ctx.drawImage(img, currentX, 0, w, img.height * scale);
-          currentX += w + gap;
-        });
-        resolve(canvas.toDataURL('image/jpeg', 0.9));
-      };
-    });
+    if (!srcs.length) return '';
+    const images:HTMLImageElement[]=[];const urls:string[]=[];
+    const canvas=document.createElement('canvas');
+    try {
+      // Decode each original to a small working image before retaining the next.
+      for(const src of srcs) {
+        const preview=await createPreview(await readOriginalBlob({src}));
+        const url=URL.createObjectURL(preview.blob);urls.push(url);images.push(await decodeImage(url));
+      }
+      const gap=20,height=Math.max(...images.map(img=>img.naturalHeight));
+      canvas.width=images.reduce((sum,img)=>sum+img.naturalWidth+gap,0)-gap;canvas.height=height;
+      const ctx=canvas.getContext('2d');if(!ctx)throw new Error('Canvas 创建失败');
+      ctx.fillStyle='#fff';ctx.fillRect(0,0,canvas.width,canvas.height);let x=0;
+      for(const img of images){ctx.drawImage(img,x,0);x+=img.naturalWidth+gap;}
+      return canvas.toDataURL('image/jpeg',0.9);
+    } finally {for(const img of images)img.src='';for(const url of urls)URL.revokeObjectURL(url);canvas.width=canvas.height=0;}
   };
 
   const fileToDataUrl = async (file: File): Promise<string> =>
@@ -1008,24 +985,15 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
       return payload;
     };
 
-    const referenceToDataUrl = async (ref: ReferenceImage): Promise<string | null> => {
+    const referenceToDataUrl = async (ref: {src?:string;assetId?:string;blob?:Blob}): Promise<string | null> => {
       try {
-        if (ref.blob) {
-          return await new Promise<string>((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onloadend = () => {
-              if (typeof reader.result === 'string') resolve(reader.result);
-              else reject(new Error('Failed to read blob as data URL'));
-            };
-            reader.onerror = () => reject(reader.error || new Error('FileReader error'));
-            reader.readAsDataURL(ref.blob as Blob);
-          });
-        }
-        return await getBase64FromUrl(ref.src);
-      } catch (error) {
-        console.error('Failed to convert reference image:', error);
-        return null;
-      }
+        const blob=ref.blob || await readOriginalBlob(ref);
+        return await new Promise<string>((resolve,reject)=>{
+          const reader=new FileReader();
+          reader.onload=()=>typeof reader.result==='string' ? resolve(reader.result) : reject(new Error('图片读取失败'));
+          reader.onerror=()=>reject(reader.error); reader.readAsDataURL(blob);
+        });
+      } catch (error) { console.error('Failed to convert reference image',error); return null; }
     };
 
     const isGrokImageModel = (model: string) => model.startsWith('grok-');
@@ -1051,7 +1019,9 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
 
     if (effectiveImg2ImgMode && selectedNodes.length > 0) {
       for (const node of selectedNodes) {
-        if (!node.src) continue;
+        if (!node.src && !node.assetId) continue;
+        const originalData = await referenceToDataUrl(node);
+        if (!originalData) { setError('原图读取失败，请重新读取后再试'); continue; }
         const placeholderIds = onInitGenerations(quantity, currentPrompt, effectiveRatio, node);
         placeholderIds.forEach(pid => {
             const payload: any = {
@@ -1061,7 +1031,7 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
               size: getEffectiveSize(),
               aspect_ratio: effectiveRatio,
               n: 1,
-              image: node.src!.includes(',') ? node.src!.split(',')[1] : node.src,
+              image: originalData.split(',')[1],
               routeId: selectedImageRoute.id,
             };
            
@@ -1101,44 +1071,10 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
 
         const prepareGeminiParts = async () => {
           const parts: any[] = [{ text: currentPrompt }];
-          const srcs = effectiveReferenceImages.map((reference) => reference.src);
-
-          for (const src of srcs) {
-            let base64Data = '';
-            let mimeType = 'image/jpeg';
-
-            if (src.startsWith('data:')) {
-              const match = src.match(/^data:([^;]+);base64,(.+)$/);
-              if (match) {
-                mimeType = match[1];
-                base64Data = match[2];
-              }
-            } else {
-              try {
-                const response = await fetch(src);
-                const blob = await response.blob();
-                mimeType = blob.type;
-                const reader = new FileReader();
-                base64Data = await new Promise((resolve) => {
-                  reader.onloadend = () => {
-                    const result = reader.result as string;
-                    resolve(result.split(',')[1]);
-                  };
-                  reader.readAsDataURL(blob);
-                });
-              } catch (error) {
-                console.error('Failed to fetch reference image for Gemini native call', error);
-              }
-            }
-
-            if (base64Data) {
-              parts.push({
-                inlineData: {
-                  mimeType,
-                  data: base64Data,
-                },
-              });
-            }
+          for (const ref of effectiveReferenceImages) {
+            const dataUrl=await referenceToDataUrl(ref);
+            const match=dataUrl?.match(/^data:([^;]+);base64,(.+)$/);
+            if(match)parts.push({inlineData:{mimeType:match[1],data:match[2]}});
           }
 
           return parts;
@@ -1227,7 +1163,9 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
         })();
       } else if (effectiveReferenceImages.length > 0) {
         // Extract srcs from ReferenceImage objects
-	        const refSrcs = effectiveReferenceImages.map(r => r.src);
+	        const refSrcs: string[] = [];
+          for (const ref of effectiveReferenceImages) { const data=await referenceToDataUrl(ref); if(data)refSrcs.push(data); }
+          if(refSrcs.length!==effectiveReferenceImages.length){setError('参考图读取失败，请重试');return;}
 	        const isDoubao = modelName.startsWith('doubao');
           const isGrok = isGrokImageModel(modelName);
           const isGptImage2 = isGptImage2Model;
@@ -1344,7 +1282,7 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
                       reader.readAsDataURL(ref.blob as Blob);
                     });
                   } else {
-                    dataUrl = await getBase64FromUrl(ref.src);
+                    dataUrl = await referenceToDataUrl(ref) || '';
                   }
                   // Keep data-url form; payload builder will derive raw base64 too.
                   return dataUrl;
@@ -1499,42 +1437,7 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
           try {
             let blob: Blob | undefined;
 
-            // Priority 1: Use directly stored blob object (fastest, no CSP issue)
-            if (imgRef.blob) {
-              blob = imgRef.blob;
-            }
-            // Priority 2: Get from assetStorage
-            else if (imgRef.assetId) {
-              const storedBlob = await assetStorage.getBlob(imgRef.assetId);
-              if (!storedBlob) {
-                throw new Error('Asset not found in storage');
-              }
-              blob = storedBlob;
-            }
-            // Priority 3: Data URL (convert to blob)
-            else if (imgRef.src.startsWith('data:image')) {
-              const res = await fetch(imgRef.src);
-              blob = await res.blob();
-            }
-            // Priority 4: HTTP/HTTPS URL (external images)
-            else if (imgRef.src.startsWith('http')) {
-              const response = await fetch(imgRef.src);
-              if (!response.ok) {
-                throw new Error(`Failed to fetch: ${response.status}`);
-              }
-              blob = await response.blob();
-            }
-            // Priority 5: Blob URL (local preview images)
-            else if (imgRef.src.startsWith('blob:')) {
-              const response = await fetch(imgRef.src);
-              if (!response.ok) {
-                throw new Error(`Failed to fetch blob: ${response.status}`);
-              }
-              blob = await response.blob();
-            }
-            else {
-              throw new Error(`Unsupported image source: ${imgRef.src.substring(0, 50)}`);
-            }
+            blob=imgRef.blob || await readOriginalBlob(imgRef);
 
             if (blob) {
               // Ensure blob is a valid Blob instance (fixes "Overload resolution failed" in strict environments/builds)
@@ -1577,7 +1480,8 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
                   ctx.drawImage(img, 0, 0, width, height);
 
                   // Export as JPEG quality 0.85
-                  resolve(canvas.toDataURL('image/jpeg', 0.85));
+                  const encoded=canvas.toDataURL('image/jpeg', 0.85);
+                  canvas.width=canvas.height=0;img.src='';resolve(encoded);
                 };
                 
                 img.onerror = (e) => {
@@ -2091,7 +1995,7 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
                       onDragOver={(e) => e.preventDefault()}
                       onContextMenu={(e) => handleReferenceThumbnailContextMenu(e, idx)}
                     >
-                      <img src={item.src} alt="" className="w-full h-full object-cover" />
+                      <AssetImage asset={item} className="w-full h-full" />
                       {isPromptLinked && (
                         <div className="absolute top-1 left-1 px-1 py-0.5 rounded-[5px] bg-purple-600/85 border border-purple-200/40 text-white text-[9px] leading-none font-semibold">
                           @图{idx + 1}

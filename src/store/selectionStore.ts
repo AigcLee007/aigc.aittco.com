@@ -6,6 +6,10 @@ import { useCanvasStore } from './canvasStore';
 import { getVideoModelMaxReferenceImages } from '../config/videoModels';
 import { isGptImageCompatibleModel } from '../config/imageModels';
 import { assetStorage } from '../services/assetStorage';
+import type { ImageAssetRef } from '../services/imageAssetTypes';
+import { assetRefFromSource } from '../services/imageAssetActions';
+import { originalBlobFromSource } from '../services/imageAssetActions';
+import { beginLocalRead, deferLocalRecoveryWrite, finishLocalRead, localStoreWritable, mergeRecoveredLocalState, setLocalReadFailed } from '../services/localHydrationSafety';
 import { v4 as uuidv4 } from 'uuid';
 import { migrateVideoSelectionState, type VideoReferenceItem } from '../utils/videoSelectionMigration';
 import type { ImageRouteQuality } from '../config/imageRoutes';
@@ -65,7 +69,7 @@ interface SelectionStore {
   contextMenu: { x: number; y: number; nodeId: string } | null;
 
   // Lightbox State
-  lightboxImage: string | null;
+  lightboxImage: string | ImageAssetRef | null;
 
   // Reference Images (for Img2Img)
   referenceImages: ReferenceImage[];
@@ -133,11 +137,11 @@ interface SelectionStore {
   closeContextMenu: () => void;
 
   // Actions - Lightbox
-  openLightbox: (src: string) => void;
+  openLightbox: (src: string | ImageAssetRef) => void;
   closeLightbox: () => void;
 
   // Actions - Reference Images
-  addReferenceImage: (src: string) => Promise<void>;
+  addReferenceImage: (src: string, blob?: Blob) => Promise<void>;
   addReferenceImages: (items: Array<{src: string, blob?: Blob}>, max?: number) => Promise<void>;
   removeReferenceImage: (index: number) => Promise<void>;
   clearReferenceImages: () => Promise<void>;
@@ -192,9 +196,46 @@ const sanitizePersistedReferenceImages = (images: ReferenceImage[] = []): Refere
     .filter((image): image is ReferenceImage => Boolean(image))
     .slice(0, 16);
 
+const partializeSelectionState = (state: SelectionStore) => ({
+  apiKey: state.apiKey,
+  prompt: state.prompt,
+  referenceImages: sanitizePersistedReferenceImages(state.referenceImages),
+  videoModel: state.videoModel,
+  videoLine: state.videoLine,
+  imageModel: state.imageModel,
+  aspectRatio: state.aspectRatio,
+  customRatio: state.customRatio,
+  imageSize: state.imageSize,
+  thinkingLevel: state.thinkingLevel,
+  quantity: state.quantity,
+  videoAspectRatio: state.videoAspectRatio,
+  videoDuration: state.videoDuration,
+  videoResolution: state.videoResolution,
+  videoReferenceVideos: state.videoReferenceVideos,
+  videoHd: state.videoHd,
+  videoReferenceMode: state.videoReferenceMode,
+  videoGenerationMode: state.videoGenerationMode,
+  videoStartFrame: state.videoStartFrame,
+  videoLastFrame: state.videoLastFrame,
+  videoKeyframes: state.videoKeyframes,
+  videoGenerateAudio: state.videoGenerateAudio,
+  videoReferenceUrl: state.videoReferenceUrl,
+  brushSize: state.brushSize,
+  brushColor: state.brushColor,
+  panelMode: state.panelMode,
+  isControlPanelOpen: state.isControlPanelOpen,
+  imageLine: state.imageLine,
+  gptImageQuality: state.gptImageQuality,
+  gptImageOutputFormat: state.gptImageOutputFormat,
+  gptImageOutputCompression: state.gptImageOutputCompression,
+  gptImageModeration: state.gptImageModeration,
+  grokReferenceMode: state.grokReferenceMode,
+  autoDownloadOnSuccess: state.autoDownloadOnSuccess,
+});
+
 const selectionPersistStorage: PersistStorage<any> = {
   getItem: (name) => {
-    if (typeof window === 'undefined' || typeof window.localStorage === 'undefined') {
+    if (typeof window === 'undefined') {
       return null;
     }
 
@@ -207,13 +248,12 @@ const selectionPersistStorage: PersistStorage<any> = {
       return parsed;
     } catch (error) {
       console.warn(`[SelectionStore] Failed to read persisted state for ${name}`, error);
-      try {
-        window.localStorage.removeItem(name);
-      } catch (_) {}
+      setLocalReadFailed(name);
       return null;
     }
   },
   setItem: (name, value) => {
+    if (!localStoreWritable(name)) return;
     if (typeof window === 'undefined' || typeof window.localStorage === 'undefined') {
       return;
     }
@@ -447,7 +487,7 @@ export const useSelectionStore = create<SelectionStore>()(
       // Actions - Lightbox
       openLightbox: (src) =>
         set((state) => {
-          state.lightboxImage = src;
+          state.lightboxImage = typeof src === 'string' && !/\.mp4|format=mp4/i.test(src) ? assetRefFromSource(src) : src;
           state.contextMenu = null;
         }),
 
@@ -485,10 +525,9 @@ export const useSelectionStore = create<SelectionStore>()(
            let actualBlob: Blob | undefined = blob;
            
            // If blob is not provided but we have a data URL, convert it
-           if (!actualBlob && src.startsWith('data:image')) {
+           if (!actualBlob) {
                try {
-                  const response = await fetch(src);
-                  actualBlob = await response.blob();
+                  actualBlob = await originalBlobFromSource(src);
                } catch (e) {
                    console.error("Failed to convert data URL to blob", e);
                }
@@ -515,8 +554,8 @@ export const useSelectionStore = create<SelectionStore>()(
               if (state.referenceImages.length < max) {
                 state.referenceImages.push({
                     id: uuidv4(),
-                    src: src,
-                    blob: actualBlob, // Store the Blob directly
+                    src: assetId ? (/^(blob:|data:|asset:)/i.test(src) ? '' : src) : src,
+                    blob: assetId ? undefined : actualBlob,
                     assetId: assetId,
                     type: assetId ? 'blob' : 'url'
                 });
@@ -550,8 +589,8 @@ export const useSelectionStore = create<SelectionStore>()(
                
                return {
                    id: uuidv4(),
-                   src: item.src,
-                   blob: actualBlob,
+                   src: assetId ? (/^(blob:|data:|asset:)/i.test(item.src) ? '' : item.src) : item.src,
+                   blob: assetId ? undefined : actualBlob,
                    assetId: assetId,
                    type: assetId ? 'blob' : 'url'
                };
@@ -579,9 +618,7 @@ export const useSelectionStore = create<SelectionStore>()(
 
       removeReferenceImage: async (index) => {
           const item = get().referenceImages[index];
-          if (item && item.assetId) {
-             assetStorage.deleteBlob(item.assetId).catch(console.error);
-          }
+          // Shared originals may still be referenced by canvas/history/undo.
           
           set((state) => {
             state.referenceImages.splice(index, 1);
@@ -590,9 +627,7 @@ export const useSelectionStore = create<SelectionStore>()(
 
       clearReferenceImages: async () => {
           const items = get().referenceImages;
-          items.forEach(item => {
-              if (item.assetId) assetStorage.deleteBlob(item.assetId).catch(console.error);
-          });
+          // Central maintenance collects all references before deleting assets.
           
           set((state) => {
             state.referenceImages = [];
@@ -605,27 +640,8 @@ export const useSelectionStore = create<SelectionStore>()(
         }),
       
       // Hydration Helper
-      refreshReferenceUrls: async () => {
-          const currentImages = get().referenceImages;
-          let changed = false;
-          
-          const updatedImages = await Promise.all(currentImages.map(async (img) => {
-              if (img.assetId) {
-                  const freshUrl = await assetStorage.getAssetUrl(img.assetId);
-                  if (freshUrl && freshUrl !== img.src) {
-                      changed = true;
-                      return { ...img, src: freshUrl };
-                  }
-              }
-              return img;
-          }));
-          
-          if (changed) {
-              set((state) => {
-                  state.referenceImages = updatedImages;
-              });
-          }
-      },
+      // Preview consumers resolve IDs without retaining original URLs in the store.
+      refreshReferenceUrls: async () => {},
 
       // Actions - Pending Prompt
       setPendingPrompt: (prompt) =>
@@ -642,46 +658,22 @@ export const useSelectionStore = create<SelectionStore>()(
     {
       name: 'selection-storage', // Key in localStorage
       storage: selectionPersistStorage,
-      partialize: (state) => ({
-        // Whitelist fields to persist
-        apiKey: state.apiKey,
-        prompt: state.prompt,
-        referenceImages: sanitizePersistedReferenceImages(state.referenceImages),
-        videoModel: state.videoModel,
-        videoLine: state.videoLine,
-        imageModel: state.imageModel,
-        aspectRatio: state.aspectRatio,
-        customRatio: state.customRatio,
-        imageSize: state.imageSize,
-        thinkingLevel: state.thinkingLevel,
-        quantity: state.quantity,
-        videoAspectRatio: state.videoAspectRatio,
-        videoDuration: state.videoDuration,
-        videoResolution: state.videoResolution,
-        videoReferenceVideos: state.videoReferenceVideos,
-        videoHd: state.videoHd,
-        videoReferenceMode: state.videoReferenceMode,
-        videoGenerationMode: state.videoGenerationMode,
-        videoStartFrame: state.videoStartFrame,
-        videoLastFrame: state.videoLastFrame,
-        videoKeyframes: state.videoKeyframes,
-        videoGenerateAudio: state.videoGenerateAudio,
-        videoReferenceUrl: state.videoReferenceUrl,
-        brushSize: state.brushSize,
-        brushColor: state.brushColor,
-        panelMode: state.panelMode,
-        isControlPanelOpen: state.isControlPanelOpen,
-        imageLine: state.imageLine,
-        gptImageQuality: state.gptImageQuality,
-        gptImageOutputFormat: state.gptImageOutputFormat,
-        gptImageOutputCompression: state.gptImageOutputCompression,
-        gptImageModeration: state.gptImageModeration,
-        grokReferenceMode: state.grokReferenceMode,
-        autoDownloadOnSuccess: state.autoDownloadOnSuccess
-      }),
+      onRehydrateStorage: state => {
+        const name = 'selection-storage';
+        beginLocalRead(name, state);
+        return (merged, error) => {
+          if (finishLocalRead(name, error) && merged) {
+            deferLocalRecoveryWrite(name, () => selectionPersistStorage.setItem(name, {
+              state: partializeSelectionState(useSelectionStore.getState()), version: 0,
+            }));
+          }
+        };
+      },
+      partialize: partializeSelectionState,
       merge: (persistedState, currentState) => {
+        if (!persistedState) return currentState;
         const persisted = migrateVideoSelectionState((persistedState || {}) as Record<string, unknown>) as Partial<SelectionStore>;
-        return {
+        return mergeRecoveredLocalState('selection-storage', {
           ...currentState,
           ...persisted,
           referenceImages: sanitizePersistedReferenceImages(persisted?.referenceImages || []),
@@ -695,7 +687,7 @@ export const useSelectionStore = create<SelectionStore>()(
           videoHd: persisted.videoResolution === '1080p',
           videoResolution: String(persisted.videoResolution || '720p'),
           videoReferenceVideos: Array.isArray(persisted.videoReferenceVideos) ? persisted.videoReferenceVideos : [],
-        };
+        }, currentState, ['referenceImages']);
       },
     }
   )

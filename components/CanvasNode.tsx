@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Group, Image as KonvaImage, Line as KonvaLine, Rect, Text as KonvaText } from 'react-konva';
 import Konva from 'konva';
-import useImage from 'use-image';
+import { useImageAsset } from '../src/hooks/useImageAsset';
 import { NodeData, Point, Stroke, ToolMode } from '../types';
 import { useCanvasStore } from '../src/store/canvasStore';
 import { formatShortTime } from '../src/utils/timeFormat';
@@ -156,43 +156,35 @@ const DownloadingPlaceholder: React.FC<{
   );
 };
 
-const ImageNode: React.FC<{ node: NodeData; progress: number; statusText: string; onLoad?: () => void }> = ({
+const ImageNode: React.FC<{ node: NodeData; progress: number; statusText: string; enabled: boolean; onLoad?: () => void }> = ({
   node,
   progress,
   statusText,
+  enabled,
   onLoad,
 }) => {
-  const [source, setSource] = useState(getProxiedImageUrl(node.src || ''));
-  const [image, status] = useImage(source, 'anonymous');
-
-  useEffect(() => {
-    setSource(getProxiedImageUrl(node.src || ''));
-  }, [node.src]);
-
-  const fallbackToRaw = () => {
-    if (!isProxiedImageUrl(source)) return;
-    if (source.includes('visionary.beer')) return;
-    const raw = getRawImageUrlFromProxy(source);
-    if (raw) {
-      setSource(raw);
-    }
-  };
+  const asset = useImageAsset(node, { enabled: enabled && !node.loading && !node.error });
+  const image = asset.image;
 
   useEffect(() => {
     if (image && onLoad) onLoad();
   }, [image, onLoad]);
-
-  useEffect(() => {
-    if (status === 'failed') {
-      fallbackToRaw();
-    }
-  }, [status]);
 
   if (node.loading) {
     return <DreamingPlaceholder width={node.width} height={node.height} progress={progress} statusText={statusText} />;
   }
   if (node.error) {
     return <ErrorPlaceholder width={node.width} height={node.height} message={node.errorMessage || 'Failed'} />;
+  }
+  if (asset.status === 'missing' || asset.status === 'failed' || asset.status === 'deferred') {
+    const retry = (e: Konva.KonvaEventObject<MouseEvent | TouchEvent>) => { e.cancelBubble = true; asset.retry(); };
+    return <Group>
+      <ErrorPlaceholder width={node.width} height={node.height} message={asset.status === 'missing' ? '本地图片缺失或链接已失效' : asset.message || '图片读取失败'} />
+      <Group x={node.width / 2 - 55} y={node.height - 50} onClick={retry} onTap={retry}>
+        <Rect width={110} height={32} fill="#334155" cornerRadius={8} />
+        <KonvaText width={110} y={8} text="重新读取图片" fontSize={13} fill="#fff" align="center" />
+      </Group>
+    </Group>;
   }
   if (!image) {
     return <DownloadingPlaceholder width={node.width} height={node.height} />;
@@ -456,8 +448,7 @@ const CanvasNode: React.FC<CanvasNodeProps> = React.memo(
 
       const timer = window.setTimeout(() => {
         if (!groupRef.current) return;
-        // Rebuild scene+hit cache with deterministic ratio to keep hit-test stable.
-        groupRef.current.cache({ pixelRatio: 1, hitCanvasPixelRatio: 1 });
+        // Previews already bound decoded pixels; avoid an additional scene/hit canvas copy.
         groupRef.current.getLayer()?.batchDraw();
       }, 120);
 
@@ -525,7 +516,7 @@ const CanvasNode: React.FC<CanvasNodeProps> = React.memo(
         {node.type === 'VIDEO' ? (
           <VideoNode node={node} progress={progress} statusText={statusWithTask} isInViewport={isInViewport} />
         ) : (
-          <ImageNode node={node} progress={progress} statusText={statusWithTask} onLoad={() => setIsResourceLoaded(true)} />
+          <ImageNode node={node} progress={progress} statusText={statusWithTask} enabled={isInViewport || isSelected} onLoad={() => setIsResourceLoaded(true)} />
         )}
 
         {isHovering && <GenerationTimeTooltip node={node} />}

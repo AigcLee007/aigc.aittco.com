@@ -34,6 +34,9 @@ import { useFileDrop } from "./src/hooks/useFileDrop";
 import { useGlobalPolling } from "./src/hooks/useGlobalPolling";
 import { getProxiedImageUrl } from "./src/utils/mediaProxy";
 import { revokeDownloadObjectUrlLater } from "./src/utils/downloadObjectUrl";
+import { originalBlobFromSource } from './src/services/imageAssetActions';
+import { localReadsSafe, subscribeLocalReadSafety } from './src/services/localHydrationSafety';
+import { retryFailedLocalReads } from './src/services/localPersistenceRecovery';
 
 const App: React.FC = () => {
   const currentPath =
@@ -96,6 +99,11 @@ const App: React.FC = () => {
   } = useCanvasStore();
 
   const [hydrated, setHydrated] = useState(false);
+  const [localReadError,setLocalReadError]=useState(()=>!localReadsSafe());
+  const retryLocalReads=useCallback(async()=>{
+    await retryFailedLocalReads();
+    setLocalReadError(!localReadsSafe());
+  },[]);
   const [isAccountAuthenticated, setIsAccountAuthenticated] = useState<boolean>(() =>
     Boolean(getStoredAuthSessionToken()),
   );
@@ -109,35 +117,19 @@ const App: React.FC = () => {
 
     // @ts-ignore
     const unsub = useCanvasStore.persist.onFinishHydration(() =>
-      setHydrated(true),
+      { setHydrated(true);setLocalReadError(!localReadsSafe()); },
     );
+    const safetyUnsub=subscribeLocalReadSafety(()=>setLocalReadError(!localReadsSafe()));
+    setLocalReadError(!localReadsSafe());
 
-    // Failsafe: Force hydrated after 1s if event doesn't fire (prevents infinite loading)
-    const timer = setTimeout(() => {
-      setHydrated(true);
-    }, 1000);
-
+    const retry = () => { if(!localReadsSafe())void retryLocalReads(); };
+    window.addEventListener('focus',retry);
     return () => {
-      // unsub(); // persisted store unsubscribe might not be a function in all versions, safe to ignore for singleton app
-      clearTimeout(timer);
+      window.removeEventListener('focus',retry);
+      unsub();
+      safetyUnsub();
     };
-  }, []);
-
-  useEffect(() => {
-    if (!hydrated) return;
-    const hydrate = async () => {
-      // Iterate store nodes to find assets that need hydration
-      for (const node of nodes) {
-        if (node.assetId && (!node.src || node.src.startsWith("blob:"))) {
-          const url = await assetStorage.getAssetUrl(node.assetId);
-          if (url && url !== node.src) {
-            useCanvasStore.getState().updateNode(node.id, { src: url }, true);
-          }
-        }
-      }
-    };
-    hydrate();
-  }, [hydrated]); // Removed nodes from dep array to avoid infinite loop. Runs once on hydration.
+  }, [retryLocalReads]);
 
   useEffect(() => {
     if (!hydrated) return;
@@ -293,7 +285,7 @@ const App: React.FC = () => {
   );
 
   const handleDoubleClickNode = (node: NodeData) => {
-    if (node.type === "IMAGE" && node.src) openLightbox(node.src);
+    if (node.type === "IMAGE" && (node.src || node.assetId)) openLightbox(node);
   };
 
   // Modal state
@@ -359,7 +351,9 @@ const App: React.FC = () => {
       try {
         let blob: Blob | null = null;
 
-        if (src.startsWith("data:") || src.startsWith("blob:")) {
+        if (!isVideo) {
+          blob = await originalBlobFromSource(src);
+        } else if (src.startsWith("data:") || src.startsWith("blob:")) {
           const res = await fetch(src);
           if (res.ok) blob = await res.blob();
         } else if (src.startsWith("http") || src.startsWith("/")) {
@@ -399,12 +393,17 @@ const App: React.FC = () => {
   );
 
   const [mobileViewMode, setMobileViewMode] = useState<'grid' | 'canvas'>('grid');
+  const localReadNotice=localReadError && <div className="fixed top-3 left-1/2 -translate-x-1/2 z-[100] w-max max-w-[95vw] rounded-xl bg-amber-950 px-4 py-3 text-sm text-amber-100">
+    本地缓存暂时无法读取，图片记录已保留。
+    <button className="ml-3 underline" onClick={()=>void retryLocalReads()}>重新读取</button>
+  </div>;
 
   // Mobile Render Path
   if (isMobile && hydrated) {
     if (mobileViewMode === 'canvas') {
        return (
          <div className="fixed inset-0 w-full h-full bg-neutral-900 overflow-hidden text-white">
+           {localReadNotice}
            <div className="absolute top-6 left-1/2 -translate-x-1/2 z-60">
              <button
                onClick={() => {
@@ -483,6 +482,7 @@ const App: React.FC = () => {
 
     return (
       <div className="fixed inset-0 w-full h-full bg-neutral-900 overflow-hidden text-white">
+        {localReadNotice}
         <MobileView
           onOpenHistory={() => openModal("history")}
           onOpenSettings={() => openModal("settings")}
@@ -548,6 +548,7 @@ const App: React.FC = () => {
 
   return (
     <>
+      {localReadNotice}
       {!hydrated && (
         <div className="fixed inset-0 bg-gray-900 flex items-center justify-center z-100">
           <div className="text-white flex flex-col items-center gap-2">

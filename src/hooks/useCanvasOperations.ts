@@ -1,3 +1,5 @@
+import { cacheImageSource, readOriginalBlob } from '../services/imageAssetCache';
+import { blobToDataUrl } from '../services/imageBlobUtils';
 import { useState, useCallback } from 'react';
 import { useCanvasStore } from '../store/canvasStore';
 import { useSelectionStore } from '../store/selectionStore';
@@ -38,7 +40,7 @@ export const useCanvasOperations = () => {
         id: generateId(),
         x: nodeToDuplicate.x + 20,
         y: nodeToDuplicate.y + 20,
-        history: nodeToDuplicate.src ? [{ src: nodeToDuplicate.src, prompt: nodeToDuplicate.prompt }] : undefined,
+        history: [{ src: nodeToDuplicate.src || '', assetId:nodeToDuplicate.assetId, thumbnailSrc:nodeToDuplicate.thumbnailSrc, prompt:nodeToDuplicate.prompt }],
         historyIndex: 0
       };
       addNode(newNode);
@@ -51,7 +53,7 @@ export const useCanvasOperations = () => {
   const handleRemoveBackground = useCallback(async () => {
     if (!contextMenu) return;
     const node = nodes.find(n => n.id === contextMenu.nodeId);
-    if (!node || node.type !== 'IMAGE' || !node.src) return;
+    if (!node || node.type !== 'IMAGE' || (!node.src && !node.assetId)) return;
     
     if (!apiKey) { 
       alert("请先在设置中输入 API Key"); 
@@ -64,12 +66,17 @@ export const useCanvasOperations = () => {
     setStatus(AppStatus.LOADING);
     
     try {
-      const resultSrcs = await editImage(apiKey, node.src as string, "Remove the background, keep only the main subject");
+      const original = await readOriginalBlob(node);
+      const resultSrcs = await editImage(apiKey, await blobToDataUrl(original), "Remove the background, keep only the main subject");
       const newSrc = resultSrcs[0];
-      const oldHistory = node.history || [{ src: node.src!, prompt: node.prompt }];
+      const cached = await cacheImageSource(newSrc);
+      const canonical = /^(data:|blob:)/i.test(newSrc) && cached.assetId ? '' : newSrc;
+      const oldHistory = node.history || [{ src: node.src || '', assetId:node.assetId, thumbnailSrc:node.thumbnailSrc, prompt:node.prompt }];
       const oldIndex = node.historyIndex ?? 0;
-      const newHistory = [...oldHistory.slice(0, oldIndex + 1), { src: newSrc, prompt: "Background Removed" }];
-      updateNode(node.id, { src: newSrc, prompt: "Background Removed", history: newHistory, historyIndex: newHistory.length - 1 });
+      const newHistory = [...oldHistory.slice(0, oldIndex + 1), { src:canonical, assetId:cached.assetId, prompt:"Background Removed" }];
+      const latest=useCanvasStore.getState().nodes.find(n=>n.id===node.id);
+      if (!latest || latest.src !== node.src || latest.assetId !== node.assetId) { setStatus(AppStatus.IDLE); return; }
+      updateNode(node.id, { src:canonical, assetId:cached.assetId, thumbnailSrc:undefined, prompt: "Background Removed", history: newHistory, historyIndex: newHistory.length - 1 });
       setStatus(AppStatus.IDLE);
     } catch (e) { 
       console.error(e); 
@@ -81,10 +88,11 @@ export const useCanvasOperations = () => {
   const handleDownloadNode = useCallback(async () => {
     if (!contextMenu) return;
     const node = nodes.find(n => n.id === contextMenu.nodeId);
-    if (node && node.src) {
+    if (node && (node.src || node.assetId)) {
       try {
-        let href = node.src; let isBlob = false;
-        if (node.src.startsWith('http') || node.src.startsWith('/api/proxy/image?url=')) {
+        let href = node.src || ''; let isBlob = false;
+        if(node.type==='IMAGE') { href=URL.createObjectURL(await readOriginalBlob(node)); isBlob=true; }
+        if (node.type==='VIDEO' && node.src && (node.src.startsWith('http') || node.src.startsWith('/api/proxy/image?url='))) {
           const response = await fetch(getProxiedImageUrl(node.src));
           if (!response.ok) throw new Error(`Download failed with HTTP ${response.status}`);
           const blob = await response.blob();
@@ -92,7 +100,7 @@ export const useCanvasOperations = () => {
         }
         const link = document.createElement('a');
         link.href = href;
-        const isVideo = node.type === 'VIDEO' || node.src.toLowerCase().endsWith('.mp4') || node.src.toLowerCase().includes('format=mp4');
+        const isVideo = node.type === 'VIDEO' || (node.src || '').toLowerCase().endsWith('.mp4') || (node.src || '').toLowerCase().includes('format=mp4');
         const ext = isVideo ? 'mp4' : 'png';
         const filename = (node.prompt ? node.prompt.slice(0, 20).replace(/[^a-z0-9]/gi, '_').trim() : (isVideo ? 'video' : 'image')) + `_${node.id}.${ext}`;
         link.download = filename;
@@ -100,8 +108,8 @@ export const useCanvasOperations = () => {
         if (isBlob) revokeDownloadObjectUrlLater(href);
       } catch (err) {
         console.error("Failed to download asset", err);
-        const link = document.createElement('a'); link.href = node.src; link.target = "_blank"; 
-        const isVideo = node.type === 'VIDEO' || node.src.toLowerCase().endsWith('.mp4');
+        const link = document.createElement('a'); link.href = node.src || '';  link.target = "_blank";
+        const isVideo = node.type === 'VIDEO' || (node.src || '').toLowerCase().endsWith('.mp4');
         link.download = `asset_${node.id}.${isVideo ? 'mp4' : 'png'}`; 
         link.click();
       }
@@ -142,7 +150,7 @@ export const useCanvasOperations = () => {
 
   // Download all canvas images
   const handleDownloadAllCanvas = useCallback(async () => {
-    const imageNodes = nodes.filter(n => n.type === 'IMAGE' && n.src);
+    const imageNodes = nodes.filter(n => n.type === 'IMAGE' && (n.src || n.assetId));
     if (imageNodes.length === 0) {
       alert("画布上没有可下载的图片");
       return;
@@ -151,21 +159,14 @@ export const useCanvasOperations = () => {
     setIsDownloadingCanvas(true);
     try {
       const zip = new JSZip();
-      const promises = imageNodes.map(async (node, idx) => {
+      for (let idx=0;idx<imageNodes.length;idx++) {
+        const node=imageNodes[idx];
         try {
-          const response = await fetch(getProxiedImageUrl(node.src!));
-          if (!response.ok) throw new Error(`Download failed with HTTP ${response.status}`);
-          const blob = await response.blob();
-          const cleanPrompt = (node.prompt || 'image').slice(0, 30).replace(/[^a-z0-9]/gi, '_').trim();
-          const ext = blob.type.split('/')[1] || 'png';
-          const filename = `${String(idx + 1).padStart(3, '0')}_${cleanPrompt}.${ext}`;
-          zip.file(filename, blob);
-        } catch (e) {
-          console.warn("Failed to fetch image for ZIP:", node.src, e);
-        }
-      });
-
-      await Promise.all(promises);
+          const blob=await readOriginalBlob(node);
+          const cleanPrompt=(node.prompt || 'image').slice(0,30).replace(/[^a-z0-9]/gi,'_');
+          zip.file(String(idx+1).padStart(3,'0')+'_'+cleanPrompt+'.'+(blob.type.split('/')[1] || 'png'),blob);
+        } catch (error) { console.warn('Failed to fetch image for ZIP',error); }
+      }
       const content = await zip.generateAsync({ type: "blob" });
       saveAs(content, `canvas_images_${new Date().toISOString().split('T')[0]}.zip`);
     } catch (err) {

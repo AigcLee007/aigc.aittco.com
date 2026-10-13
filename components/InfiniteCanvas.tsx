@@ -9,6 +9,7 @@ import { useCanvasInteraction } from '../src/hooks/useCanvasInteraction';
 import { useViewportCulling } from '../src/hooks/useViewportCulling';
 import { isLowEndDevice } from '../src/utils/performance';
 import CanvasNode from './CanvasNode';
+import { assetActionSource } from '../src/services/imageAssetActions';
 import { RefreshCw } from 'lucide-react';
 
 const SmartTooltip: React.FC<{ node: NodeData; x: number; y: number }> = ({ node, x, y }) => {
@@ -254,8 +255,8 @@ const InfiniteCanvas: React.FC<InfiniteCanvasProps> = ({
       const elem = document.elementFromPoint(nativeEvt.clientX, nativeEvt.clientY);
       const dropZone = elem?.closest('#reference-drop-zone');
       
-      if (dropZone && node.src && (node.type === 'IMAGE' || node.type === 'VIDEO')) {
-          addReferenceImage(node.src);
+      if (dropZone && (node.src || node.assetId) && (node.type === 'IMAGE' || node.type === 'VIDEO')) {
+          void addReferenceImage(assetActionSource(node));
       }
     }
 

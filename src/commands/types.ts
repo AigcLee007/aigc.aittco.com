@@ -5,6 +5,8 @@ export interface Command {
     execute: () => void;
     undo: () => void;
     timestamp?: number;
+    getAssetIds?: () => string[];
+    getAssetSources?: () => string[];
 }
 
 export interface CommandManager {

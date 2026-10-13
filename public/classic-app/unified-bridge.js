@@ -2206,11 +2206,13 @@
     if (typeof clearHistoryObjectUrlRefs === "function") {
       clearHistoryObjectUrlRefs();
     }
+    const renderGeneration = classicHistoryRenderGeneration;
     const grid = document.getElementById("historyGrid");
     if (!grid) return;
     grid.innerHTML = "";
 
     const mergedRecords = await mergeRemoteAndLocalHistoryRecords(records);
+    if (renderGeneration !== classicHistoryRenderGeneration) return;
 
     if (!Array.isArray(mergedRecords) || mergedRecords.length === 0) {
       grid.innerHTML =
@@ -2236,7 +2238,7 @@
       div.dataset.fullUrl = originalUrl;
       div.dataset.displayUrl = url;
       div.innerHTML = `
-        <img src="${url}" loading="lazy" decoding="async" onclick="openLightbox(this.closest('.history-item').dataset.fullUrl || this.src)">
+        <img loading="lazy" decoding="async" onclick="openLightbox(this.closest('.history-item').dataset.fullUrl || this.src)">
         ${time ? `<div class="history-time-tag">${time}</div>` : ""}
         <div class="history-cache-badge syncing">缓存中</div>
         ${promptTooltip}
@@ -2254,28 +2256,7 @@
         setHistoryCacheBadge(div, "cloud");
       }
 
-      if (typeof getCachedHistoryImage === "function" && shouldBridgeCacheHistoryImages()) {
-        getCachedHistoryImage(recordId).then((blob) => {
-          if (!blob) {
-            if (typeof cacheHistoryImage === "function") {
-              cacheHistoryImage(recordId, originalUrl).then((ok) => {
-                if (ok && typeof setHistoryCacheBadge === "function") {
-                  setHistoryCacheBadge(div, "local");
-                }
-              });
-            }
-            return;
-          }
-
-          const localUrl = URL.createObjectURL(blob);
-          const img = div.querySelector("img");
-          if (img) img.src = localUrl;
-          if (Array.isArray(historyObjectUrls)) historyObjectUrls.push(localUrl);
-          if (typeof setHistoryCacheBadge === "function") {
-            setHistoryCacheBadge(div, "local");
-          }
-        });
-      }
+      bindClassicPreviewImage(div.querySelector("img"), { id: recordId, src: originalUrl, previewSrc: url });
     });
   };
   const persistRemoteSuccessRecordsToLocalHistory = async (records = []) => {
