@@ -353,7 +353,7 @@ const App: React.FC = () => {
         let blob: Blob | null = null;
 
         if (!isVideo) {
-          blob = await originalBlobFromSource(src);
+          blob = await originalBlobFromSource(src,{validate:false});
         } else if (src.startsWith("data:") || src.startsWith("blob:")) {
           const res = await fetch(src);
           if (res.ok) blob = await res.blob();

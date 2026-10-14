@@ -7,6 +7,8 @@ import { extractErrorMessage } from '../utils/errorDebug';
 import { getImageJobOwner, isTransientJobError, queryImageJob } from '../services/imageJobClient';
 import { buildBillingIdentityHeaders, getStoredAuthSessionToken } from '../services/accountIdentity';
 import { listImageRequests, removeImageRequest } from '../services/imageJobRequests';
+import { imageResultStore } from '../services/imageResultStore';
+import { registerCanvasResult } from '../services/canvasResultIdentity';
 
 export const useGlobalPolling = (
   apiKey: string | undefined,
@@ -91,6 +93,16 @@ export const useGlobalPolling = (
                 ...(job.preview_url && slot === 0 ? { thumbnailSrc: job.preview_url } : {}),
                 generationStorageStatus: job.storage_status,
               }, true);
+              if(typeof url==='string'){
+                void registerCanvasResult({...node,taskId,generationStorageStatus:job.storage_status,thumbnailSrc:job.preview_url && slot===0 ? job.preview_url : node.thumbnailSrc},url,job.completed_at).then(async(info)=>{
+                  if(!info || !node.assetId || node.assetId===info.id)return;
+                  const cached=await imageResultStore.getState(info.id);
+                  if(active && session===getStoredAuthSessionToken() && cached.originalCached){
+                    const latest=useCanvasStore.getState().nodes.find(item=>item.id===node.id);
+                    if(latest?.src===url && latest.generationOwnerId===owner)useCanvasStore.getState().updateNode(node.id,{assetId:info.id},true);
+                  }
+                }).catch(()=>{});
+              }
             }
           }
         }

@@ -11,15 +11,20 @@ import { revokeDownloadObjectUrlLater } from '../utils/downloadObjectUrl';
 import { NodeData, ToolMode } from '../../types';
 import { getImageJobOwner } from '../services/imageJobClient';
 import { getStoredAuthSessionToken, buildBillingIdentityHeaders } from '../services/accountIdentity';
+import { imageResultStore, type ImageResultInput } from '../services/imageResultStore';
+import { canvasResultIdentity, registerCanvasResult } from '../services/canvasResultIdentity';
 
 type AutoDownloadItem = {
     src: string;
     prompt?: string;
     id?: string;
+    identity?: ImageResultInput;
+    session?: string | null;
 };
 
 let autoDownloadQueue: AutoDownloadItem[] = [];
 let autoDownloadTimer: ReturnType<typeof setTimeout> | null = null;
+let autoDownloadRunning = false;
 const AUTO_DOWNLOAD_BATCH_MS = 1200;
 
 const sanitizeFilename = (raw: string) =>
@@ -46,10 +51,10 @@ const triggerDownload = (href: string, filename: string) => {
     document.body.removeChild(link);
 };
 
-const fetchBlobForDownload = async (src: string): Promise<Blob | null> => {
+const fetchBlobForDownload = async (src: string, identity?: ImageResultInput): Promise<Blob | null> => {
     try {
         if (src.startsWith('data:') || src.startsWith('blob:') || src.startsWith('/') || src.startsWith('http')) {
-            return (await cacheImageSource(src)).blob;
+            return (await cacheImageSource(src,15000,false,identity)).blob;
         }
     } catch (err) {
         console.warn('Auto download fetch failed:', err);
@@ -58,33 +63,46 @@ const fetchBlobForDownload = async (src: string): Promise<Blob | null> => {
 };
 
 const flushAutoDownloadQueue = async () => {
-    const items = autoDownloadQueue.splice(0, autoDownloadQueue.length);
     autoDownloadTimer = null;
-    if (items.length === 0) return;
+    if (autoDownloadRunning) return;
+    autoDownloadRunning = true;
+    let sequence=0;
+    try {
 
     // Download each image one-by-one (no zip).
-    for (let i = 0; i < items.length; i++) {
-        const item = items[i];
+    while(autoDownloadQueue.length) {
+        const item = autoDownloadQueue.shift()!;
+        try {
+        if(item.session !== getStoredAuthSessionToken() || !imageResultStore.getAutoDownloadPreference(true))continue;
         const filenameBase = sanitizeFilename(item.prompt || 'image') || 'image';
-        const seq = String(i + 1).padStart(2, '0');
-        const blob = await fetchBlobForDownload(item.src);
+        const seq = String(++sequence).padStart(2, '0');
+        const blob = await fetchBlobForDownload(item.src,item.identity);
+        if(item.session !== getStoredAuthSessionToken() || !blob)continue;
+        const resultId=item.identity ? imageResultStore.resultId(item.identity.ownerId,item.identity.jobId,item.identity.outputIndex) : undefined;
+        // Claim only once bytes are ready; a crash after intent remains ambiguous
+        // and must never automatically trigger a second download on restoration.
+        const token=resultId ? await imageResultStore.claimDownload(resultId).catch(()=>null) : undefined;
+        if(resultId && !token)continue;
+        if(item.session !== getStoredAuthSessionToken() || !imageResultStore.getAutoDownloadPreference(true))continue;
         if (blob) {
             const ext = inferExt(item.src, blob.type);
             const href = URL.createObjectURL(blob);
-            triggerDownload(href, `${seq}_${filenameBase}_${item.id || Date.now()}.${ext}`);
-            revokeDownloadObjectUrlLater(href);
-        } else {
-            triggerDownload(item.src, `${seq}_${filenameBase}_${item.id || Date.now()}.png`);
+            try {
+              triggerDownload(href, `${seq}_${filenameBase}_${item.id || Date.now()}.${ext}`);
+              if(resultId && token)await imageResultStore.markDownloadStarted(resultId,token).catch(()=>false);
+            } finally { revokeDownloadObjectUrlLater(href); }
         }
-        if (i < items.length - 1) {
+        if (autoDownloadQueue.length) {
             await new Promise((resolve) => setTimeout(resolve, 220));
         }
+        } catch(error) { console.warn('Automatic download was not confirmed; use manual download',error); }
     }
+    } finally { autoDownloadRunning=false; }
 };
 
 const enqueueAutoDownload = (item: AutoDownloadItem) => {
     autoDownloadQueue.push(item);
-    if (autoDownloadTimer) clearTimeout(autoDownloadTimer);
+    if (autoDownloadTimer || autoDownloadRunning) return;
     autoDownloadTimer = setTimeout(() => {
         void flushAutoDownloadQueue();
     }, AUTO_DOWNLOAD_BATCH_MS);
@@ -94,8 +112,8 @@ export const useGenerationLogic = () => {
     const { nodes, setNodes, updateNode, generateId, setCanvasTransform, canvasState } = useCanvasStore();
     const { setToolMode, addLog } = useSelectionStore.getState() as any; // Cast to access non-state actions if any or mixed
 
-    const autoDownloadGeneratedImage = useCallback((src: string, prompt?: string, id?: string) => {
-        enqueueAutoDownload({ src, prompt, id });
+    const autoDownloadGeneratedImage = useCallback((src: string, prompt?: string, id?: string,identity?:ImageResultInput) => {
+        enqueueAutoDownload({ src, prompt, id, identity, session:getStoredAuthSessionToken() });
     }, []);
 
     // Init generations (placeholder nodes)
@@ -250,6 +268,8 @@ export const useGenerationLogic = () => {
         if (!currentNode) return;
         if (!currentNode.loading && !currentNode.error && currentNode.src === rawSrc) return;
         const generatedAt = new Date().toISOString();
+        const generationSession=getStoredAuthSessionToken();
+        const resultIdentity=isVideo ? undefined : canvasResultIdentity({...currentNode,createdAt:generatedAt},rawSrc);
 
         // 1) Show result immediately with original URL first.
         // Avoid blocking first paint on local proxy latency.
@@ -277,16 +297,18 @@ export const useGenerationLogic = () => {
           thumbnailSrc,
         );
 
-        if (!isVideo && useSelectionStore.getState().autoDownloadOnSuccess) {
-            void autoDownloadGeneratedImage(displaySrc, currentNode.prompt, id);
+        if (!isVideo && imageResultStore.getAutoDownloadPreference(useSelectionStore.getState().autoDownloadOnSuccess)) {
+            void autoDownloadGeneratedImage(displaySrc, currentNode.prompt, id,resultIdentity);
         }
 
         // Share the same original read with display and automatic download.
         if (!isVideo) {
           void (async () => {
             try {
-              const {assetId} = await cacheImageSource(rawSrc);
+              if(resultIdentity && currentNode.assetId)await registerCanvasResult({...currentNode,createdAt:generatedAt},rawSrc).catch(()=>{});
+              const {assetId} = await cacheImageSource(rawSrc,15000,false,resultIdentity);
               const sameResult = () => {
+                if(generationSession!==getStoredAuthSessionToken())return undefined;
                 const latest = useCanvasStore.getState().nodes.find(n => n.id === id);
                 return latest && latest.src === displaySrc && latest.createdAt === generatedAt ? latest : undefined;
               };

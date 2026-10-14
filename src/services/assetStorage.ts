@@ -3,14 +3,16 @@ import { v4 as uuidv4 } from 'uuid';
 import { createPreview, PREVIEW_VERSION } from './imagePreview';
 import { bounded, ImageAssetError } from './imageAssetTypes';
 import { takePreviewPreparationSlot } from './imagePreparationQueue';
+import { imageResultStore } from './imageResultStore';
 
-export interface AssetMeta { createdAt: number; width?: number; height?: number; bytes: number; mime: string; previewVersion?: number }
+export interface AssetMeta { createdAt: number; width?: number; height?: number; bytes: number; mime: string; previewVersion?: number; previewBytes?: number; sharedResult?: boolean }
 const previews = new Map<string, Promise<Blob>>();
 const pins = new Map<string, number>();
 export const pinAsset = (id: string): (() => void) => {
+  const releaseShared = id.startsWith('result:v1:') ? imageResultStore.pin(id) : () => {};
   pins.set(id, (pins.get(id) || 0) + 1);
   let released=false;
-  return () => { if(released)return;released=true;const count = (pins.get(id) || 1) - 1; if (count) pins.set(id,count); else pins.delete(id); };
+  return () => { if(released)return;released=true;releaseShared();const count = (pins.get(id) || 1) - 1; if (count) pins.set(id,count); else pins.delete(id); };
 };
 export const pinnedAssetIds = () => Array.from(pins.keys());
 export const isValidAssetBlob = (value: unknown): value is Blob => value instanceof Blob && value.size > 0 && (!value.type || value.type.startsWith('image/'));
@@ -36,23 +38,30 @@ export const assetStorage = {
       const original=await this.getBlob(id);
       if (!isValidAssetBlob(original)) throw new ImageAssetError('NOT_FOUND', '本地图片不存在');
       const preview=await createPreview(original);
-      try { await bounded(setMany([[`asset-preview-${id}`,preview.blob],[`asset-meta-${id}`,{
-        createdAt:meta?.createdAt || Date.now(),bytes:original.size,mime:original.type,width:preview.width,height:preview.height,previewVersion:PREVIEW_VERSION
-      } satisfies AssetMeta]])); } catch { /* A full local cache must not discard a usable small preview. */ }
+      try {
+        if (id.startsWith('result:v1:')) await imageResultStore.putPreview(id,preview.blob,{width:preview.width,height:preview.height,previewVersion:PREVIEW_VERSION});
+        else await bounded(setMany([[`asset-preview-${id}`,preview.blob],[`asset-meta-${id}`,{
+          createdAt:meta?.createdAt || Date.now(),bytes:original.size,mime:original.type,width:preview.width,height:preview.height,previewVersion:PREVIEW_VERSION,previewBytes:preview.blob.size
+        } satisfies AssetMeta]]));
+      } catch { /* A full local cache must not discard a usable small preview. */ }
       return preview.blob;
       }finally{releasePreparation();}
     })();
     previews.set(id,work);
     try { return await work; } finally { previews.delete(id); unpin(); }
   },
-  async deleteBlob(id: string): Promise<void> { if (!pins.has(id)) await delMany([`asset-${id}`,`asset-preview-${id}`,`asset-meta-${id}`]); },
+  async deleteBlob(id: string): Promise<void> {
+    // Shared results may still be used by classic or another canvas. Their byte
+    // budget owns eviction, independently of this canvas's node references.
+    if (!pins.has(id) && !id.startsWith('result:v1:')) await delMany([`asset-${id}`,`asset-preview-${id}`,`asset-meta-${id}`]);
+  },
   async cleanupUnusedAssets(activeIds: Iterable<string>, currentReferences?: () => Iterable<string>): Promise<{removed:number;kept:number}> {
     const active=new Set([...activeIds,...pins.keys()]); let removed=0,kept=0;
     for (const key of await keys()) {
       if (typeof key!=='string' || !key.startsWith('asset-') || key.startsWith('asset-meta-') || key.startsWith('asset-preview-') || key.startsWith('asset-source-')) continue;
       const id=key.slice(6), meta=await this.getMeta(id);
       // Unknown legacy assets remain recoverable; do not guess their ownership.
-      if (active.has(id) || pins.has(id) || !meta || Date.now()-meta.createdAt < 7*86400000 || (currentReferences && new Set(currentReferences()).has(id))) { kept++; continue; }
+      if (id.startsWith('result:v1:') || meta?.sharedResult || active.has(id) || pins.has(id) || !meta || Date.now()-meta.createdAt < 7*86400000 || (currentReferences && new Set(currentReferences()).has(id))) { kept++; continue; }
       await this.deleteBlob(id); removed++;
     }
     return {removed,kept};

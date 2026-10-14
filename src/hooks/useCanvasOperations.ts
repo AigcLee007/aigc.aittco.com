@@ -99,7 +99,7 @@ export const useCanvasOperations = () => {
     if (node && (node.src || node.assetId)) {
       try {
         let href = node.src || ''; let isBlob = false;
-        if(node.type==='IMAGE') { href=URL.createObjectURL(await readOriginalBlob(node)); isBlob=true; }
+        if(node.type==='IMAGE') { href=URL.createObjectURL(await readOriginalBlob(node,15000,{validate:false})); isBlob=true; }
         if (node.type==='VIDEO' && node.src && (node.src.startsWith('http') || node.src.startsWith('/api/proxy/image?url='))) {
           const response = await fetch(getProxiedImageUrl(node.src));
           if (!response.ok) throw new Error(`Download failed with HTTP ${response.status}`);
@@ -170,7 +170,7 @@ export const useCanvasOperations = () => {
       for (let idx=0;idx<imageNodes.length;idx++) {
         const node=imageNodes[idx];
         try {
-          const blob=await readOriginalBlob(node);
+          const blob=await readOriginalBlob(node,15000,{validate:false});
           const cleanPrompt=(node.prompt || 'image').slice(0,30).replace(/[^a-z0-9]/gi,'_');
           zip.file(String(idx+1).padStart(3,'0')+'_'+cleanPrompt+'.'+(blob.type.split('/')[1] || 'png'),blob);
         } catch (error) { console.warn('Failed to fetch image for ZIP',error); }

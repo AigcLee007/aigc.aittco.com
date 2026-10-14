@@ -4,6 +4,7 @@ import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 import { clear, get, set } from 'idb-keyval';
 import { assetStorage } from './assetStorage';
 import { acquireImageAsset, cacheImageSource, readOriginalBlob, resetImageAssetCache } from './imageAssetCache';
+import { imageResultStore } from './imageResultStore';
 
 const png = () => new Blob(['original bytes'], { type: 'image/png' });
 class TestImage {
@@ -25,6 +26,38 @@ beforeEach(async () => {
 afterEach(() => { resetImageAssetCache(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 describe('image asset recovery and lifecycle', () => {
+  it('shares generated originals across classic and canvas URLs without decoding during caching',async()=>{
+    const identity={ownerId:'shared-owner',jobId:'job-shared',outputIndex:0};
+    const info=await imageResultStore.register({...identity,originalUrl:'/provider-original'});
+    await imageResultStore.putOriginal(info.id,png());
+    const cached=await cacheImageSource('/site-original',15000,false,identity);
+    expect(cached.assetId).toBe(info.id);expect(fetch).not.toHaveBeenCalled();expect(createImageBitmap).not.toHaveBeenCalled();
+    expect((await imageResultStore.find(identity.ownerId,'/site-original'))?.id).toBe(info.id);
+  });
+  it('keeps generated source aliases scoped to owners in memory and durable storage',async()=>{
+    const a=await cacheImageSource('/same-owner-source',15000,false,{ownerId:'owner-a',jobId:'job-a'});
+    const b=await cacheImageSource('/same-owner-source',15000,false,{ownerId:'owner-b',jobId:'job-b'});
+    expect(a.assetId).not.toBe(b.assetId);expect(fetch).toHaveBeenCalledTimes(2);
+  });
+  it('protects shared results from canvas-only unused-node cleanup',async()=>{
+    const info=await imageResultStore.register({ownerId:'a',jobId:'old-shared',createdAt:Date.now()-9*86400000});
+    await imageResultStore.putOriginal(info.id,png());await assetStorage.cleanupUnusedAssets([]);
+    expect(await imageResultStore.getOriginal(info.id)).toBeTruthy();
+  });
+  it('repairs corrupt shared originals under the same owner identity without a global source alias',async()=>{
+    const identity={ownerId:'repair-owner',jobId:'job-repair'};
+    const info=await imageResultStore.register({...identity,originalUrl:'/shared-repair'});
+    await imageResultStore.putOriginal(info.id,new Blob(['corrupt'],{type:'image/png'}));
+    vi.mocked(createImageBitmap).mockImplementation(async(blob:any)=>{if(await blob.text()==='corrupt')throw new Error('corrupt');return {width:3840,height:2160,close:vi.fn()} as any;});
+    expect(await (await readOriginalBlob({assetId:info.id,src:'/shared-repair'})).text()).toBe('original bytes');
+    expect(await (await imageResultStore.getOriginal(info.id))!.text()).toBe('original bytes');
+    expect(await get('asset-source-/shared-repair')).toBeUndefined();
+  });
+  it('downloads stored original bytes without a full image decode',async()=>{
+    await set('asset-download-bytes',png());
+    expect(await (await readOriginalBlob({assetId:'download-bytes'},15000,{validate:false})).text()).toBe('original bytes');
+    expect(createImageBitmap).not.toHaveBeenCalled();
+  });
   it('reads legacy local original before a broken remote URL and never substitutes a thumbnail', async () => {
     const original = png(); await set('asset-old', original);
     expect(await readOriginalBlob({assetId:'old',src:'https://expired/image',thumbnailSrc:'/thumb.webp'})).toEqual(original);
