@@ -237,7 +237,7 @@
     const response = await fetch(`${cleanUrl(API_BASE_URL)}${path}`, options);
     const data = await response.json().catch(() => ({}));
     if (!response.ok) {
-      throw new Error(data?.error || data?.message || "Request failed");
+      throw Object.assign(new Error(data?.error || data?.message || "Request failed"), { status: response.status });
     }
     return data;
   };
@@ -1572,6 +1572,7 @@
     const token = getStoredSessionToken();
     if (!token) {
       bridgeAuthState.user = null;
+      window.setClassicImageJobOwner?.('');
       bridgeAuthState.account = null;
       bridgeAuthState.ledger = null;
       bridgeAuthState.redeemedCode = null;
@@ -1591,7 +1592,9 @@
           ...buildSessionHeaders(),
         },
       });
+      if (token !== getStoredSessionToken()) return null;
       bridgeAuthState.user = sessionData.user || null;
+      window.setClassicImageJobOwner?.(bridgeAuthState.user?.userId || '');
 
       const accountData = await fetchJson("/account/me?ledgerPage=1&ledgerPageSize=20", {
         headers: {
@@ -1599,6 +1602,7 @@
           ...buildSessionHeaders(),
         },
       });
+      if (token !== getStoredSessionToken()) return null;
       bridgeAuthState.account = accountData.account || null;
       bridgeAuthState.ledger = accountData.ledger || null;
       bridgeAuthState.redeemedCode = accountData.redeemedCode || null;
@@ -1611,7 +1615,11 @@
       return accountData;
     } catch (error) {
       console.warn("[Classic Bridge] refresh session failed:", error);
+      if (token !== getStoredSessionToken()) return null;
+      // A temporary network failure must not erase the session or abandon its jobs.
+      if (window.ClassicImageJobs?.transient(error)) return null;
       clearStoredSessionToken();
+      window.setClassicImageJobOwner?.('');
       bridgeAuthState.user = null;
       bridgeAuthState.account = null;
       bridgeAuthState.ledger = null;
@@ -2344,6 +2352,7 @@
   };
 
   loadHistory = async function (options = {}) {
+    const historySession = getStoredSessionToken();
     const incremental = Boolean(options.incremental);
     const force = options.force !== false;
     if (!incremental) {
@@ -2364,6 +2373,7 @@
           sinceCreatedAt: incremental ? remoteHistoryCursor.sinceCreatedAt : "",
           sinceId: incremental ? remoteHistoryCursor.sinceId : "",
         });
+        if (historySession !== getStoredSessionToken()) return [];
         const records = Array.isArray(result?.records) ? result.records : [];
         remoteHistoryRecordsCache = dedupeHistoryRecords([
           ...records,
@@ -2372,6 +2382,7 @@
         remoteHistoryCursor = getHistoryCursorFromRecords(remoteHistoryRecordsCache);
         lastHistoryRefreshAt = Date.now();
         await persistRemoteSuccessRecordsToLocalHistory(remoteHistoryRecordsCache);
+        if (historySession !== getStoredSessionToken()) return [];
         if (typeof window.reconcileClassicLiveTasksWithGenerationRecords === "function") {
           window.reconcileClassicLiveTasksWithGenerationRecords(remoteHistoryRecordsCache);
         }
@@ -2379,6 +2390,7 @@
         return remoteHistoryRecordsCache;
       } catch (error) {
         console.warn("[Classic Bridge] load remote history failed:", error);
+        if (historySession !== getStoredSessionToken()) return [];
         if (!force) return remoteHistoryRecordsCache;
       }
     }
@@ -2408,13 +2420,49 @@
     }
 
     try {
+      const session = getStoredSessionToken();
+      const identity = await window.ClassicImageJobs.request('/api/auth/session', { headers: buildSessionHeaders() });
+      if (session !== getStoredSessionToken()) return;
+      const ownerId = String(identity.user?.userId || '');
+      if (!ownerId) return;
+      window.setClassicImageJobOwner?.(ownerId);
+      bridgeAuthState.user = identity.user;
+      const jobsResult = await window.ClassicImageJobs.request('/api/image-jobs?uiMode=classic&limit=100', { headers: buildSessionHeaders() });
+      if (session !== getStoredSessionToken()) return;
+      for (const job of jobsResult.jobs || []) {
+        const id = job.task_id || job.taskId || job.id;
+        const requestId = job.request_id || job.requestId || job.clientRequestId;
+        const liveIds = job.clientLiveTaskIds || job.client_live_task_ids || [];
+        const liveId = liveIds[0] || `request-${requestId}`;
+        const meta = { taskId: id, clientRequestId: requestId, ownerId, prompt: job.prompt || '', size: job.outputSize || '1K', modelLabel: job.model || '', routeLabel: job.routeId || '', createdAt: Date.parse(job.created_at || job.createdAt) || Date.now() };
+        if (String(job.status).toLowerCase() === 'succeeded') {
+          if (job.images?.[0]) {
+            const wasCompleted = typeof classicLiveTasks !== 'undefined' && classicLiveTasks.some(task => (task.id === liveId || task.taskId === id) && task.status === 'success');
+            window.completeClassicLiveTask?.(liveId, job.images[0], { ...meta, previewUrl: job.preview_url || '', connectionMessage: '' });
+            if (!wasCompleted) saveToHistory(job.images[0], meta.prompt);
+          }
+          else window.promoteClassicLiveTask?.(liveId, id, { ...meta, status: 'result-unavailable', connectionMessage: '生成已完成，但图片保存失败，请联系管理员核对' });
+        } else if (String(job.status).toLowerCase() === 'failed') {
+          window.failClassicLiveTask?.(liveId, extractClassicApiError(job, '生成失败'), meta);
+        } else {
+          window.promoteClassicLiveTask?.(liveId, id, { ...meta, connectionMessage: '', status: 'running' });
+          pollSingleTask(id, '', meta.size, 1, { trackUi: false, liveTaskId: liveId, promptSnapshot: meta.prompt, modelLabel: meta.modelLabel, routeLabel: meta.routeLabel });
+        }
+      }
+      // Requests whose acknowledgement was lost are persisted before POST, without reference data.
+      if (typeof classicLiveTasks !== 'undefined') for (const task of classicLiveTasks) {
+        if (task.ownerId === ownerId && task.clientRequestId && ['running', 'submitting'].includes(task.status) && task.taskId.startsWith('request-')) {
+          pollSingleTask(task.taskId, '', task.size, task.index, { trackUi: false, liveTaskId: task.id, promptSnapshot: task.prompt });
+        }
+      }
       const result = await fetchGenerationRecords({
         mediaType: "image",
         status: "pending",
         page: 1,
         pageSize: 100,
       });
-      const records = Array.isArray(result?.records) ? result.records : [];
+      if (session !== getStoredSessionToken()) return;
+      const records = (Array.isArray(result?.records) ? result.records : []).filter(record => !record?.meta?.imageJobId);
       renderRemotePendingTasks(records);
       const recentResult = await fetchGenerationRecords({
         mediaType: "image",
@@ -2422,7 +2470,8 @@
         page: 1,
         pageSize: 100,
       }).catch(() => null);
-      const recentRecords = Array.isArray(recentResult?.records) ? recentResult.records : [];
+      if (session !== getStoredSessionToken()) return;
+      const recentRecords = (Array.isArray(recentResult?.records) ? recentResult.records : []).filter(record => !record?.meta?.imageJobId);
       if (typeof window.reconcileClassicLiveTasksWithGenerationRecords === "function") {
         window.reconcileClassicLiveTasksWithGenerationRecords(recentRecords);
       }
@@ -2474,6 +2523,7 @@
     }
   };
   submitSingleTask = async function (payload, key, size, index, options = {}) {
+    const submittingSession = getStoredSessionToken();
     const liveTaskIds = Array.isArray(options.liveTaskIds)
       ? options.liveTaskIds.filter(Boolean)
       : options.liveTaskId
@@ -2498,22 +2548,28 @@
     try {
       const route = options.route || getCurrentRoute();
       const endpoint = String(options.endpoint || CONFIG.submitUrl || "/api/generate").trim();
-      const response = await fetch(endpoint, {
-        method: "POST",
-        headers: buildGenerateHeaders(route, key),
-        body: JSON.stringify(payload),
-      });
-
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        throw new Error(extractClassicApiError(data, `请求失败 (${response.status})`));
+      const session = getStoredSessionToken();
+      const requestId = window.ClassicImageJobs.newId();
+      const identity = session ? await window.ClassicImageJobs.request('/api/auth/session', { headers: buildSessionHeaders() }) : null;
+      if (session !== getStoredSessionToken()) return;
+      const ownerId = String(identity?.user?.userId || '');
+      if (session && ownerId !== String(bridgeAuthState.user?.userId || '')) {
+        window.setClassicImageJobOwner?.(ownerId);
+        bridgeAuthState.user = identity.user;
       }
+      if (session) liveTaskIds.forEach(id => window.promoteClassicLiveTask?.(id, `request-${requestId}`, { clientRequestId: requestId, ownerId, status: 'submitting' }));
+      const data = session
+        ? await window.ClassicImageJobs.submit(endpoint, { ...payload, uiMode: 'classic', clientLiveTaskIds: liveTaskIds }, buildGenerateHeaders(route, key), requestId, ownerId)
+        : await window.ClassicImageJobs.request(endpoint, { method: 'POST', headers: buildGenerateHeaders(route, key), body: JSON.stringify(payload) }, 120000);
+      if (session !== getStoredSessionToken()) return;
       if (data.warning) {
         showSoftToast(String(data.warning));
       }
 
+      const taskId = data.task_id || data.id || data.data?.task_id || "";
+      const isManagedJob = /^(job-|request-)/.test(String(taskId));
       const directImageUrls = extractImmediateImageUrls(data);
-      if (directImageUrls.length > 0) {
+      if (directImageUrls.length > 0 && !isManagedJob) {
         const promptText = promptSnapshot;
         const expectedCount = Math.max(1, Number(options.expectedCount || directImageUrls.length || 1));
         directImageUrls.forEach((imageUrl, imageIndex) => {
@@ -2556,7 +2612,6 @@
         return;
       }
 
-      const taskId = data.task_id || data.id || data.data?.task_id || "";
       if (!taskId) {
         throw new Error(`任务 ${index} 未获取到ID`);
       }
@@ -2570,6 +2625,7 @@
           modelLabel: options.modelLabel || "",
           routeLabel: options.routeLabel || "",
           status: "running",
+          connectionMessage: data.connection_status ? '连接中断，正在核对任务' : '',
         });
       }
       savePendingTask(
@@ -2590,6 +2646,7 @@
       });
     } catch (error) {
       console.error("[Classic Bridge] submit task failed:", error);
+      if (submittingSession !== getStoredSessionToken()) return;
       const errorMessage = extractClassicApiError(error);
       failLiveTasks(errorMessage);
       if (!canUpdateMainUi(options.runToken, options.trackUi !== false)) return;
@@ -2609,6 +2666,7 @@
     const normalizedTaskId = String(taskId || "").trim();
     if (!normalizedTaskId) return;
     if (activeTaskPollers.has(normalizedTaskId)) {
+      activeTaskPollers.get(normalizedTaskId).adoptUi?.(options);
       return;
     }
     let errorCount = 0;
@@ -2619,20 +2677,24 @@
     const maxPollMs = TASK_POLL_MAX_MS;
     let pollTimer = null;
     let stopped = false;
-    const trackUi = options.trackUi !== false;
-    const liveTaskIds = Array.isArray(options.liveTaskIds)
+    const sessionAtStart = getStoredSessionToken();
+    const isManagedJob = /^(job-|request-)/.test(normalizedTaskId);
+    let trackUi = options.trackUi !== false;
+    let liveTaskIds = Array.isArray(options.liveTaskIds)
       ? options.liveTaskIds.filter(Boolean)
       : options.liveTaskId
         ? [options.liveTaskId]
         : [];
-    const promptSnapshot = String(
+    let promptSnapshot = String(
       options.promptSnapshot || document.getElementById("prompt")?.value?.trim() || "",
     );
     const liveTaskForSlot = (slot = 0) => liveTaskIds[slot] || liveTaskIds[0] || taskId;
-    const completeLiveTask = (imageUrl, slot = 0) => {
+    const completeLiveTask = (imageUrl, slot = 0, previewUrl = '', resultTaskId = taskId) => {
       if (typeof window.completeClassicLiveTask !== "function") return;
       window.completeClassicLiveTask(liveTaskForSlot(slot), imageUrl, {
-        taskId,
+        taskId: resultTaskId,
+        previewUrl,
+        connectionMessage: '',
         prompt: promptSnapshot,
         size,
         modelLabel: options.modelLabel || "",
@@ -2678,46 +2740,42 @@
     };
     const runPoll = async () => {
       try {
-        if (Date.now() - startedAt > maxPollMs) {
-          settleAsFailed("查询超时，任务状态未完成");
+        if (sessionAtStart !== getStoredSessionToken()) { stopPolling(); return; }
+        if (!isManagedJob && Date.now() - startedAt > maxPollMs) {
+          window.updateClassicLiveTask?.(liveTaskForSlot(0), { connectionMessage: '查询时间较长，请稍后在历史记录核对' });
+          stopPolling();
           return;
         }
 
         const queryUrl = CONFIG.queryUrl.replace("{id}", normalizedTaskId) + `?_t=${Date.now()}`;
-        const response = await fetch(queryUrl, {
-          method: "GET",
-          headers: {
+        const rawJson = await window.ClassicImageJobs.query(normalizedTaskId, {
             "Content-Type": "application/json",
             ...(isSessionAuthenticated() ? buildSessionHeaders() : buildApiKeyHeaders(key)),
-          },
-        });
-
-        if (response.status === 404) {
-          settleAsFailed("任务已失效或未找到");
-          return;
-        }
-
-        if (!response.ok) {
-          errorCount += 1;
-          if (errorCount >= maxErrors) {
-            throw new Error("多次查询失败，任务可能已丢失");
-          }
-          scheduleNextPoll();
-          return;
-        }
-
-        const rawJson = await response.json().catch(() => ({}));
+        }, queryUrl, window.classicImageJobOwner || '');
+        if (sessionAtStart !== getStoredSessionToken()) { stopPolling(); return; }
         errorCount = 0;
+        window.updateClassicLiveTask?.(liveTaskForSlot(0), { connectionMessage: rawJson.connection_status === 'unconfirmed' ? '尚未确认受理，请核对记录后再提交' : '' });
         const statusRaw = String(
           rawJson.status || rawJson.state || rawJson.data?.status || "",
         ).toUpperCase();
 
-        const imageUrls = extractImmediateImageUrls(rawJson);
+        const imageUrls = isManagedJob ? (rawJson.images || rawJson.results || []).filter(url => typeof url === 'string') : extractImmediateImageUrls(rawJson);
         if (imageUrls.length > 0) {
           stopPolling();
           removePendingTask(normalizedTaskId);
           removePendingTaskFromGallery(normalizedTaskId);
-          completeLiveTask(imageUrls[0], 0);
+          const liveId = liveTaskForSlot(0);
+          const wasCompleted = typeof classicLiveTasks !== 'undefined' && classicLiveTasks.some(task => (task.id === liveId || task.taskId === liveId || task.taskId === normalizedTaskId) && task.status === 'success');
+          completeLiveTask(imageUrls[0], 0, rawJson.preview_url || '', rawJson.task_id || normalizedTaskId);
+          if (wasCompleted) {
+            if (canUpdateMainUi(options.runToken, trackUi)) {
+              loadedImageCount++;
+              completedTasksCount++;
+              activeTasksCount--;
+              checkAllDone(size);
+            }
+            return;
+          }
           if (canUpdateMainUi(options.runToken, trackUi)) {
             appendImageToGrid(imageUrls[0], size, null, {
               runToken: options.runToken,
@@ -2727,6 +2785,7 @@
               promptSnapshot,
               modelLabel: options.modelLabel || "",
               routeLabel: options.routeLabel || "",
+              previewUrl: rawJson.preview_url || '',
             });
           } else {
             saveToHistory(imageUrls[0], promptSnapshot);
@@ -2735,6 +2794,11 @@
         }
 
         if (statusRaw === "SUCCESS" || statusRaw === "SUCCEEDED" || statusRaw === "COMPLETED") {
+          if (isManagedJob) {
+            window.updateClassicLiveTask?.(liveTaskForSlot(0), { status: 'result-unavailable', connectionMessage: '生成已完成，但图片保存失败，请联系管理员核对' });
+            stopPolling();
+            return;
+          }
           successNoUrlCount += 1;
           if (successNoUrlCount >= maxSuccessNoUrlCount) {
             settleAsFailed("任务成功但未返回图片链接");
@@ -2753,17 +2817,22 @@
       } catch (error) {
         console.warn(`[Classic Bridge] Poll task ${index} warning:`, error);
         errorCount += 1;
-        if (errorCount >= maxErrors) {
-          const errorMessage = extractClassicApiError(error, "查询连接持续失败");
-          settleAsFailed(errorMessage);
-          return;
-        }
+        if (sessionAtStart !== getStoredSessionToken()) { stopPolling(); return; }
+        window.updateClassicLiveTask?.(liveTaskForSlot(0), { connectionMessage: error.status === 401 ? '请重新登录后恢复任务' : error.status === 404 ? '暂未查到任务，请在历史记录核对' : '连接中断，联网后自动恢复' });
         scheduleNextPoll();
       }
     };
     activeTaskPollers.set(normalizedTaskId, {
       startedAt,
       stop: stopPolling,
+      adoptUi: incoming => {
+        if (incoming.trackUi === false || !canUpdateMainUi(incoming.runToken, true)) return;
+        options = { ...options, ...incoming };
+        trackUi = true;
+        const incomingIds = Array.isArray(incoming.liveTaskIds) ? incoming.liveTaskIds.filter(Boolean) : incoming.liveTaskId ? [incoming.liveTaskId] : [];
+        if (incomingIds.length) liveTaskIds = incomingIds;
+        if (incoming.promptSnapshot) promptSnapshot = String(incoming.promptSnapshot);
+      },
     });
     scheduleNextPoll();
   };
@@ -2881,7 +2950,9 @@
     activeTasksCount = batchSize;
     completedTasksCount = 0;
     loadedImageCount = 0;
-    startFakeProgress();
+    if (progressInterval) clearInterval(progressInterval);
+    fill.style.width = '0%';
+    statusText.innerText = '正在提交任务，受理后在下方显示生成状态';
 
     let submitRefImages = refImages.slice();
     let submitReferenceIndices = [];
@@ -2943,10 +3014,9 @@
     };
 
     if (isGeminiNativeSyncRoute(selectedRoute)) {
-      const markSubmitSettled = createSubmitSettledTracker(1);
-      const liveTaskIds = Array.from({ length: batchSize }, (_, taskIndex) =>
-        createLiveTask(taskIndex + 1),
-      ).filter(Boolean);
+      const markSubmitSettled = createSubmitSettledTracker(batchSize);
+      for (let taskIndex = 0; taskIndex < batchSize; taskIndex++) {
+      const liveTaskIds = [createLiveTask(taskIndex + 1)].filter(Boolean);
       submitSingleTask(
         buildClassicGeminiPayload({
           selectedModel,
@@ -2954,7 +3024,7 @@
           prompt: currentPrompt,
           ratio,
           size,
-          quantity: batchSize,
+          quantity: 1,
           referenceImages: normalizedRefImages,
           clientLiveTaskIds: liveTaskIds,
         }),
@@ -2968,7 +3038,7 @@
           runToken,
           trackUi: true,
           endpoint: "/api/gemini/generate",
-          expectedCount: batchSize,
+          expectedCount: 1,
           liveTaskIds,
           clientLiveTaskIds: liveTaskIds,
           promptSnapshot: promptBaseText,
@@ -2977,6 +3047,7 @@
           onSubmitSettled: markSubmitSettled,
         },
       );
+      }
       return;
     }
 
@@ -3166,9 +3237,21 @@
       });
     }
 
-    window.addEventListener("auth-session-change", () => {
+    const resetImageJobOwner = () => {
+      activeTaskPollers.forEach(poller => poller.stop());
+      bridgeAuthState.user = null;
+      window.setClassicImageJobOwner?.('');
       void refreshClassicSession(false);
-    });
+    };
+    window.addEventListener("auth-session-change", resetImageJobOwner);
+    window.addEventListener('storage', event => { if (event.key === AUTH_SESSION_STORAGE_KEY) resetImageJobOwner(); });
+    const resumeImageJobs = () => {
+      if (getStoredSessionToken() && !bridgeAuthState.user) void refreshClassicSession(false);
+      else if (isSessionAuthenticated()) void restorePendingTasks();
+    };
+    window.addEventListener('online', resumeImageJobs);
+    window.addEventListener('focus', resumeImageJobs);
+    setInterval(resumeImageJobs, 30000);
 
     await Promise.allSettled([
       loadRegistrationStatus(),

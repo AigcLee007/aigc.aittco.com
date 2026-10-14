@@ -13,6 +13,7 @@ import {
   extractErrorMessage,
 } from '../src/utils/errorDebug';
 import { unwrapMiswrappedImageUrl } from '../src/utils/mediaProxy';
+import { submitImageJob, queryImageJob } from '../src/services/imageJobClient';
 
 const API_BASE_URL =
   typeof window !== 'undefined' && window.location.hostname === 'localhost'
@@ -195,24 +196,13 @@ export const generateImageApi = async (
   apiKey: string | undefined,
   payload: any,
 ): Promise<{ taskId: string; url?: string; data?: any[]; images?: string[] }> => {
-  const response = await fetch(`${cleanUrl(API_BASE_URL)}/generate`, {
-    method: 'POST',
-    headers: await buildImageRequestHeaders(apiKey, payload),
-    body: JSON.stringify({
-      uiMode: 'canvas',
-      ...payload,
-    }),
-  });
-
-  if (!response.ok) {
-    await handleApiError(response, 'Image generation submit failed');
-  }
-
-  const resJson = await response.json();
+  const resJson = await submitImageJob(`${cleanUrl(API_BASE_URL)}/generate`, payload, await buildImageRequestHeaders(apiKey, payload));
   const normalizedStatus = String(resJson?.status || resJson?.state || '').trim().toLowerCase();
   if (['failed', 'failure', 'error', 'cancelled', 'canceled'].includes(normalizedStatus)) {
     throw new AppError(extractErrorMessage(resJson) || '图片生成失败，未返回错误详情');
   }
+  const managedTaskId = resJson.task_id || resJson.id;
+  if (typeof managedTaskId === 'string' && /^(job-|request-)/.test(managedTaskId)) return { ...resJson, taskId: managedTaskId };
 
   const directImageUrl = [resJson.url, resJson.image_url].find((value) =>
     isUsableResultUrl(value),
@@ -253,24 +243,13 @@ export const editImageApi = async (
   apiKey: string | undefined,
   payload: any,
 ): Promise<{ taskId: string; url?: string; images?: string[]; data?: any[] }> => {
-  const response = await fetch(`${cleanUrl(API_BASE_URL)}/edit`, {
-    method: 'POST',
-    headers: await buildImageRequestHeaders(apiKey, payload),
-    body: JSON.stringify({
-      uiMode: 'canvas',
-      ...payload,
-    }),
-  });
-
-  if (!response.ok) {
-    await handleApiError(response, 'Image edit submit failed');
-  }
-
-  const resJson = await response.json();
+  const resJson = await submitImageJob(`${cleanUrl(API_BASE_URL)}/edit`, payload, await buildImageRequestHeaders(apiKey, payload));
   const normalizedStatus = String(resJson?.status || resJson?.state || '').trim().toLowerCase();
   if (['failed', 'failure', 'error', 'cancelled', 'canceled'].includes(normalizedStatus)) {
     throw new AppError(extractErrorMessage(resJson) || '图片编辑失败，未返回错误详情');
   }
+  const managedTaskId = resJson.task_id || resJson.id;
+  if (typeof managedTaskId === 'string' && /^(job-|request-)/.test(managedTaskId)) return { ...resJson, taskId: managedTaskId };
 
   const directImageUrl = [resJson.url, resJson.image_url].find((value) =>
     isUsableResultUrl(value),
@@ -311,20 +290,10 @@ export const getTaskStatusApi = async (
   apiKey: string | undefined,
   taskId: string,
 ): Promise<TaskStatusResponse> => {
-  const response = await fetch(`${cleanUrl(API_BASE_URL)}/task/${taskId}`, {
-    method: 'GET',
-    headers: {
-      ...buildOptionalSessionHeaders(),
-      ...buildAuthHeaders(apiKey),
-      'Content-Type': 'application/json',
-    },
-  });
-
-  if (!response.ok) {
-    await throwPollingError(response);
-  }
-
-  return response.json();
+  return queryImageJob(taskId, {
+    ...buildOptionalSessionHeaders(), ...buildAuthHeaders(apiKey),
+    'Content-Type': 'application/json',
+  }, cleanUrl(API_BASE_URL));
 };
 
 export const checkTaskStatus = getTaskStatusApi;
@@ -359,6 +328,7 @@ export interface GeminiGeneratePayload {
 }
 
 export interface GeminiGenerateResponse {
+  taskId?: string;
   success: boolean;
   images: string[];
   text?: string;
@@ -370,24 +340,10 @@ export const generateGeminiImage = async (
   apiKey: string | undefined,
   payload: GeminiGeneratePayload,
 ): Promise<GeminiGenerateResponse> => {
-  const response = await fetch(`${cleanUrl(API_BASE_URL)}/gemini/generate`, {
-    method: 'POST',
-    headers: {
-      ...buildOptionalSessionHeaders(),
-      ...(await getAuthorizedBillingHeaders()),
-      ...buildAuthHeaders(apiKey),
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      uiMode: 'canvas',
-      ...payload,
-    }),
+  const result = await submitImageJob(`${cleanUrl(API_BASE_URL)}/gemini/generate`, payload, {
+    ...buildOptionalSessionHeaders(), ...(await getAuthorizedBillingHeaders()),
+    ...buildAuthHeaders(apiKey), 'Content-Type': 'application/json',
   });
-
-  if (!response.ok) {
-    await handleApiError(response, 'Gemini generation submit failed');
-  }
-
-  return response.json();
+  return { ...result, taskId: result.task_id || result.id || '' };
 };
 

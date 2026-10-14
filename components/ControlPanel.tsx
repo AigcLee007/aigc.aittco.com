@@ -1035,7 +1035,7 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
               routeId: selectedImageRoute.id,
             };
            
-           generateImageApi(apiKey, payload)
+           generateImageApi(apiKey, { ...payload, clientLiveTaskIds: [pid] })
             .then((res: any) => {
                if (res.taskId) {
                  onUpdateGeneration(pid, null, undefined, res.taskId);
@@ -1109,7 +1109,11 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
               },
             };
 
-            const res: any = await generateGeminiImage(apiKey, payload);
+            const res: any = await generateGeminiImage(apiKey, { ...payload, clientLiveTaskIds: [attempt.placeholderId] });
+            if (res.taskId) {
+              onUpdateGeneration(attempt.placeholderId, null, undefined, res.taskId);
+              return;
+            }
             const generatedImages: string[] = [];
 
             if (res.candidates && Array.isArray(res.candidates)) {
@@ -1186,7 +1190,7 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
               ...(isSyncMode ? { isSync: true } : {}),
               ...imagePayload
             };
-            generateImageApi(apiKey, payload)
+            generateImageApi(apiKey, { ...payload, clientLiveTaskIds: placeholderIds })
               .then((res: any) => {
                 if (res.taskId) {
                   placeholderIds.forEach(pid => onUpdateGeneration(pid, null, undefined, res.taskId));
@@ -1229,7 +1233,7 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
               ...getGptImagePayload(promptForModel, 1),
               images: imageDataUrls,
             };
-            editImageApi(apiKey, payload)
+            editImageApi(apiKey, { ...payload, clientLiveTaskIds: placeholderIds })
               .then((res: any) => {
                 if (res.taskId) {
                   placeholderIds.forEach((pid) => onUpdateGeneration(pid, null, undefined, res.taskId));
@@ -1337,7 +1341,7 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
                   routeId: selectedImageRoute.id,
                   ...(isSyncMode ? { isSync: true } : {})
                 };
-          generateImageApi(apiKey, payload)
+          generateImageApi(apiKey, { ...payload, clientLiveTaskIds: placeholderIds })
             .then((res: any) => {
               if (res.taskId) {
                 placeholderIds.forEach(pid => onUpdateGeneration(pid, null, undefined, res.taskId));

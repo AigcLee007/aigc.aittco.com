@@ -6,6 +6,14 @@ const helmet = require("helmet");
 const rateLimit = require("express-rate-limit");
 const winston = require("winston");
 const fs = require("fs");
+const { createImageJobStore } = require("./imageJobStore.cjs");
+const { createImageJobService, imageJobContext } = require("./imageJobService.cjs");
+const { createImageJobAssets, STORAGE_ROOT: IMAGE_JOB_STORAGE_ROOT } = require("./imageJobAssets.cjs");
+axios.interceptors.request.use(config => {
+  const context = imageJobContext.getStore();
+  if (context) config.signal = context.signal;
+  return config;
+});
 const FormData = require("form-data");
 const https = require("https");
 const {
@@ -61,16 +69,16 @@ const {
   listPendingTasks,
   listRedeemCodes,
   updateRedeemCodeStatus,
-  reservePoints,
+  reservePoints: reservePointsOriginal,
   redeemCode,
-  refundPoints,
-  registerPendingTask,
-  settlePendingTask,
+  refundPoints: refundPointsOriginal,
+  registerPendingTask: registerPendingTaskOriginal,
+  settlePendingTask: settlePendingTaskOriginal,
   startBillingMaintenance,
   rechargeAccount,
 } = require("./billingStore.cjs");
 const {
-  attachTaskToGenerationRecord,
+  attachTaskToGenerationRecord: attachTaskToGenerationRecordOriginal,
   clearGenerationRecordsForUser,
   completeGenerationRecord,
   completeGenerationRecordByTaskId,
@@ -79,6 +87,38 @@ const {
   listGenerationRecordsForUser,
   startGenerationRecordMaintenance,
 } = require("./generationRecordStore.cjs");
+// Worker context binds the existing billing and route logic to its durable outer job.
+const reservePoints = async (accountId, points, meta = {}) => {
+  const context = imageJobContext.getStore();
+  if (context) await context.persist({ accountId, charging: true });
+  const charge = await reservePointsOriginal(accountId, points, context ? { ...meta, imageJobId: context.taskId } : meta);
+  if (context) {
+    try { await context.persist({ accountId, chargeId: charge?.chargeId || null, points: charge?.points || 0, charging: false }); }
+    catch (error) { if (charge?.chargeId) await refundPointsOriginal(accountId, charge.chargeId, { reason: "image_job_association_failed", imageJobId: context.taskId }); throw error; }
+  }
+  return charge;
+};
+const refundPoints = async (accountId, chargeId, meta = {}) => {
+  const context = imageJobContext.getStore();
+  if (context?.generationSucceeded) return null;
+  return refundPointsOriginal(accountId, chargeId, meta);
+};
+const registerPendingTask = async (taskId, info) => {
+  const context = imageJobContext.getStore();
+  if (context) return context.persist({ innerTaskId: taskId, routeId: info?.routeId || null, accountId: info?.accountId || null, chargeId: info?.chargeId || null });
+  return registerPendingTaskOriginal(taskId, info);
+};
+const settlePendingTask = async (taskId, status) => {
+  const context = imageJobContext.getStore();
+  // Outer jobs own settlement; legacy maintenance must never refund a completed outer job.
+  if (context) return null;
+  return settlePendingTaskOriginal(taskId, status);
+};
+const attachTaskToGenerationRecord = async (recordId, taskId) => {
+  const context = imageJobContext.getStore();
+  if (context) { await context.persist({ innerTaskId: taskId, generationRecordId: recordId }); return attachTaskToGenerationRecordOriginal(recordId, context.taskId); }
+  return attachTaskToGenerationRecordOriginal(recordId, taskId);
+};
 const {
   createManagedImageRoute,
   deleteManagedImageRoute,
@@ -1150,9 +1190,10 @@ const buildGenerationRecordPayload = async ({
   if (!userId) return null;
 
   const resolvedAccount =
-    billingAccount || (await getAccountByUserId(userId).catch(() => null));
+    billingAccount || (await Promise.resolve().then(() => getAccountByUserId(userId)).catch(() => null));
 
-  return createGenerationRecord({
+  const jobContext = imageJobContext.getStore();
+  const record = await createGenerationRecord({
     userId,
     accountId: resolvedAccount?.accountId || null,
     ownerEmail:
@@ -1167,7 +1208,7 @@ const buildGenerationRecordPayload = async ({
     modelName: modelName || null,
     routeId: route?.id || null,
     routeLabel: route?.label || null,
-    taskId: taskId || null,
+    taskId: jobContext?.taskId || taskId || null,
     status,
     quantity,
     aspectRatio: aspectRatio || null,
@@ -1175,8 +1216,10 @@ const buildGenerationRecordPayload = async ({
     previewUrl: previewUrl || null,
     resultUrls,
     errorMessage: errorMessage || null,
-    meta: meta || null,
+    meta: jobContext ? { ...(meta || {}), imageJobId: jobContext.taskId } : meta || null,
   });
+  if (jobContext && record?.id) await jobContext.persist({ generationRecordId: record.id, accountId: resolvedAccount?.accountId || null });
+  return record;
 };
 const completeGenerationRecordSuccessSafe = async ({
   recordId = null,
@@ -1187,6 +1230,7 @@ const completeGenerationRecordSuccessSafe = async ({
   aspectRatio = null,
   meta = null,
 }) => {
+  if (imageJobContext.getStore()) return;
   const normalizedUrls = dedupeResultUrls(resultUrls);
   const updates = {
     status: "SUCCESS",
@@ -1261,8 +1305,14 @@ const persistImageResultPayloadSafe = async ({
   modelId = null,
   taskId = null,
   requestId = null,
-} = {}) =>
-  persistGeneratedImageResults({
+} = {}) => {
+  const context = imageJobContext.getStore();
+  if (context) {
+    const urls = dedupeResultUrls(resultUrls);
+    if (urls.length && !isTaskFailureStatus(extractResultStatus(payload))) context.generationSucceeded = true;
+    return Promise.resolve({ payload, resultUrls: urls, previewUrl: urls[0] || null, enabled: false });
+  }
+  return persistGeneratedImageResults({
     payload,
     resultUrls,
     context: buildGeneratedAssetContext({
@@ -1276,6 +1326,7 @@ const persistImageResultPayloadSafe = async ({
     }),
     logger,
   });
+};
 const completeGenerationRecordFailureSafe = async ({
   recordId = null,
   taskId = null,
@@ -1284,6 +1335,7 @@ const completeGenerationRecordFailureSafe = async ({
   aspectRatio = null,
   meta = null,
 }) => {
+  if (imageJobContext.getStore()) return;
   const updates = {
     status: "FAILED",
     errorMessage: errorMessage || null,
@@ -1639,6 +1691,7 @@ const requestWithRetry = async (
   fn,
   _options = {},
 ) => {
+  if (imageJobContext.getStore()?.signal?.aborted) throw new Error("Image task execution was interrupted");
   return fn();
 };
 
@@ -1697,6 +1750,10 @@ const postJsonWithFetch = async ({
   includeGoogleApiKey = false,
 }) => {
   const controller = new AbortController();
+  const jobSignal = imageJobContext.getStore()?.signal;
+  const cancelJob = () => controller.abort();
+  if (jobSignal?.aborted) controller.abort();
+  else jobSignal?.addEventListener("abort", cancelJob, { once: true });
   const timeoutId = setTimeout(() => controller.abort(), 600000);
   try {
     const response = await fetch(endpoint, {
@@ -1753,6 +1810,7 @@ const postJsonWithFetch = async ({
     throw error;
   } finally {
     clearTimeout(timeoutId);
+    jobSignal?.removeEventListener("abort", cancelJob);
   }
 };
 
@@ -3407,7 +3465,7 @@ const normalizeGptImage2RequestSize = (size, ratio = "1:1") => {
 };
 
 // ==================== Image Generation ====================
-app.post("/api/generate", generateLimiter, async (req, res) => {
+const legacyImageGenerateHandler = async (req, res) => {
   let billingAccount = null;
   let billingCharge = null;
   let localTaskId = null;
@@ -3504,7 +3562,7 @@ app.post("/api/generate", generateLimiter, async (req, res) => {
         },
       });
 
-      if (isAsyncGeminiRoute) {
+      if (isAsyncGeminiRoute && !imageJobContext.getStore()) {
         const localJobId = createLocalImageJobId();
         localTaskId = buildImageTaskToken(route.id, localJobId);
         setLocalImageJob(localJobId, {
@@ -3819,7 +3877,7 @@ app.post("/api/generate", generateLimiter, async (req, res) => {
       }
     };
 
-    const shouldRunVisionaryInBackground = isVisionaryImageRoute(route);
+    const shouldRunVisionaryInBackground = isVisionaryImageRoute(route) && !imageJobContext.getStore();
     const isSyncLine = requestBody.isSync === true || routeMode === "sync";
     if (isSyncLine) {
       delete requestBody.isSync;
@@ -4179,7 +4237,7 @@ app.post("/api/generate", generateLimiter, async (req, res) => {
       );
     }
 
-    if (shouldRunGptImage2SyncRouteInBackground(route, requestBody) && !shouldUseChatSyncEndpoint) {
+    if (shouldRunGptImage2SyncRouteInBackground(route, requestBody) && !shouldUseChatSyncEndpoint && !imageJobContext.getStore()) {
       const localJobId = createLocalImageJobId();
       localTaskId = buildImageTaskToken(route.id, localJobId);
       setLocalImageJob(localJobId, {
@@ -4697,8 +4755,8 @@ app.post("/api/generate", generateLimiter, async (req, res) => {
     });
     respondWithUserFacingGenerationError(res, error, 500);
   }
-});
-app.post("/api/edit", generateLimiter, async (req, res) => {
+};
+const legacyImageEditHandler = async (req, res) => {
   let billingAccount = null;
   let billingCharge = null;
   let localTaskId = null;
@@ -4858,7 +4916,7 @@ app.post("/api/edit", generateLimiter, async (req, res) => {
       });
     }
 
-    if (shouldRunGptImage2SyncRouteInBackground(route, requestBody)) {
+    if (shouldRunGptImage2SyncRouteInBackground(route, requestBody) && !imageJobContext.getStore()) {
       const localJobId = createLocalImageJobId();
       localTaskId = buildImageTaskToken(route.id, localJobId);
       setLocalImageJob(localJobId, {
@@ -5117,7 +5175,7 @@ app.post("/api/edit", generateLimiter, async (req, res) => {
     console.error("[Edit] Error:", error.message);
     respondWithUserFacingGenerationError(res, error, 500);
   }
-});
+};
 app.get("/api/proxy/image", async (req, res) => {
   const imageUrl = req.query.url;
   if (!imageUrl) return res.status(400).send("Url is required");
@@ -5540,6 +5598,10 @@ const pollVideoTaskAndSettle = async ({
 // ==================== Image Task Polling ====================
 app.get("/api/task/:taskId", pollingLimiter, async (req, res) => {
   try {
+    if (String(req.params.taskId).startsWith("job-")) {
+      const user = await requireAuthUser(req);
+      return res.json(await imageJobService.get(req.params.taskId, user.userId));
+    }
     const responseData = await pollImageTaskAndSettle({
       encodedTask: req.params.taskId,
       fallbackAuthorization: req.headers["authorization"],
@@ -5549,11 +5611,13 @@ app.get("/api/task/:taskId", pollingLimiter, async (req, res) => {
     });
     res.json(responseData);
   } catch (error) {
+    if (sendAuthError(res, error)) return;
+    if (error.status === 404) return res.status(404).json({ error: "Image task not found" });
     console.error("[Task Poll] Error:", error.message);
     respondWithUserFacingGenerationError(res, error, 500);
   }
 });
-app.post("/api/gemini/generate", generateLimiter, async (req, res) => {
+const legacyGeminiGenerateHandler = async (req, res) => {
   let billingAccount = null;
   let billingCharge = null;
   let chargeRouteId = null;
@@ -5694,7 +5758,151 @@ app.post("/api/gemini/generate", generateLimiter, async (req, res) => {
     });
     respondWithUserFacingGenerationError(res, error, 500);
   }
+};
+// ==================== Durable Image Jobs ====================
+const imageJobRoot = path.resolve(process.env.IMAGE_JOB_STORAGE_ROOT || IMAGE_JOB_STORAGE_ROOT);
+const imageJobStore = createImageJobStore({ root: imageJobRoot });
+const imageJobAssets = createImageJobAssets({ root: imageJobRoot });
+const makeWorkerRequest = (body, context) => ({
+  body: (() => { const clean = { ...body }; delete clean.asyncTask; delete clean.clientRequestId; delete clean.client_request_id; return clean; })(),
+  headers: { authorization: context.headers?.authorization || "" },
+  authUser: context.identity || { userId: context.userId },
 });
+const executeLegacyImageHandler = async (job, body, context) => {
+  const handlers = { "/api/generate": legacyImageGenerateHandler, "/api/edit": legacyImageEditHandler, "/api/gemini/generate": legacyGeminiGenerateHandler };
+  const req = makeWorkerRequest(body, context);
+  if (job.endpoint === "/api/edit") {
+    const requested = await resolveImageRoute(body.routeId);
+    const route = requested?.editPath ? requested : await resolveImageRoute(undefined);
+    const model = await resolveRequestedImageModel(body);
+    await buildGenerationRecordPayload({
+      req, mediaType: "IMAGE", actionName: "edit", prompt: body.prompt,
+      modelId: model?.id || null, modelName: model?.label || body.model,
+      route, quantity: body.n || 1, aspectRatio: body.aspect_ratio || body.aspectRatio,
+      outputSize: body.image_size || body.size, uiMode: body.uiMode, status: "PENDING",
+      meta: { transport: route?.transport, routeMode: route?.mode, clientLiveTaskIds: normalizeClientLiveTaskIds(body.clientLiveTaskIds || body.clientLiveTaskId) },
+    });
+  }
+  let result, statusCode = 200;
+  const capture = {
+    headersSent: false,
+    status(code) { statusCode = code; return this; },
+    json(payload) { result = payload; this.headersSent = true; return this; },
+    send(payload) { result = payload; this.headersSent = true; return this; },
+    setHeader() {}, end() { this.headersSent = true; },
+  };
+  await handlers[job.endpoint](req, capture);
+  if (statusCode >= 400) throw Object.assign(new Error(result?.error?.message || result?.error || "图片生成失败"), { status: statusCode });
+  if (!capture.headersSent) throw new Error("图片处理器未返回任务或图片结果");
+  return result;
+};
+const recoverJobCharge = async job => {
+  if (job.chargeId || !job.accountId || !job.charging) return job;
+  // Reservation is idempotently refundable even if the process stopped between
+  // the ledger commit and task association write.
+  for (let page = 1; page <= 20; page++) {
+    const ledger = await getAccountLedger(job.accountId, { page, pageSize: 100 });
+    const charge = ledger.entries?.find(entry => entry.type === "charge" && entry.meta?.imageJobId === job.taskId);
+    if (charge) return imageJobStore.update(job.taskId, { chargeId: charge.id, charging: false });
+    if (page >= (ledger.totalPages || 1)) break;
+  }
+  return job;
+};
+const imageJobService = createImageJobService({
+  store: imageJobStore, assets: imageJobAssets, logger,
+  extractResultUrls: extractResultUrlsFromPayload,
+  execute: executeLegacyImageHandler,
+  poll: (job, context) => pollImageTaskAndSettle({
+    encodedTask: job.innerTaskId,
+    fallbackAuthorization: context.headers?.authorization || "",
+    req: makeWorkerRequest({}, context), source: "durable_image_job_poll", preferUserProvidedAuth: true,
+  }),
+  compensate: async original => {
+    const job = await recoverJobCharge(original);
+    if (job.innerTaskId) await settlePendingTaskOriginal(job.innerTaskId, "FAILED");
+    if (job.accountId && job.chargeId) await refundPointsOriginal(job.accountId, job.chargeId, { reason: "image_job_failed", imageJobId: job.taskId });
+    if (job.generationRecordId) await completeGenerationRecord(job.generationRecordId, { status: "FAILED", errorMessage: job.error || "Image task failed", meta: { imageJobId: job.taskId } });
+  },
+  settleSuccess: async job => {
+    if (job.innerTaskId) await settlePendingTaskOriginal(job.innerTaskId, "SUCCESS");
+    if (job.generationRecordId) await completeGenerationRecord(job.generationRecordId, {
+      status: "SUCCESS", resultUrls: job.resultUrls || [], previewUrl: job.previewUrl || job.resultUrls?.[0] || null,
+      meta: { imageJobId: job.taskId, storageStatus: job.storageStatus },
+    });
+  },
+});
+app.imageJobService = imageJobService;
+let imageJobStartPromise;
+const ensureImageJobsStarted = () => imageJobStartPromise ||= imageJobService.start().catch(error => { imageJobStartPromise = null; throw error; });
+const recoverImageJobsInBackground = (attempt = 0) => {
+  void ensureImageJobsStarted().catch(error => {
+    logger.error({ type: "Image job recovery failed", message: error.message });
+    const timer=setTimeout(() => recoverImageJobsInBackground(attempt + 1),Math.min(60000,5000 * (attempt + 1)));
+    timer.unref?.();
+  });
+};
+const validateImageJobRequest = async (req, endpoint) => {
+  const user = await requireAuthUser(req);
+  const body = req.body || {};
+  if ((!body.prompt || !String(body.prompt).trim()) && Array.isArray(body.contents?.[0]?.parts)) {
+    const nativeText=body.contents[0].parts.find(part=>typeof part?.text === "string" && part.text.trim());
+    if(nativeText)body.prompt=nativeText.text;
+  }
+  if (typeof body.prompt !== "string" || !body.prompt.trim()) throw Object.assign(new Error("请输入图片提示词"), { status: 400 });
+  if (body.prompt.length > 32000) throw Object.assign(new Error("图片提示词过长"), { status: 400 });
+  if (body.n !== undefined && (!Number.isInteger(Number(body.n)) || Number(body.n) < 1 || Number(body.n) > 12)) throw Object.assign(new Error("图片数量必须介于 1 和 12 之间"), { status: 400 });
+  const requestedRoute = await resolveImageRoute(body.routeId);
+  const route = endpoint === "/api/edit" && !requestedRoute?.editPath ? await resolveImageRoute(undefined) : requestedRoute;
+  if (!route) throw Object.assign(new Error("图片线路不存在或已停用"), { status: 400 });
+  if (endpoint === "/api/gemini/generate" && !isGeminiNativeRoute(route)) throw Object.assign(new Error("Gemini 图片线路不支持当前请求"), { status: 400 });
+  if (isGeminiNativeRoute(route)) {
+    const countError = getGeminiSingleImageRequestError(body); if (countError) throw Object.assign(new Error(countError), { status: 400 });
+  }
+  const model = await resolveRequestedImageModel(body);
+  if (model?.id === "seedream-5-pro") { const error = getSeedreamSizeError(body); if (error) throw Object.assign(new Error(error), { status: 400 }); }
+  if (endpoint === "/api/edit" && !(typeof body.image === "string" && body.image.trim()) && !(Array.isArray(body.images) && body.images.some(value => typeof value === "string" && value.trim()))) throw Object.assign(new Error("图片编辑需要参考图"), { status: 400 });
+  if (!shouldUseUserProvidedApiKey(route, req.headers.authorization)) await requireBillingAccount(req);
+  return user;
+};
+const imageRouteAdapter = (endpoint, legacy) => async (req, res) => {
+  if (req.body?.asyncTask !== true) return legacy(req, res);
+  try {
+    // Preserve the legacy key-only route contract; durable recovery belongs to a logged-in owner.
+    if (!req.authUser) {
+      const route = await resolveImageRoute(req.body?.routeId);
+      if (shouldUseUserProvidedApiKey(route, req.headers.authorization)) {
+        const clean = { ...req.body }; delete clean.asyncTask; delete clean.clientRequestId; req.body = clean;
+        return legacy(req, res);
+      }
+    }
+    const user = await validateImageJobRequest(req, endpoint);
+    await ensureImageJobsStarted();
+    const acknowledgement = await imageJobService.submit({ userId: user.userId, endpoint, body: req.body, identity: user, headers: req.headers });
+    return res.status(202).json(acknowledgement);
+  } catch (error) {
+    if (sendAuthError(res, error)) return;
+    if ([400,409,413,429].includes(error.status)) return res.status(error.status).json({ error: error.message });
+    return respondWithUserFacingGenerationError(res, error, 500);
+  }
+};
+app.post("/api/generate", generateLimiter, imageRouteAdapter("/api/generate", legacyImageGenerateHandler));
+app.post("/api/edit", generateLimiter, imageRouteAdapter("/api/edit", legacyImageEditHandler));
+app.post("/api/gemini/generate", generateLimiter, imageRouteAdapter("/api/gemini/generate", legacyGeminiGenerateHandler));
+app.get("/api/image-jobs/request/:requestId", pollingLimiter, async (req, res) => {
+  try { const user = await requireAuthUser(req); return res.json(await imageJobService.lookupRequest(req.params.requestId, user.userId)); }
+  catch (error) { if (sendAuthError(res,error)) return; return res.status(error.status || 500).json({ error: error.message }); }
+});
+app.get("/api/image-jobs", pollingLimiter, async (req, res) => {
+  try { const user = await requireAuthUser(req); return res.json({ jobs: await imageJobService.list(user.userId, { uiMode: req.query.uiMode, status: req.query.status, limit: req.query.limit }) }); }
+  catch (error) { if (sendAuthError(res,error)) return; return res.status(error.status || 500).json({ error: error.message }); }
+});
+app.get("/api/image-job-assets/:userId/:taskId/:filename", async (req, res) => {
+  try {
+    const file = await imageJobAssets.resolveAsset({ ...req.params, token: req.query.token });
+    res.setHeader("Cache-Control", "private, max-age=3600"); return res.sendFile(file);
+  } catch (error) { return res.status(error.status || 404).json({ error: error.status === 410 ? error.message : "Image asset not found" }); }
+});
+
 // ==================== Video Generation ====================
 app.post("/api/video/generate", generateLimiter, async (req, res) => {
   let billingAccount = null;
@@ -6716,6 +6924,7 @@ app.get("/{*splat}", (req, res) => {
 });
 
 if (require.main === module) {
+  recoverImageJobsInBackground();
   app.listen(PORT, () => {
     console.log(`Backend server running on http://localhost:${PORT}`);
     console.log(`   Upstream API: ${UPSTREAM_URL}`);

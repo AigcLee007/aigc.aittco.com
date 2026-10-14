@@ -45,6 +45,13 @@ export interface NodeData {
 
   // Loading / Error States for async generation
   taskId?: string; // Task ID for polling
+  clientRequestId?: string;
+  generationOwnerId?: string;
+  generationStartedAt?: number;
+  generationConnectionStatus?: 'recovering' | 'unconfirmed' | 'result-unavailable';
+  generationStorageStatus?: 'pending' | 'saved' | 'failed';
+  generationResultIndex?: number;
+  generationResultSrc?: string;
   loading?: boolean;
   progress?: number; // Real-time generation progress (0-100)
   error?: boolean;

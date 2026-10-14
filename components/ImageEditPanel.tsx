@@ -561,6 +561,7 @@ const ImageEditPanel: React.FC<ImageEditPanelProps> = ({
         placeholderIds.map(async (placeholderId) => {
           const result = await editImageApi(apiKey, {
             ...payload,
+            clientLiveTaskIds: [placeholderId],
             n: 1,
           });
           if (result.taskId) {

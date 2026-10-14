@@ -497,6 +497,9 @@ function normalizeClassicLiveTask(task = {}) {
     id: String(task.id || task.tempId || task.taskId || makeClassicLiveId()),
     tempId: String(task.tempId || ""),
     taskId: String(task.taskId || ""),
+    clientRequestId: String(task.clientRequestId || ""),
+    ownerId: String(task.ownerId || ""),
+    connectionMessage: String(task.connectionMessage || ""),
     status: String(task.status || "running"),
     prompt: String(task.prompt || ""),
     modelLabel: String(task.modelLabel || task.model || ""),
@@ -517,7 +520,7 @@ function normalizeClassicLiveTask(task = {}) {
 
 function readClassicLiveTasks() {
   try {
-    const raw = JSON.parse(localStorage.getItem(CLASSIC_LIVE_TASKS_KEY) || "[]");
+    const raw = JSON.parse(localStorage.getItem(getClassicLiveStorageKey()) || "[]");
     const now = Date.now();
     classicLiveTasks = (Array.isArray(raw) ? raw : [])
       .map(normalizeClassicLiveTask)
@@ -527,6 +530,7 @@ function readClassicLiveTasks() {
         const lastTouchedAt = Number(task.updatedAt || task.createdAt || now);
         if (
           ["submitting", "running"].includes(status) &&
+          !task.clientRequestId && !task.taskId.startsWith('job-') &&
           now - lastTouchedAt > CLASSIC_LIVE_STALE_RUNNING_MS
         ) {
           return {
@@ -676,9 +680,22 @@ function persistClassicLiveTasks() {
       .map(normalizeClassicLiveTask)
       .sort((a, b) => Number(b.updatedAt || b.createdAt) - Number(a.updatedAt || a.createdAt))
       .slice(0, CLASSIC_LIVE_MAX_TASKS);
-    localStorage.setItem(CLASSIC_LIVE_TASKS_KEY, JSON.stringify(classicLiveTasks));
+    localStorage.setItem(getClassicLiveStorageKey(), JSON.stringify(classicLiveTasks));
   } catch (_) {}
 }
+
+function getClassicLiveStorageKey() {
+  return window.classicImageJobOwner ? `${CLASSIC_LIVE_TASKS_KEY}:${window.classicImageJobOwner}` : CLASSIC_LIVE_TASKS_KEY;
+}
+window.setClassicImageJobOwner = function (owner) {
+  const next = String(owner || '');
+  if (next === (window.classicImageJobOwner || '')) return;
+  persistClassicLiveTasks();
+  window.classicImageJobOwner = next;
+  readClassicLiveTasks();
+  classicLiveRenderSignature = '';
+  renderClassicLiveTasks();
+};
 
 function findClassicLiveTaskIndex(idOrTaskId) {
   const id = String(idOrTaskId || "").trim();
@@ -711,6 +728,7 @@ function formatClassicLiveClock(value) {
 }
 
 function getClassicLiveStatusLabel(status) {
+  if (status === 'result-unavailable') return '图片保存异常';
   if (status === "success") return "已完成";
   if (status === "failed") return "失败";
   if (status === "submitting") return "提交中";
@@ -889,10 +907,11 @@ function renderClassicLiveTasks() {
       if (isFailed) {
         return `<div class="classic-live-error">${escapeHtml(task.errorMessage || "生成失败，请重试")}</div>`;
       }
+      if (status === 'result-unavailable') return `<div class="classic-live-error">${escapeHtml(task.connectionMessage)}</div>`;
       return `
         <div class="classic-live-pending-visual">
           <div class="classic-live-spinner"></div>
-          <div>${status === "submitting" ? "正在提交任务..." : "上游正在生成..."}</div>
+          <div>${escapeHtml(task.connectionMessage || (status === "submitting" ? "正在提交任务..." : "后台生成中..."))}</div>
           <div class="classic-live-loading-bar"></div>
         </div>
       `;
@@ -1070,7 +1089,7 @@ function renderClassicLiveTasks() {
     const previewUrl = getClassicLivePreviewUrl(task);
     const isSuccess = status === "success" && fullUrl;
     const isFailed = status === "failed";
-    const taskSignature = JSON.stringify([status, fullUrl, previewUrl, task.prompt, task.modelLabel, task.routeLabel, task.size, task.ratio, task.referenceCount, task.index, task.errorMessage, task.completedAt || task.createdAt]);
+    const taskSignature = JSON.stringify([status, fullUrl, previewUrl, task.prompt, task.modelLabel, task.routeLabel, task.size, task.ratio, task.referenceCount, task.index, task.errorMessage, task.connectionMessage, task.completedAt || task.createdAt]);
     const previousCard = previousCards.get(task.id || task.taskId || "");
     if (previousCard?.dataset.taskSignature === taskSignature) {
       previousCard.classList.toggle("is-primary", index === 0);
@@ -1103,11 +1122,13 @@ function renderClassicLiveTasks() {
       mediaHtml = `<img alt="生成结果" loading="lazy" decoding="async" referrerpolicy="no-referrer">`;
     } else if (isFailed) {
       mediaHtml = `<div class="classic-live-error">${escapeHtml(task.errorMessage || "生成失败，请重试")}</div>`;
+    } else if (status === 'result-unavailable') {
+      mediaHtml = `<div class="classic-live-error">${escapeHtml(task.connectionMessage)}</div>`;
     } else {
       mediaHtml = `
         <div class="classic-live-pending-visual">
           <div class="classic-live-spinner"></div>
-          <div>${status === "submitting" ? "正在提交任务..." : "上游正在生成..."}</div>
+          <div>${escapeHtml(task.connectionMessage || (status === "submitting" ? "正在提交任务..." : "后台生成中..."))}</div>
           <div class="classic-live-loading-bar"></div>
         </div>
       `;
@@ -1290,11 +1311,12 @@ function promoteClassicLiveTask(tempId, taskId, updates = {}) {
   if (idx < 0) {
     return ensureClassicLiveTaskForPending({ ...updates, taskId: taskKey, status: "running" });
   }
+  const preserveSuccess = classicLiveTasks[idx].status === 'success' && (!updates.status || ['running', 'submitting'].includes(updates.status));
   classicLiveTasks[idx] = normalizeClassicLiveTask({
     ...classicLiveTasks[idx],
     ...updates,
     taskId: taskKey || classicLiveTasks[idx].taskId,
-    status: updates.status || "running",
+    status: preserveSuccess ? 'success' : updates.status || "running",
     updatedAt: Date.now(),
   });
   persistClassicLiveTasks();

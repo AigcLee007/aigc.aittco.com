@@ -9,6 +9,8 @@ import { getLocalLine4ThumbnailUrl } from '../utils/generatedImageStorage';
 import { getProxiedImageUrl, unwrapMiswrappedImageUrl } from '../utils/mediaProxy';
 import { revokeDownloadObjectUrlLater } from '../utils/downloadObjectUrl';
 import { NodeData, ToolMode } from '../../types';
+import { getImageJobOwner } from '../services/imageJobClient';
+import { getStoredAuthSessionToken, buildBillingIdentityHeaders } from '../services/accountIdentity';
 
 type AutoDownloadItem = {
     src: string;
@@ -149,6 +151,7 @@ export const useGenerationLogic = () => {
             opacity: 1,
             locked: false,
             loading: true,
+            generationStartedAt: Date.now(),
             src: '',
             prompt: prompt,
             history: [],
@@ -212,8 +215,17 @@ export const useGenerationLogic = () => {
 
     // Update generation
     const handleUpdateGeneration = useCallback(async (id: string, src: string | null, error?: string, taskId?: string) => {
+        const ownerNode = useCanvasStore.getState().nodes.find(n => n.id === id);
+        if (ownerNode?.generationOwnerId) {
+            const session = getStoredAuthSessionToken();
+            if (!session) return;
+            const owner = await getImageJobOwner(buildBillingIdentityHeaders(session)).catch(() => '');
+            if (session !== getStoredAuthSessionToken() || owner !== ownerNode.generationOwnerId) return;
+        }
         if (taskId) {
-            updateNode(id, { taskId, loading: true, error: false }, true);
+            const current = useCanvasStore.getState().nodes.find(n => n.id === id);
+            if (current?.taskId === taskId && !current.loading && (current.src || current.error || current.generationConnectionStatus === 'result-unavailable')) return;
+            updateNode(id, { taskId, loading: true, error: false, errorMessage: undefined }, true);
             return;
         }
 
@@ -236,20 +248,23 @@ export const useGenerationLogic = () => {
         const currentNodes = useCanvasStore.getState().nodes;
         const currentNode = currentNodes.find(n => n.id === id);
         if (!currentNode) return;
+        if (!currentNode.loading && !currentNode.error && currentNode.src === rawSrc) return;
         const generatedAt = new Date().toISOString();
 
         // 1) Show result immediately with original URL first.
         // Avoid blocking first paint on local proxy latency.
         const displaySrc = rawSrc;
         const canvasSafeSrc = getProxiedImageUrl(rawSrc);
-        const thumbnailSrc = isVideo ? undefined : getLocalLine4ThumbnailUrl(displaySrc) || undefined;
+        const thumbnailSrc = isVideo ? undefined : currentNode.thumbnailSrc || getLocalLine4ThumbnailUrl(displaySrc) || undefined;
 
         updateNode(id, {
             src: displaySrc,
+            generationResultSrc: displaySrc,
             assetId: undefined,
             thumbnailSrc,
             loading: false,
             error: false,
+            generationConnectionStatus: undefined,
             opacity: 1,
             createdAt: generatedAt,
         }, true);

@@ -45,7 +45,7 @@ const DreamingPlaceholder: React.FC<{ width: number; height: number; progress: n
       <Rect
         x={width * 0.15}
         y={height / 2 + 50}
-        width={width * 0.7 * (progress / 100)}
+        width={width * 0.7 * (Math.max(progress, 0) / 100)}
         height={4}
         fill="#c084fc"
         shadowColor="#a855f7"
@@ -57,7 +57,7 @@ const DreamingPlaceholder: React.FC<{ width: number; height: number; progress: n
         x={0}
         y={height / 2 - 20}
         width={width}
-        text={`${Math.floor(progress)}%`}
+        text={progress < 0 ? '处理中' : `${Math.floor(progress)}%`}
         fontSize={36}
         fontFamily="'Courier New', monospace"
         fontStyle="bold"
@@ -172,6 +172,9 @@ const ImageNode: React.FC<{ node: NodeData; progress: number; statusText: string
 
   if (node.loading) {
     return <DreamingPlaceholder width={node.width} height={node.height} progress={progress} statusText={statusText} />;
+  }
+  if (node.generationConnectionStatus === 'result-unavailable') {
+    return <ErrorPlaceholder width={node.width} height={node.height} message="生成已完成，但图片保存失败，请联系管理员核对" />;
   }
   if (node.error) {
     return <ErrorPlaceholder width={node.width} height={node.height} message={node.errorMessage || 'Failed'} />;
@@ -410,6 +413,22 @@ const CanvasNode: React.FC<CanvasNodeProps> = React.memo(
         return;
       }
 
+      if (node.type === 'IMAGE') {
+        const started = node.generationStartedAt || Date.now();
+        const update = () => {
+          const seconds = Math.max(0, Math.floor((Date.now() - started) / 1000));
+          const elapsed = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
+          const phase = node.generationConnectionStatus === 'recovering' ? '连接中断，正在恢复'
+            : node.generationConnectionStatus === 'unconfirmed' ? '尚未确认受理，请核对历史记录'
+            : node.taskId && !node.taskId.startsWith('request-') ? '后台生成中' : '正在提交任务';
+          setProgress(-1);
+          setStatusText(`${phase} · ${elapsed}`);
+        };
+        update();
+        const timer = window.setInterval(update, 1000);
+        return () => window.clearInterval(timer);
+      }
+
       const startTime = Date.now();
       const duration = 70000;
       setProgress(1);
@@ -432,7 +451,7 @@ const CanvasNode: React.FC<CanvasNodeProps> = React.memo(
       }, 100);
 
       return () => window.clearInterval(interval);
-    }, [node.loading, node.id]);
+    }, [node.loading, node.id, node.type, node.taskId, node.generationStartedAt, node.generationConnectionStatus]);
 
     useEffect(() => {
       if (!groupRef.current) return;

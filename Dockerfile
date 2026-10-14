@@ -51,6 +51,9 @@ COPY billingReportUtils.cjs ./
 COPY redeemCodePolicy.cjs ./
 COPY pointMath.cjs ./
 COPY generatedAssetService.cjs ./
+COPY imageJobStore.cjs ./
+COPY imageJobService.cjs ./
+COPY imageJobAssets.cjs ./
 COPY videoReferenceUpload.cjs ./
 COPY videoFrameUpload.cjs ./
 COPY videoRequestPolicy.cjs ./
@@ -65,7 +68,7 @@ COPY config ./config
 COPY scripts ./scripts
 
 # Create runtime directories used by announcements/uploads
-RUN mkdir -p /app/uploads/announcements /app/uploads/video-references /app/uploads/video-frames
+RUN mkdir -p /app/uploads/announcements /app/uploads/video-references /app/uploads/video-frames /app/storage/image-jobs
 
 # Expose port
 EXPOSE 3365
