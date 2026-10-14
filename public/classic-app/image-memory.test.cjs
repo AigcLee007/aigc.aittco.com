@@ -81,11 +81,11 @@ test('local history binds previews without replacing thumbnails with cached orig
   let originalReads = 0;
   let binds = 0;
   Object.assign(context, {
-    classicHistoryRenderGeneration: 0,
+    classicHistoryRenderGeneration: 0, isClassicMobileViewport: () => false, releaseClassicImageTree() {}, genHistoryId: () => 'generated', remoteHistoryNextPage: 2, remoteHistoryTotalPages: 1,
+    getHistoryFullUrl: item => item.fullUrl || item.resultUrls?.[0] || item.url || '', getClassicLine4ThumbUrl: () => '',
     clearHistoryObjectUrlRefs() {},
     migrateLocalStorageHistoryToIndexedDB: async () => {},
     readHistoryRecordsFromDB: async () => [{ id: 'local', fullUrl: '/full.png', previewUrl: '/preview.webp', prompt: 'test' }],
-    getHistoryFullUrl: (item) => item.fullUrl,
     getHistoryDisplayUrl: (item) => item.previewUrl,
     getClassicLine4ThumbUrl: () => '',
     writeHistoryRecordsToDB: async () => {},
@@ -98,6 +98,8 @@ test('local history binds previews without replacing thumbnails with cached orig
     URL: { createObjectURL: () => 'blob:full-original' },
   });
   vm.createContext(context);
+  vm.runInContext(slice('function normalizeHistoryRecord(', 'async function getHistoryMeta('), context);
+  vm.runInContext(slice('function renderClassicHistoryRecords(', 'async function loadHistory('), context);
   vm.runInContext(slice('async function loadHistory()', 'function regenerateFromHistory('), context);
   await context.loadHistory();
   await Promise.resolve();
@@ -113,7 +115,8 @@ test('remote history binds preview reader without allocating full-original objec
   let originalReads = 0;
   let binds = 0;
   Object.assign(context, {
-    classicHistoryRenderGeneration: 0,
+    classicHistoryRenderGeneration: 0, isClassicMobileViewport: () => false, releaseClassicImageTree() {}, genHistoryId: () => 'generated', remoteHistoryNextPage: 2, remoteHistoryTotalPages: 1,
+    getHistoryFullUrl: item => item.fullUrl || item.resultUrls?.[0] || item.url || '', getClassicLine4ThumbUrl: () => '',
     clearHistoryObjectUrlRefs() {},
     mergeRemoteAndLocalHistoryRecords: async (records) => records,
     getBridgeHistoryPageSize: () => 10,
@@ -127,6 +130,8 @@ test('remote history binds preview reader without allocating full-original objec
     URL: { createObjectURL: () => 'blob:full-original' },
   });
   vm.createContext(context);
+  vm.runInContext(slice('function normalizeHistoryRecord(', 'async function getHistoryMeta('), context);
+  vm.runInContext(slice('function renderClassicHistoryRecords(', 'async function loadHistory('), context);
   vm.runInContext(`${render}\n globalThis.renderRemoteHistoryGrid = renderRemoteHistoryGrid`, context);
   await context.renderRemoteHistoryGrid([{ id: 'remote', resultUrls: ['/full.png'], previewUrl: '/thumb.webp' }]);
   await Promise.resolve();

@@ -191,3 +191,30 @@ test('VIP poll ignores results from an account that has been switched out', asyn
   assert.equal(h.completed.length, 0);
   assert.equal(h.scope.activeTaskPollers.size, 0);
 });
+
+
+test('VIP managed multi-output success retains every output and settles each slot once', async () => {
+  const h = pollHarness(async () => ({ task_id: 'job-many', status: 'succeeded', images: ['/one.png', '/two.png'], preview_url: '/one.webp' }));
+  h.scope.canUpdateMainUi = (_token, tracked) => tracked;
+  h.scope.activeTasksCount = 2;
+  h.tasks.push({ id: 'live-many', taskId: 'job-many', status: 'running', outputIndex: 0 });
+  await h.scope.pollSingleTask('job-many', '', '1K', 1, { liveTaskId: 'live-many', trackUi: true, runToken: 10 });
+  await h.pending.shift()();
+  assert.equal(h.completed.length, 2);
+  assert.notEqual(h.completed[0][0], h.completed[1][0]);
+  assert.equal(h.completed[1][2].outputIndex, 1);
+  assert.equal(h.history.length, 2);
+  assert.equal(h.scope.activeTasksCount, 0);
+});
+
+test('VIP two tracked pollers for the same server job cannot settle a run twice', async () => {
+  const h = pollHarness(async () => ({ task_id: 'job-test', status: 'succeeded', images: ['/original.png'] }));
+  h.scope.canUpdateMainUi = (_token, tracked) => tracked;
+  h.tasks.push({ id: 'live-test', taskId: 'job-test', status: 'running', outputIndex: 0 });
+  const options = { liveTaskId: 'live-test', trackUi: true, runToken: 11 };
+  await h.scope.pollSingleTask('job-test', '', '1K', 1, options);
+  await h.scope.pollSingleTask('request-same-request', '', '1K', 1, options);
+  await h.pending.shift()(); await h.pending.shift()();
+  assert.equal(h.scope.activeTasksCount, 0);
+  assert.equal(h.uiSettles.length, 1);
+});

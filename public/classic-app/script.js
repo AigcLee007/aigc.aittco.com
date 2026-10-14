@@ -499,6 +499,11 @@ function normalizeClassicLiveTask(task = {}) {
     taskId: String(task.taskId || ""),
     clientRequestId: String(task.clientRequestId || ""),
     ownerId: String(task.ownerId || ""),
+    jobId: String(task.jobId || task.taskId || ""),
+    outputIndex: Math.max(0, Number(task.outputIndex || 0)),
+    assetId: String(task.assetId || (task.ownerId && (task.jobId || task.taskId) && window.ImageResultStore?.resultId(task.ownerId, task.jobId || task.taskId, task.outputIndex || 0)) || ""),
+    storageStatus: String(task.storageStatus || ""),
+    cloudExpiresAt: Number(task.cloudExpiresAt || 0),
     connectionMessage: String(task.connectionMessage || ""),
     status: String(task.status || "running"),
     prompt: String(task.prompt || ""),
@@ -550,11 +555,18 @@ function readClassicLiveTasks() {
 }
 
 function normalizeHistoryRecord(item = {}) {
-  const now = new Date();
   const fullUrl = getHistoryFullUrl(item);
   if (!fullUrl) return null;
-  const createdAt = String(item.createdAt || item.completedAt || now.toISOString());
-  const completedAt = String(item.completedAt || createdAt);
+  const iso = value => {
+    const date = new Date(value || Date.now());
+    return Number.isNaN(date.getTime()) ? new Date().toISOString() : date.toISOString();
+  };
+  const createdAt = iso(item.createdAt || item.completedAt);
+  const completedAt = iso(item.completedAt || createdAt);
+  const ownerId = String(item.ownerId || "");
+  const jobId = String(item.jobId || item.taskId || "");
+  const outputIndex = Math.max(0, Number(item.outputIndex || 0));
+  const assetId = String(item.assetId || (ownerId && jobId && window.ImageResultStore?.resultId(ownerId, jobId, outputIndex)) || "");
   const date = new Date(completedAt);
   const time =
     String(item.time || "").trim() ||
@@ -562,7 +574,13 @@ function normalizeHistoryRecord(item = {}) {
       ? ""
       : `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`);
   return {
-    id: String(item.id || genHistoryId()),
+    id: assetId || String(item.id || genHistoryId()),
+    ownerId, jobId, outputIndex, assetId,
+    legacyId: String(item.legacyId || ""),
+    storageStatus: String(item.storageStatus || ""),
+    cloudExpiresAt: Number(item.cloudExpiresAt || 0),
+    autoDownloadEligible: item.autoDownloadEligible === true,
+    allowLegacyAssociation: item.allowLegacyAssociation === true,
     url: fullUrl,
     fullUrl,
     previewUrl: String(item.previewUrl || item.displayUrl || "").trim() || getClassicLine4ThumbUrl(fullUrl) || fullUrl,
@@ -604,42 +622,67 @@ async function setHistoryMeta(id, value = {}) {
   }
 }
 
-async function readHistoryRecordsFromDB() {
+async function readHistoryRecordsFromDB(options = {}) {
+  const ownerId = String(options.ownerId ?? window.classicImageJobOwner ?? "");
   const db = await openHistoryCacheDB();
-  const records = await new Promise((resolve, reject) => {
-    const tx = db.transaction(HISTORY_RECORD_STORE, "readonly");
-    const req = tx.objectStore(HISTORY_RECORD_STORE).getAll();
-    req.onsuccess = () => resolve(Array.isArray(req.result) ? req.result : []);
-    req.onerror = () => reject(req.error);
-  });
-  db.close();
-  return records
-    .map(normalizeHistoryRecord)
-    .filter(Boolean)
-    .sort((a, b) => String(b.completedAt || b.createdAt).localeCompare(String(a.completedAt || a.createdAt)));
+  try {
+    const records = await new Promise((resolve, reject) => {
+      const tx = db.transaction(HISTORY_RECORD_STORE, "readonly");
+      const req = tx.objectStore(HISTORY_RECORD_STORE).getAll();
+      let rows = [];
+      req.onsuccess = () => { rows = Array.isArray(req.result) ? req.result : []; };
+      tx.oncomplete = () => resolve(rows);
+      tx.onerror = tx.onabort = () => reject(tx.error || new Error("历史记录读取失败"));
+    });
+    return records.map(normalizeHistoryRecord).filter(record => record && (options.allOwners || record.ownerId === ownerId))
+      .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt) || a.outputIndex - b.outputIndex || a.id.localeCompare(b.id));
+  } finally { db.close(); }
 }
 
-async function writeHistoryRecordsToDB(records = []) {
-  const normalized = (Array.isArray(records) ? records : [])
-    .map(normalizeHistoryRecord)
-    .filter(Boolean)
-    .sort((a, b) => String(b.completedAt || b.createdAt).localeCompare(String(a.completedAt || a.createdAt)))
-    .slice(0, HISTORY_MAX_RECORDS);
-  const keepIds = new Set(normalized.map((record) => record.id));
-  const existingRecords = await readHistoryRecordsFromDB().catch(() => []);
-  const removed = existingRecords.filter((record) => !keepIds.has(record.id));
+async function writeHistoryRecordsToDB(records = [], options = {}) {
+  const incoming = (Array.isArray(records) ? records : []).map(normalizeHistoryRecord).filter(Boolean);
+  const ownerId = String(options.ownerId ?? window.classicImageJobOwner ?? "");
   const db = await openHistoryCacheDB();
-  await new Promise((resolve, reject) => {
-    const tx = db.transaction(HISTORY_RECORD_STORE, "readwrite");
-    const store = tx.objectStore(HISTORY_RECORD_STORE);
-    removed.forEach((record) => store.delete(record.id));
-    normalized.forEach((record) => store.put(record));
-    tx.oncomplete = resolve;
-    tx.onerror = () => reject(tx.error);
-  });
-  db.close();
-  removed.forEach((record) => removeCachedHistoryImage(record.id));
-  return normalized;
+  try {
+    // Read and merge inside the same readwrite transaction. IndexedDB serializes
+    // these transactions across tabs, so simultaneous completions cannot lose rows.
+    return await new Promise((resolve, reject) => {
+      const tx = db.transaction(HISTORY_RECORD_STORE, "readwrite");
+      const store = tx.objectStore(HISTORY_RECORD_STORE);
+      const request = store.getAll();
+      let result = [];
+      request.onsuccess = () => {
+        try {
+          const existing = (request.result || []).map(normalizeHistoryRecord).filter(Boolean);
+          const byId = new Map(existing.map(record => [record.id, record]));
+          if (options.replace) existing.filter(record => record.ownerId === ownerId).forEach(record => { byId.delete(record.id); store.delete(record.id); });
+          for (const record of incoming) {
+            const previous = byId.get(record.id);
+            const legacy = record.ownerId && record.allowLegacyAssociation
+              ? existing.find(item => !item.ownerId && item.fullUrl === record.fullUrl) : null;
+            const merged = { ...previous, ...record,
+              createdAt: previous?.createdAt || record.createdAt,
+              completedAt: previous?.completedAt || record.completedAt,
+              legacyId: previous?.legacyId || record.legacyId || legacy?.id || "",
+              autoDownloadEligible: record.autoDownloadEligible,
+            };
+            byId.set(record.id, merged); store.put(merged);
+          }
+          const owners = new Set(incoming.map(record => record.ownerId));
+          for (const owner of owners) {
+            const owned = Array.from(byId.values()).filter(record => record.ownerId === owner)
+              .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt) || a.outputIndex - b.outputIndex || a.id.localeCompare(b.id));
+            owned.slice(HISTORY_MAX_RECORDS).forEach(record => { byId.delete(record.id); store.delete(record.id); });
+          }
+          // Removing a history row never silently removes the sole legacy Blob.
+          result = Array.from(byId.values()).filter(record => record.ownerId === ownerId)
+            .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt) || a.outputIndex - b.outputIndex || a.id.localeCompare(b.id));
+        } catch (error) { reject(error); tx.abort(); }
+      };
+      tx.oncomplete = () => resolve(result);
+      tx.onerror = tx.onabort = () => reject(tx.error || new Error("历史记录保存失败"));
+    });
+  } finally { db.close(); }
 }
 
 async function migrateLocalStorageHistoryToIndexedDB() {
@@ -666,7 +709,7 @@ async function migrateLocalStorageHistoryToIndexedDB() {
     })
     .filter(Boolean);
   if (migrated.length > 0) {
-    const existing = await readHistoryRecordsFromDB().catch(() => []);
+    const existing = await readHistoryRecordsFromDB({ allOwners: true }).catch(() => []);
     const byUrl = new Set(existing.map((record) => getHistoryFullUrl(record)));
     const nextRecords = [...existing, ...migrated.filter((record) => !byUrl.has(getHistoryFullUrl(record)))];
     await writeHistoryRecordsToDB(nextRecords);
@@ -678,7 +721,7 @@ function persistClassicLiveTasks() {
   try {
     classicLiveTasks = classicLiveTasks
       .map(normalizeClassicLiveTask)
-      .sort((a, b) => Number(b.updatedAt || b.createdAt) - Number(a.updatedAt || a.createdAt))
+      .sort((a, b) => Number(b.createdAt) - Number(a.createdAt) || Number(a.outputIndex || 0) - Number(b.outputIndex || 0) || String(a.id).localeCompare(String(b.id)))
       .slice(0, CLASSIC_LIVE_MAX_TASKS);
     localStorage.setItem(getClassicLiveStorageKey(), JSON.stringify(classicLiveTasks));
   } catch (_) {}
@@ -691,18 +734,30 @@ window.setClassicImageJobOwner = function (owner) {
   const next = String(owner || '');
   if (next === (window.classicImageJobOwner || '')) return;
   persistClassicLiveTasks();
+  for (const img of classicImageBindings.keys()) {
+    classicImageBinder?.unbind(img);
+    delete img.dataset.inputKey;
+    const card = img.closest('.history-item'); if (card) delete card.dataset.imageInput;
+  }
+  classicImageBindings.clear();
+  classicAssetIdsBySource.clear();
+  classicImageBinder = null;
+  classicImageReader = null;
+  if (document.getElementById('lightbox')) closeLightbox();
+  classicLiveSelectedId = '';
   window.classicImageJobOwner = next;
   readClassicLiveTasks();
   classicLiveRenderSignature = '';
   renderClassicLiveTasks();
+  renderClassicHistoryRecords([]);
 };
 
-function findClassicLiveTaskIndex(idOrTaskId) {
+function findClassicLiveTaskIndex(idOrTaskId, outputIndex) {
   const id = String(idOrTaskId || "").trim();
   if (!id) return -1;
-  return classicLiveTasks.findIndex(
-    (task) => task.id === id || task.tempId === id || task.taskId === id,
-  );
+  const exact = classicLiveTasks.findIndex(task => task.id === id);
+  if (exact >= 0 && (outputIndex === undefined || Number(classicLiveTasks[exact].outputIndex || 0) === outputIndex)) return exact;
+  return classicLiveTasks.findIndex(task => (task.tempId === id || task.taskId === id) && Number(task.outputIndex || 0) === Number(outputIndex || 0));
 }
 
 function getClassicLiveFullUrl(task = {}) {
@@ -823,386 +878,129 @@ function buildClassicLiveInfoHtml(task = {}) {
 function renderClassicLiveTasks() {
   const grid = document.getElementById("classicLiveGrid");
   if (!grid) return;
-
+  const desktop = typeof window.matchMedia === "function" && window.matchMedia("(min-width: 769px)").matches && !CLASSIC_VIP_MODE;
+  const signature = JSON.stringify([desktop, classicLiveSelectedId, classicLiveTasks.map(({updatedAt, ...task}) => task)]);
+  if (signature === classicLiveRenderSignature && grid.childElementCount) return;
+  classicLiveRenderSignature = signature;
   const container = document.getElementById("imgContainer");
   if (container) container.style.display = "flex";
-
-  const isDesktopLive =
-    typeof window.matchMedia === "function" &&
-    window.matchMedia("(min-width: 769px)").matches &&
-    !CLASSIC_VIP_MODE;
-  const renderSignature = JSON.stringify([isDesktopLive, classicLiveSelectedId, classicLiveTasks.map((task) => ({
-    id: task.id || task.taskId || "",
-    status: task.status || "",
-    originalUrl: getClassicLiveFullUrl(task),
-    previewUrl: getClassicLivePreviewUrl(task),
-    errorMessage: task.errorMessage || "",
-    updatedAt: task.updatedAt || 0,
-  }))]);
-  if (renderSignature === classicLiveRenderSignature && grid.childElementCount > 0) return;
-  classicLiveRenderSignature = renderSignature;
-
-  const previousCards = new Map(
-    Array.from(grid.querySelectorAll(".classic-live-card")).map((card) => [card.dataset.liveId || card.dataset.fullUrl, card]),
-  );
-  const previousImages = Array.from(grid.querySelectorAll("img"));
-  const releaseRemovedImages = () => previousImages.forEach((img) => {
-    if (!img.isConnected) {
-      classicImageBinder?.unbind(img);
-      classicImageBindings.delete(img);
-    }
-  });
-  grid.querySelectorAll(".classic-live-card").forEach((card) => {
-    if (!classicLiveTasks.some((task) => (task.id || task.taskId || "") === (card.dataset.liveId || ""))) {
-      releaseClassicImageTree(card);
-    }
-  });
-
-  const runningCount = classicLiveTasks.filter((task) =>
-    ["submitting", "running"].includes(String(task.status || "")),
-  ).length;
-  const doneCount = classicLiveTasks.filter((task) => task.status === "success").length;
-  const failedCount = classicLiveTasks.filter((task) => task.status === "failed").length;
-  const runningEl = document.getElementById("classicLiveRunning");
-  const doneEl = document.getElementById("classicLiveDone");
-  const failedEl = document.getElementById("classicLiveFailed");
-  if (runningEl) runningEl.textContent = `进行中 ${runningCount}`;
-  if (doneEl) doneEl.textContent = `已完成 ${doneCount}`;
-  if (failedEl) failedEl.textContent = `失败 ${failedCount}`;
-  const clearBtn = document.getElementById("classicLiveClearBtn");
-  if (clearBtn) clearBtn.disabled = classicLiveTasks.length === 0;
-
-  grid.innerHTML = "";
-  if (classicLiveTasks.length === 0) {
-    const empty = document.createElement("div");
-    empty.id = "classicLiveEmpty";
-    empty.className = "classic-live-empty";
-    empty.innerHTML = `
-      <div class="classic-live-empty-icon">✦</div>
-      <div class="classic-live-empty-title">提交后会在这里显示大图</div>
-      <div class="classic-live-empty-sub">任务生成期间，你可以继续修改参数并提交下一组。</div>
-    `;
-    grid.appendChild(empty);
-    releaseRemovedImages();
-    return;
+  for (const [id, count, label] of [
+    ["classicLiveRunning", classicLiveTasks.filter(task => ["running", "submitting"].includes(task.status)).length, "进行中"],
+    ["classicLiveDone", classicLiveTasks.filter(task => task.status === "success").length, "已完成"],
+    ["classicLiveFailed", classicLiveTasks.filter(task => task.status === "failed").length, "失败"],
+  ]) {
+    const el = document.getElementById(id); if (el) el.textContent = label + " " + count;
   }
-
-  if (isDesktopLive) {
-    const existingSelected = classicLiveSelectedId
-      ? classicLiveTasks.find(
-          (task) => task.id === classicLiveSelectedId || task.taskId === classicLiveSelectedId,
-        )
-      : null;
-    const primaryTask = existingSelected || classicLiveTasks[0];
-    classicLiveSelectedId = primaryTask.id || primaryTask.taskId || "";
-
-    const buildMediaHtml = (task) => {
-      const status = String(task.status || "running");
-      const fullUrl = getClassicLiveFullUrl(task);
-      const isSuccess = status === "success" && fullUrl;
-      const isFailed = status === "failed";
-      if (isSuccess) {
-        return `<img alt="生成结果" loading="lazy" decoding="async" referrerpolicy="no-referrer">`;
+  const clear = document.getElementById("classicLiveClearBtn"); if (clear) clear.disabled = !classicLiveTasks.length;
+  if (!classicLiveTasks.length) {
+    const empty = grid.querySelector("#classicLiveEmpty") || document.createElement("div");
+    empty.id = "classicLiveEmpty"; empty.className = "classic-live-empty";
+    empty.textContent = "提交后会在这里显示图片，生成期间可以继续创作下一组。";
+    patchClassicChildren(grid, [empty]); return;
+  }
+  if (!desktop) {
+    const previous = new Map(Array.from(grid.children).map(card => [card.dataset.liveId, card]));
+    const cards = classicLiveTasks.map((task, index) => patchClassicLiveCard(previous.get(task.id), task, index === 0));
+    patchClassicChildren(grid, cards); return;
+  }
+  const selected = classicLiveTasks.find(task => task.id === classicLiveSelectedId) || classicLiveTasks[0];
+  classicLiveSelectedId = selected.id;
+  const previousPrimary = grid.querySelector(":scope > .classic-live-card");
+  const primary = patchClassicLiveCard(previousPrimary?.dataset.liveId === selected.id ? previousPrimary : null, selected, true);
+  const info = grid.querySelector(":scope > .classic-live-selected-info") || document.createElement("div");
+  info.className = "classic-live-selected-info";
+  const infoHtml = buildClassicLiveInfoHtml(selected);
+  if (info.dataset.infoHtml !== infoHtml) { info.innerHTML = infoHtml; info.dataset.infoHtml = infoHtml; }
+  const children = [primary, info];
+  if (classicLiveTasks.length > 1) {
+    const strip = grid.querySelector(":scope > .classic-live-strip") || document.createElement("div"); strip.className = "classic-live-strip";
+    const oldThumbs = new Map(Array.from(strip.children).map(thumb => [thumb.dataset.liveId, thumb]));
+    const thumbs = classicLiveTasks.map(task => {
+      let thumb = oldThumbs.get(task.id);
+      if (!thumb) {
+        thumb = document.createElement("button"); thumb.type = "button";
+        thumb.innerHTML = '<div class="classic-live-thumb-media"></div><div class="classic-live-thumb-meta"><span></span><b></b></div>';
+        thumb.onclick = () => { classicLiveSelectedId = thumb.dataset.liveId; renderClassicLiveTasks(); };
       }
-      if (isFailed) {
-        return `<div class="classic-live-error">${escapeHtml(task.errorMessage || "生成失败，请重试")}</div>`;
-      }
-      if (status === 'result-unavailable') return `<div class="classic-live-error">${escapeHtml(task.connectionMessage)}</div>`;
-      return `
-        <div class="classic-live-pending-visual">
-          <div class="classic-live-spinner"></div>
-          <div>${escapeHtml(task.connectionMessage || (status === "submitting" ? "正在提交任务..." : "后台生成中..."))}</div>
-          <div class="classic-live-loading-bar"></div>
-        </div>
-      `;
-    };
-
-    const buildActionsHtml = (task, isPrimary = false) => {
-      const fullUrl = getClassicLiveFullUrl(task);
-      const status = String(task.status || "");
-      const canDelete = true;
-      const actionClass = isPrimary
-        ? "classic-live-actions classic-live-primary-actions"
-        : "classic-live-actions";
-      const mainButtons =
-        status === "success" && fullUrl
-          ? `
-          <button type="button" class="classic-live-action-btn" data-action="zoom" title="放大" aria-label="放大">放大</button>
-          <button type="button" class="classic-live-action-btn" data-action="download" title="保存原图" aria-label="保存原图">下载</button>
-          <button type="button" class="classic-live-action-btn" data-action="regen" title="重生" aria-label="重生">重生</button>
-          <button type="button" class="classic-live-action-btn" data-action="ref" title="设为参考图" aria-label="设为参考图">参考</button>
-          <button type="button" class="classic-live-action-btn" data-action="copy" title="复制原图链接" aria-label="复制原图链接">链接</button>
-        `
-          : "";
-      return `
-        <div class="${actionClass}">
-          ${mainButtons}
-          ${
-            canDelete
-              ? `<button type="button" class="classic-live-action-btn danger" data-action="delete" title="删除" aria-label="删除">删除</button>`
-              : ""
-          }
-        </div>
-      `;
-    };
-
-    const bindLiveActions = (root, task) => {
-      const readFullUrl = () => root.dataset.fullUrl || root.dataset.previewUrl || "";
-      const media = root.querySelector(".classic-live-media");
-      if (media) media.addEventListener("dblclick", (event) => {
-        event.preventDefault();
-        const fullUrl = readFullUrl();
-        if (fullUrl) openLightbox(fullUrl);
-      });
-      const zoomBtn = root.querySelector('[data-action="zoom"]');
-      if (zoomBtn) zoomBtn.addEventListener("click", (event) => {
-        event.stopPropagation();
-        openLightbox(readFullUrl());
-      });
-      const downBtn = root.querySelector('[data-action="download"]');
-      if (downBtn) downBtn.addEventListener("click", (event) => {
-        event.stopPropagation();
-        downloadSingleImg(readFullUrl());
-      });
-      const regenBtn = root.querySelector('[data-action="regen"]');
-      if (regenBtn) regenBtn.addEventListener("click", (event) => {
-        event.stopPropagation();
-        regenerateFromHistory(encodeURIComponent(task.prompt || ""));
-      });
-      const refBtn = root.querySelector('[data-action="ref"]');
-      if (refBtn) refBtn.addEventListener("click", (event) => {
-        event.stopPropagation();
-        useAsRef(readFullUrl(), refBtn);
-      });
-      const copyBtn = root.querySelector('[data-action="copy"]');
-      if (copyBtn) copyBtn.addEventListener("click", (event) => {
-        event.stopPropagation();
-        copyImgUrl(readFullUrl());
-      });
-      const deleteBtn = root.querySelector('[data-action="delete"]');
-      if (deleteBtn) deleteBtn.addEventListener("click", (event) => {
-        event.stopPropagation();
-        removeClassicLiveTask(task.id || task.taskId || "");
-      });
-    };
-
-    const primaryStatus = String(primaryTask.status || "running");
-    const primaryFullUrl = getClassicLiveFullUrl(primaryTask);
-    const primaryPreviewUrl = getClassicLivePreviewUrl(primaryTask);
-    const primaryTimeValue = primaryTask.completedAt || primaryTask.createdAt;
-
-    const primaryCard = document.createElement("div");
-    primaryCard.className = [
-      "classic-live-card",
-      "is-primary",
-      primaryStatus === "success" && primaryFullUrl ? "is-success" : "",
-      primaryStatus === "failed" ? "is-failed" : "",
-    ]
-      .filter(Boolean)
-      .join(" ");
-    primaryCard.dataset.fullUrl = primaryFullUrl;
-    primaryCard.dataset.previewUrl = primaryPreviewUrl;
-    primaryCard.dataset.liveId = primaryTask.id || primaryTask.taskId || "";
-    primaryCard.innerHTML = `
-      <div class="classic-live-media">
-        ${buildMediaHtml(primaryTask)}
-        <div class="classic-live-meta">
-          <span class="classic-live-chip">${escapeHtml(getClassicLiveStatusLabel(primaryStatus))} #${Number(primaryTask.index || 1)}</span>
-          <span class="classic-live-time">${escapeHtml(formatClassicLiveClock(primaryTimeValue))}</span>
-        </div>
-        ${buildActionsHtml(primaryTask, true)}
-      </div>
-    `;
-    const previousPrimary = previousCards.get(primaryCard.dataset.liveId);
-    const reusablePrimaryImg = previousPrimary?.dataset.fullUrl === primaryFullUrl &&
-      previousPrimary?.dataset.previewUrl === primaryPreviewUrl ? previousPrimary.querySelector("img") : null;
-    if (reusablePrimaryImg && primaryCard.querySelector("img")) {
-      primaryCard.querySelector("img").replaceWith(reusablePrimaryImg);
-    }
-    bindLiveActions(primaryCard, primaryTask);
-    grid.appendChild(primaryCard);
-    primaryCard.querySelectorAll("img").forEach((img) => {
-      if (img !== reusablePrimaryImg) bindClassicPreviewImage(img, { id: primaryTask.id || primaryTask.taskId, src: primaryFullUrl, previewSrc: primaryPreviewUrl });
+      thumb.className = "classic-live-thumb-card" + (task.id === selected.id ? " active" : "") + (task.status === "failed" ? " is-failed" : "");
+      thumb.dataset.liveId = task.id;
+      patchClassicLiveMedia(thumb, task, ".classic-live-thumb-media");
+      thumb.querySelector(".classic-live-thumb-meta span").textContent = getClassicLiveStatusLabel(task.status) + " #" + (task.index || 1);
+      thumb.querySelector(".classic-live-thumb-meta b").textContent = formatClassicLiveClock(task.completedAt || task.createdAt);
+      return thumb;
     });
-
-    const selectedInfo = document.createElement("div");
-    selectedInfo.className = "classic-live-selected-info";
-    selectedInfo.innerHTML = buildClassicLiveInfoHtml(primaryTask);
-    grid.appendChild(selectedInfo);
-
-    if (classicLiveTasks.length > 1) {
-      const strip = document.createElement("div");
-      strip.className = "classic-live-strip";
-      classicLiveTasks.forEach((task) => {
-        const status = String(task.status || "running");
-        const fullUrl = getClassicLiveFullUrl(task);
-        const previewUrl = getClassicLivePreviewUrl(task);
-        const thumbSrc = previewUrl || fullUrl;
-        const isSelected =
-          task.id === primaryTask.id ||
-          (Boolean(task.taskId) && task.taskId === primaryTask.taskId);
-        const thumb = document.createElement("button");
-        thumb.type = "button";
-        thumb.className = [
-          "classic-live-thumb-card",
-          isSelected ? "active" : "",
-          status === "failed" ? "is-failed" : "",
-        ]
-          .filter(Boolean)
-          .join(" ");
-        thumb.dataset.liveId = task.id || task.taskId || "";
-        thumb.dataset.fullUrl = fullUrl;
-        thumb.dataset.previewUrl = previewUrl;
-        thumb.innerHTML = `
-          <div class="classic-live-thumb-media">
-            ${
-              thumbSrc
-                ? `<img alt="生成结果缩略图" loading="lazy" decoding="async" referrerpolicy="no-referrer">`
-                : `<div class="classic-live-thumb-pending">${escapeHtml(getClassicLiveStatusLabel(status))}</div>`
-            }
-          </div>
-          <div class="classic-live-thumb-meta">
-            <span>${escapeHtml(getClassicLiveStatusLabel(status))} #${Number(task.index || 1)}</span>
-            <b>${escapeHtml(formatClassicLiveClock(task.completedAt || task.createdAt))}</b>
-          </div>
-        `;
-        thumb.addEventListener("click", () => {
-          classicLiveSelectedId = thumb.dataset.liveId || "";
-          renderClassicLiveTasks();
-        });
-        strip.appendChild(thumb);
-        const thumbImg = thumb.querySelector("img");
-        if (thumbImg) {
-          thumbImg.removeAttribute("src");
-          bindClassicPreviewImage(thumbImg, { id: task.id || task.taskId, src: fullUrl, previewSrc: previewUrl });
-        }
-      });
-      grid.appendChild(strip);
-    }
-    releaseRemovedImages();
-    return;
+    patchClassicChildren(strip, thumbs); children.push(strip);
   }
-
-  classicLiveTasks.forEach((task, index) => {
-    const status = String(task.status || "running");
-    const fullUrl = getClassicLiveFullUrl(task);
-    const previewUrl = getClassicLivePreviewUrl(task);
-    const isSuccess = status === "success" && fullUrl;
-    const isFailed = status === "failed";
-    const taskSignature = JSON.stringify([status, fullUrl, previewUrl, task.prompt, task.modelLabel, task.routeLabel, task.size, task.ratio, task.referenceCount, task.index, task.errorMessage, task.connectionMessage, task.completedAt || task.createdAt]);
-    const previousCard = previousCards.get(task.id || task.taskId || "");
-    if (previousCard?.dataset.taskSignature === taskSignature) {
-      previousCard.classList.toggle("is-primary", index === 0);
-      grid.appendChild(previousCard);
-      return;
-    }
-    const card = document.createElement("div");
-    card.className = [
-      "classic-live-card",
-      index === 0 ? "is-primary" : "",
-      isSuccess ? "is-success" : "",
-      isFailed ? "is-failed" : "",
-    ]
-      .filter(Boolean)
-      .join(" ");
-    card.dataset.fullUrl = fullUrl;
-    card.dataset.previewUrl = previewUrl;
-    card.dataset.liveId = task.id || task.taskId || "";
-    card.dataset.taskSignature = taskSignature;
-
-    const timeValue = task.completedAt || task.createdAt;
-    const prompt = task.prompt || "未记录提示词";
-    const configText = [task.modelLabel, task.routeLabel, task.size, task.ratio]
-      .filter(Boolean)
-      .join(" / ");
-    const refText = task.referenceCount > 0 ? ` · 参考图 ${task.referenceCount}` : "";
-
-    let mediaHtml = "";
-    if (isSuccess) {
-      mediaHtml = `<img alt="生成结果" loading="lazy" decoding="async" referrerpolicy="no-referrer">`;
-    } else if (isFailed) {
-      mediaHtml = `<div class="classic-live-error">${escapeHtml(task.errorMessage || "生成失败，请重试")}</div>`;
-    } else if (status === 'result-unavailable') {
-      mediaHtml = `<div class="classic-live-error">${escapeHtml(task.connectionMessage)}</div>`;
-    } else {
-      mediaHtml = `
-        <div class="classic-live-pending-visual">
-          <div class="classic-live-spinner"></div>
-          <div>${escapeHtml(task.connectionMessage || (status === "submitting" ? "正在提交任务..." : "后台生成中..."))}</div>
-          <div class="classic-live-loading-bar"></div>
-        </div>
-      `;
-    }
-
-    const actionsHtml = isSuccess
-      ? `
-        <div class="classic-live-actions">
-          <button type="button" class="classic-live-action-btn" data-action="zoom" title="放大">🔍</button>
-          <button type="button" class="classic-live-action-btn" data-action="download" title="保存原图">💾</button>
-          <button type="button" class="classic-live-action-btn" data-action="ref" title="设为参考图">🧩</button>
-          <button type="button" class="classic-live-action-btn" data-action="copy" title="复制原图链接">🔗</button>
-          <button type="button" class="classic-live-action-btn danger" data-action="delete" title="删除">🗑️</button>
-        </div>
-      `
-      : isFailed
-        ? `
-        <div class="classic-live-actions">
-          <button type="button" class="classic-live-action-btn danger" data-action="delete" title="删除">🗑️</button>
-        </div>
-      `
-        : `
-        <div class="classic-live-actions">
-          <button type="button" class="classic-live-action-btn danger" data-action="delete" title="移除">🗑️</button>
-        </div>
-      `;
-
-    card.innerHTML = `
-      <div class="classic-live-media">
-        ${mediaHtml}
-        <div class="classic-live-meta">
-          <span class="classic-live-chip">${escapeHtml(getClassicLiveStatusLabel(status))} #${Number(task.index || 1)}</span>
-          <span class="classic-live-time">${escapeHtml(formatClassicLiveClock(timeValue))}</span>
-        </div>
-      </div>
-      <div class="classic-live-info">
-        <div>
-          <div class="classic-live-prompt">${escapeHtml(prompt)}</div>
-          <div class="classic-live-config">${escapeHtml(configText || "当前配置")}${escapeHtml(refText)}</div>
-        </div>
-        ${actionsHtml}
-      </div>
-    `;
-
-    const img = card.querySelector("img");
-
-    const readFullUrl = () => card.dataset.fullUrl || card.dataset.previewUrl || "";
-    const media = card.querySelector(".classic-live-media");
-    if (media) {
-      media.addEventListener("dblclick", (event) => {
-        event.preventDefault();
-        const full = readFullUrl();
-        if (full) openLightbox(full);
-      });
-    }
-    const zoomBtn = card.querySelector('[data-action="zoom"]');
-    if (zoomBtn) zoomBtn.addEventListener("click", () => openLightbox(readFullUrl()));
-    const downBtn = card.querySelector('[data-action="download"]');
-    if (downBtn) downBtn.addEventListener("click", () => downloadSingleImg(readFullUrl()));
-    const refBtn = card.querySelector('[data-action="ref"]');
-    if (refBtn) refBtn.addEventListener("click", () => useAsRef(readFullUrl(), refBtn));
-    const copyBtn = card.querySelector('[data-action="copy"]');
-    if (copyBtn) copyBtn.addEventListener("click", () => copyImgUrl(readFullUrl()));
-    const deleteBtn = card.querySelector('[data-action="delete"]');
-    if (deleteBtn) deleteBtn.addEventListener("click", () => removeClassicLiveTask(task.id || task.taskId || ""));
-
-    grid.appendChild(card);
-    if (img) {
-      img.removeAttribute("src");
-      bindClassicPreviewImage(img, { id: task.id || task.taskId, src: fullUrl, previewSrc: previewUrl });
-    }
-  });
-  releaseRemovedImages();
+  patchClassicChildren(grid, children);
 }
+
+function patchClassicChildren(parent, children) {
+  const retained = new Set(children);
+  Array.from(parent.children).forEach(child => { if (!retained.has(child)) { releaseClassicImageTree(child); child.remove(); } });
+  children.forEach((child, index) => { if (parent.children[index] !== child) parent.insertBefore(child, parent.children[index] || null); });
+}
+
+function patchClassicLiveMedia(card, task, selector = ".classic-live-media") {
+  const media = card.querySelector(selector);
+  const full = getClassicLiveFullUrl(task), preview = getClassicLivePreviewUrl(task);
+  const success = task.status === "success" && full;
+  card.dataset.fullUrl = full; card.dataset.previewUrl = preview;
+  if (success) {
+    let img = media.querySelector("img");
+    if (!img) {
+      media.querySelector(".classic-live-pending-visual, .classic-live-error, .classic-live-thumb-pending")?.remove();
+      img = document.createElement("img"); img.alt = "生成结果预览"; img.loading = "lazy"; img.decoding = "async"; media.prepend(img);
+    }
+    const imageKey = JSON.stringify([task.assetId || task.id, full, preview]);
+    if (img.dataset.inputKey !== imageKey) {
+      img.dataset.inputKey = imageKey;
+      bindClassicPreviewImage(img, { id: task.assetId || task.id, src: full, previewSrc: preview });
+    }
+  } else {
+    const img = media.querySelector("img"); if (img) { releaseClassicImageTree(media); img.remove(); }
+    let message = media.querySelector(".classic-live-pending-visual, .classic-live-error, .classic-live-thumb-pending");
+    if (!message) { message = document.createElement("div"); media.prepend(message); }
+    const failed = ["failed", "result-unavailable"].includes(task.status);
+    message.className = failed ? "classic-live-error" : "classic-live-pending-visual";
+    if (!failed && !message.querySelector(".classic-live-spinner")) message.innerHTML = '<div class="classic-live-spinner"></div><div class="classic-live-pending-message"></div><div class="classic-live-loading-bar"></div>';
+    const text = task.errorMessage || task.connectionMessage || (task.status === "submitting" ? "正在提交任务…" : "后台生成中…");
+    if (failed) message.textContent = text; else message.querySelector(".classic-live-pending-message").textContent = text;
+  }
+}
+
+function patchClassicLiveCard(card, task, primary) {
+  if (!card) {
+    card = document.createElement("div");
+    card.innerHTML = '<div class="classic-live-media"><div class="classic-live-meta"><span class="classic-live-chip"></span><span class="classic-live-time"></span></div><div class="history-cache-badge cloud"></div></div><div class="classic-live-info"><div><div class="classic-live-prompt"></div><div class="classic-live-config"></div></div><div class="classic-live-actions"></div></div>';
+    const actions = card.querySelector(".classic-live-actions");
+    for (const [action, label] of [["zoom", "放大"], ["download", "下载原图"], ["regen", "重生"], ["ref", "参考"], ["copy", "链接"], ["recover", "从本地恢复"], ["delete", "删除"]]) {
+      const button = document.createElement("button"); button.type = "button"; button.className = "classic-live-action-btn"; button.dataset.action = action; button.textContent = label;
+      button.onclick = event => {
+        event.stopPropagation(); const src = card.dataset.fullUrl;
+        if (action === "zoom") openLightbox(src);
+        if (action === "download") downloadSingleImg(src);
+        if (action === "regen") regenerateFromHistory(encodeURIComponent(card.dataset.prompt || ""));
+        if (action === "ref") useAsRef(src, button);
+        if (action === "copy") copyImgUrl(src);
+        if (action === "recover") window.restoreClassicLocalFile?.(card.dataset.assetId || card.dataset.liveId, src);
+        if (action === "delete") removeClassicLiveTask(card.dataset.liveId);
+      };
+      actions.appendChild(button);
+    }
+    card.querySelector(".classic-live-media").ondblclick = () => { if (card.dataset.fullUrl) openLightbox(card.dataset.fullUrl); };
+  }
+  card.className = "classic-live-card" + (primary ? " is-primary" : "") + (task.status === "success" ? " is-success" : "") + (task.status === "failed" ? " is-failed" : "");
+  card.dataset.liveId = task.id; card.dataset.assetId = task.assetId || task.id; card.dataset.prompt = task.prompt || "";
+  patchClassicLiveMedia(card, task);
+  card.querySelector(".classic-live-chip").textContent = getClassicLiveStatusLabel(task.status) + " #" + (task.index || 1);
+  card.querySelector(".classic-live-time").textContent = formatClassicLiveClock(task.completedAt || task.createdAt);
+  card.querySelector(".classic-live-prompt").textContent = task.prompt || "未记录提示词";
+  card.querySelector(".classic-live-config").textContent = [task.modelLabel, task.routeLabel, task.size, task.ratio].filter(Boolean).join(" / ");
+  card.querySelectorAll("[data-action]").forEach(button => { button.hidden = button.dataset.action !== "delete" && task.status !== "success"; });
+  window.refreshClassicCacheBadge?.(card, task.assetId || task.id);
+  return card;
+}
+
 
 function createClassicLiveTask(snapshot = {}) {
   const task = normalizeClassicLiveTask({
@@ -1210,7 +1008,7 @@ function createClassicLiveTask(snapshot = {}) {
     id: snapshot.id || makeClassicLiveId(),
     tempId: snapshot.tempId || "",
     status: snapshot.status || "submitting",
-    createdAt: Date.now(),
+    createdAt: snapshot.createdAt || Date.now(),
     updatedAt: Date.now(),
   });
   classicLiveTasks = [task, ...classicLiveTasks.filter((item) => item.id !== task.id)];
@@ -1231,9 +1029,11 @@ function ensureClassicLiveTaskForPending(snapshot = {}) {
     return existingTask.id;
   }
   const nextTask = normalizeClassicLiveTask({
+    ...existingTask,
     ...snapshot,
     id: existingIndex >= 0 ? classicLiveTasks[existingIndex].id : taskId,
     taskId,
+    createdAt: existingTask?.createdAt || snapshot.createdAt,
     status: snapshot.status || "running",
     updatedAt: Date.now(),
   });
@@ -1255,14 +1055,19 @@ function ensureClassicLiveTaskForPending(snapshot = {}) {
 function updateClassicLiveTask(idOrTaskId, updates = {}) {
   const idx = findClassicLiveTaskIndex(idOrTaskId);
   if (idx < 0) return "";
-  classicLiveTasks[idx] = normalizeClassicLiveTask({
-    ...classicLiveTasks[idx],
+  const previous = classicLiveTasks[idx];
+  const next = normalizeClassicLiveTask({
+    ...previous,
     ...updates,
-    updatedAt: Date.now(),
+    createdAt: previous.createdAt,
+    updatedAt: previous.updatedAt,
   });
+  if (JSON.stringify(next) === JSON.stringify(previous)) return previous.id;
+  next.updatedAt = Date.now();
+  classicLiveTasks[idx] = next;
   persistClassicLiveTasks();
   renderClassicLiveTasks();
-  return classicLiveTasks[idx].id;
+  return next.id;
 }
 
 function removeClassicLiveTask(idOrTaskId) {
@@ -1312,13 +1117,18 @@ function promoteClassicLiveTask(tempId, taskId, updates = {}) {
     return ensureClassicLiveTaskForPending({ ...updates, taskId: taskKey, status: "running" });
   }
   const preserveSuccess = classicLiveTasks[idx].status === 'success' && (!updates.status || ['running', 'submitting'].includes(updates.status));
-  classicLiveTasks[idx] = normalizeClassicLiveTask({
+  const next = normalizeClassicLiveTask({
     ...classicLiveTasks[idx],
     ...updates,
+    id: classicLiveTasks[idx].id,
     taskId: taskKey || classicLiveTasks[idx].taskId,
+    jobId: taskKey || classicLiveTasks[idx].jobId,
+    assetId: '',
+    createdAt: classicLiveTasks[idx].createdAt,
     status: preserveSuccess ? 'success' : updates.status || "running",
     updatedAt: Date.now(),
   });
+  classicLiveTasks[idx] = next;
   persistClassicLiveTasks();
   renderClassicLiveTasks();
   return classicLiveTasks[idx].id;
@@ -1326,33 +1136,49 @@ function promoteClassicLiveTask(tempId, taskId, updates = {}) {
 
 function completeClassicLiveTask(idOrTaskId, url, meta = {}) {
   const fullUrl = String(url || meta.originalUrl || meta.fullUrl || "").trim();
-  const id = String(idOrTaskId || meta.taskId || "").trim();
+  let id = String(idOrTaskId || meta.taskId || "").trim();
+  const outputIndex = Number(meta.outputIndex || 0);
   const cleanedMeta = cleanClassicLiveMeta(meta);
-  let idx = findClassicLiveTaskIndex(id);
+  const exact = classicLiveTasks.findIndex(task => task.id === id);
+  let idx = exact >= 0 && classicLiveTasks[exact].status !== 'success' ? exact : findClassicLiveTaskIndex(id, outputIndex);
+  if (idx < 0 && outputIndex > 0 && classicLiveTasks.some(task => task.id === id)) id = `${id}:output:${outputIndex}`;
   if (idx < 0) {
     const createdId = createClassicLiveTask({
       ...cleanedMeta,
       id: id || makeClassicLiveId(),
       taskId: meta.taskId || id,
+      outputIndex,
       status: "running",
     });
     idx = findClassicLiveTaskIndex(createdId);
   }
   if (idx < 0) return "";
   const previous = classicLiveTasks[idx];
-  classicLiveTasks[idx] = normalizeClassicLiveTask({
+  const next = normalizeClassicLiveTask({
     ...previous,
     ...cleanedMeta,
+    id: previous.id,
+    ownerId: meta.ownerId || previous.ownerId || window.classicImageJobOwner || '',
+    jobId: meta.jobId || meta.taskId || previous.jobId || previous.taskId || previous.id,
+    outputIndex,
+    assetId: meta.assetId || '',
     status: "success",
     originalUrl: fullUrl || previous.originalUrl,
     previewUrl: String(meta.previewUrl || previous.previewUrl || getClassicLine4ThumbUrl(fullUrl) || ""),
     errorMessage: "",
-    completedAt: Number(meta.completedAt || Date.now()),
-    updatedAt: Date.now(),
+    createdAt: previous.createdAt,
+    completedAt: Number(previous.completedAt || meta.completedAt || Date.now()),
+    updatedAt: previous.updatedAt,
   });
+  if (JSON.stringify(next) === JSON.stringify(previous)) return previous.id;
+  next.updatedAt = Date.now();
+  classicLiveTasks[idx] = next;
   persistClassicLiveTasks();
   renderClassicLiveTasks();
-  return classicLiveTasks[idx].id;
+  const record = { ...next, fullUrl: next.originalUrl, autoDownloadEligible: meta.autoDownloadEligible !== false };
+  const operation = meta.autoDownloadEligible !== false ? window.cacheClassicResult?.(record) : window.ClassicResultAssets?.registerResult(record);
+  if (operation) void operation.catch(error => console.warn("Original cache preparation failed:", error));
+  return next.id;
 }
 
 function failClassicLiveTask(idOrTaskId, message, meta = {}) {
@@ -1409,86 +1235,41 @@ function getGenerationRecordClientLiveIds(record = {}) {
   );
 }
 
-function isLooseLiveRecordMatch(task = {}, record = {}) {
-  const taskPrompt = String(task.prompt || "").trim();
-  const recordPrompt = String(record.prompt || "").trim();
-  if (!taskPrompt || !recordPrompt || taskPrompt !== recordPrompt) return false;
-
-  const taskCreatedAt = Number(task.createdAt || 0);
-  const recordCreatedAt = record.createdAt ? new Date(record.createdAt).getTime() : 0;
-  if (
-    Number.isFinite(taskCreatedAt) &&
-    Number.isFinite(recordCreatedAt) &&
-    taskCreatedAt > 0 &&
-    recordCreatedAt > 0 &&
-    Math.abs(taskCreatedAt - recordCreatedAt) > 6 * 60 * 60 * 1000
-  ) {
-    return false;
-  }
-
-  const taskRoute = String(task.routeLabel || "").toLowerCase();
-  const recordRoute = `${record.routeId || ""} ${record.routeLabel || ""}`.toLowerCase();
-  if (taskRoute && recordRoute) {
-    const normalizedTaskRoute = taskRoute.replace(/\s+/g, "");
-    const normalizedRecordRoute = recordRoute.replace(/\s+/g, "");
-    if (
-      normalizedTaskRoute.includes("3") &&
-      !normalizedRecordRoute.includes("line3") &&
-      !normalizedRecordRoute.includes("线路3")
-    ) {
-      return false;
-    }
-  }
-
-  return true;
-}
-
 function reconcileClassicLiveTasksWithGenerationRecords(records = []) {
-  if (!Array.isArray(records) || records.length === 0 || classicLiveTasks.length === 0) return false;
+  if (!Array.isArray(records) || !records.length || !classicLiveTasks.length) return false;
   let changed = false;
-  classicLiveTasks = classicLiveTasks.map((task) => {
-    if (String(task.status || "") === "success" && getClassicLiveFullUrl(task)) return task;
-    const matched = records.find((record) => {
-      const status = String(record?.status || "").trim().toUpperCase();
-      if (!["SUCCESS", "FAILED"].includes(status)) return false;
-      const liveIds = getGenerationRecordClientLiveIds(record);
-      const idMatched =
-        liveIds.size > 0 &&
-        [task.id, task.tempId, task.taskId].some((id) => liveIds.has(String(id || "").trim()));
-      return idMatched || isLooseLiveRecordMatch(task, record);
+  classicLiveTasks = classicLiveTasks.map(task => {
+    if (task.ownerId && task.ownerId !== String(window.classicImageJobOwner || "")) return task;
+    const matched = records.find(record => {
+      if (!["SUCCESS", "FAILED"].includes(String(record.status || "").toUpperCase())) return false;
+      const ids = getGenerationRecordClientLiveIds(record);
+      const jobId = String(record.meta?.imageJobId || record.taskId || "");
+      const explicit = (jobId && [task.jobId, task.taskId].includes(jobId)) || [task.id, task.tempId, task.taskId].some(id => id && ids.has(id));
+      return explicit;
     });
     if (!matched) return task;
-
-    const status = String(matched.status || "").trim().toUpperCase();
-    const primaryUrl = getGenerationRecordPrimaryUrl(matched);
-    const completedAt = matched.completedAt ? new Date(matched.completedAt).getTime() : Date.now();
-    changed = true;
-    if (status === "SUCCESS" && primaryUrl) {
-      return normalizeClassicLiveTask({
-        ...task,
-        status: "success",
-        originalUrl: primaryUrl,
-        previewUrl: String(matched.previewUrl || getClassicLine4ThumbUrl(primaryUrl) || "").trim(),
-        errorMessage: "",
-        completedAt,
-        updatedAt: Date.now(),
-      });
+    const status = String(matched.status || "").toUpperCase();
+    const slot = Number(task.outputIndex || 0);
+    const fullUrl = matched.resultUrls?.[slot] || (slot === 0 ? getGenerationRecordPrimaryUrl(matched) : "");
+    if (status === "SUCCESS" && !fullUrl) return task;
+    if (status === "FAILED" && task.status === "success") return task;
+    const completedAt = task.completedAt || Date.parse(matched.completedAt || "") || Date.now();
+    const next = normalizeClassicLiveTask({ ...task,
+      status: status === "SUCCESS" ? "success" : "failed",
+      originalUrl: fullUrl || task.originalUrl,
+      previewUrl: matched.previewUrls?.[slot] || (slot === 0 ? matched.previewUrl : "") || task.previewUrl || getClassicLine4ThumbUrl(fullUrl) || "",
+      storageStatus: matched.meta?.storageStatus || task.storageStatus,
+      errorMessage: status === "SUCCESS" ? "" : matched.errorMessage || task.errorMessage || "生成失败",
+      completedAt, cloudExpiresAt: task.cloudExpiresAt || (matched.completedAt ? completedAt + 4 * 60 * 60 * 1000 : 0),
+    });
+    if (JSON.stringify(next) === JSON.stringify(task)) return task;
+    changed = true; next.updatedAt = Date.now();
+    if (next.status === "success" && next.ownerId && window.ClassicResultAssets) {
+      void window.ClassicResultAssets.registerResult({ ...next, fullUrl: next.originalUrl }).catch(error => console.warn("Result metadata recovery failed:", error));
     }
-    if (status === "FAILED") {
-      return normalizeClassicLiveTask({
-        ...task,
-        status: "failed",
-        errorMessage: matched.errorMessage || task.errorMessage || "生成失败",
-        completedAt,
-        updatedAt: Date.now(),
-      });
-    }
-    return task;
+    return next;
   });
-  if (changed) {
-    persistClassicLiveTasks();
-    renderClassicLiveTasks();
-  }
+  if (changed) { persistClassicLiveTasks(); renderClassicLiveTasks(); }
   return changed;
 }
 
@@ -4434,6 +4215,7 @@ function appendImageToGrid(url, size, targetWrapper = null, options = {}) {
   if (document.getElementById("classicLiveGrid")) {
     if (liveTaskKey && typeof window.completeClassicLiveTask === "function") {
       window.completeClassicLiveTask(liveTaskKey, url, {
+        ...options,
         taskId: options.taskId || liveTaskKey,
         prompt: promptVal,
         size,
@@ -4444,7 +4226,7 @@ function appendImageToGrid(url, size, targetWrapper = null, options = {}) {
         referenceCount: options.referenceCount || 0,
       });
     }
-    saveToHistory(url, promptVal);
+    void saveToHistory(url, promptVal, options.previewUrl || "", options);
     if (canUpdateMainUi(runToken, trackUi)) {
       loadedImageCount++;
       completedTasksCount++;
@@ -4467,7 +4249,7 @@ function appendImageToGrid(url, size, targetWrapper = null, options = {}) {
 
   img.onload = () => {
     img.dataset.loaded = "1";
-    saveToHistory(url, promptVal);
+    void saveToHistory(url, promptVal, options.previewUrl || "", options);
     if (!canUpdateMainUi(runToken, trackUi)) return;
     loadedImageCount++;
     completedTasksCount++;
@@ -4618,41 +4400,28 @@ function escapeHtml(str = "") {
     .replace(/'/g, "&#39;");
 }
 
-function saveToHistory(url, promptText = "", previewUrl = "") {
+async function saveToHistory(url, promptText = "", previewUrl = "", metadata = {}) {
   const fullUrl = String(url || "").trim();
-  if (!fullUrl) return;
-  if (fullUrl.length > 5000 && !fullUrl.startsWith("data:image/")) return;
-  void (async () => {
-    try {
-      await migrateLocalStorageHistoryToIndexedDB();
-      const history = await readHistoryRecordsFromDB();
-      if (history.length > 0 && getHistoryFullUrl(history[0]) === fullUrl) return;
-      const now = new Date();
-      const newRecord = normalizeHistoryRecord({
-        id: genHistoryId(),
-        url: fullUrl,
-        fullUrl,
-        previewUrl: String(previewUrl || "").trim() || getClassicLine4ThumbUrl(fullUrl) || fullUrl,
-        createdAt: now.toISOString(),
-        completedAt: now.toISOString(),
-        prompt: promptText,
-      });
-      if (!newRecord) return;
-      const deduped = history.filter((item) => getHistoryFullUrl(item) !== fullUrl);
-      await writeHistoryRecordsToDB([newRecord, ...deduped]);
-      if (isClassicHistoryTabActive()) {
-        await loadHistory({ incremental: true, force: false });
-      }
-      if (shouldAutoCacheHistoryImages()) {
-        const ok = await cacheHistoryImage(newRecord.id, fullUrl);
-        if (ok && isClassicHistoryTabActive()) {
-          await loadHistory({ incremental: true, force: false });
-        }
-      }
-    } catch (e) {
-      console.warn("saveToHistory failed:", e);
-    }
-  })();
+  if (!fullUrl || (fullUrl.length > 5000 && !fullUrl.startsWith("data:image/"))) return;
+  const ownerId = String(metadata.ownerId || window.classicImageJobOwner || "");
+  const live = classicLiveTasks.find(task => task.originalUrl === fullUrl && (!ownerId || task.ownerId === ownerId));
+  const jobId = String(metadata.jobId || metadata.taskId || live?.jobId || live?.taskId || live?.id || genHistoryId());
+  const newRecord = normalizeHistoryRecord({ ...live, ...metadata, ownerId, jobId,
+    id: metadata.id || live?.assetId || jobId,
+    fullUrl, previewUrl: previewUrl || metadata.previewUrl || live?.previewUrl || getClassicLine4ThumbUrl(fullUrl) || fullUrl,
+    prompt: promptText, createdAt: metadata.createdAt || live?.createdAt || Date.now(),
+    completedAt: metadata.completedAt || live?.completedAt || Date.now(), autoDownloadEligible: metadata.autoDownloadEligible !== false,
+  });
+  try {
+    await migrateLocalStorageHistoryToIndexedDB();
+    const records = await writeHistoryRecordsToDB([newRecord], { ownerId });
+    if (ownerId !== String(window.classicImageJobOwner || "")) return;
+    const saved = records.find(record => record.id === newRecord.id) || newRecord;
+    const operation = saved.autoDownloadEligible ? window.cacheClassicResult?.(saved) : window.ClassicResultAssets?.registerResult(saved);
+    if (operation) void operation.catch(error => console.warn("Original cache preparation failed:", error));
+    if (isClassicHistoryTabActive()) renderClassicHistoryRecords(records);
+    return saved;
+  } catch (error) { console.warn("saveToHistory failed:", error); }
 }
 
 function clearHistory() {
@@ -4665,8 +4434,7 @@ function clearHistory() {
     onPrimary: async () => {
       try {
         localStorage.removeItem("nb_history");
-        await writeHistoryRecordsToDB([]);
-        await clearCachedHistoryImages();
+        await writeHistoryRecordsToDB([], { replace: true });
       } catch (e) {
         console.warn("clearHistory failed:", e);
       }
@@ -4677,109 +4445,103 @@ function clearHistory() {
   });
 }
 
-async function loadHistory() {
-  clearHistoryObjectUrlRefs();
-  const renderGeneration = classicHistoryRenderGeneration;
-  let history = [];
-  try {
-    await migrateLocalStorageHistoryToIndexedDB();
-    history = await readHistoryRecordsFromDB();
-  } catch (e) {
-    console.warn("loadHistory failed:", e);
-    return;
-  }
-  let migrated = false;
-  history = history.map((item) => {
-    if (typeof item === "string") {
-      migrated = true;
-      return {
-        id: genHistoryId(),
-        url: item,
-        fullUrl: item,
-        previewUrl: getClassicLine4ThumbUrl(item) || item,
-        time: "",
-        prompt: "",
-      };
-    }
-    if (!item?.id) {
-      migrated = true;
-      return { ...item, id: genHistoryId() };
-    }
-    const fullUrl = getHistoryFullUrl(item);
-    const previewUrl =
-      String(item?.previewUrl || "").trim() || getClassicLine4ThumbUrl(fullUrl) || fullUrl;
-    if (item.fullUrl !== fullUrl || item.previewUrl !== previewUrl) {
-      migrated = true;
-      return { ...item, url: fullUrl, fullUrl, previewUrl };
-    }
-    return item;
-  });
-  if (migrated) {
-    await writeHistoryRecordsToDB(history);
-  }
-  if (renderGeneration !== classicHistoryRenderGeneration) return;
+function renderClassicHistoryRecords(records = [], options = {}) {
   const grid = document.getElementById("historyGrid");
   if (!grid) return;
-  grid.innerHTML = "";
-
-  const applyReorder = async (targetIdx) => {
-    if (draggedIdx === null) return;
-    if (targetIdx === null || Number.isNaN(targetIdx)) return;
-    if (targetIdx < 0 || targetIdx >= refImages.length) return;
-    if (draggedIdx === targetIdx) return;
-
-    const item = refImages.splice(draggedIdx, 1)[0];
-    refImages.splice(targetIdx, 0, item);
-
-    if (draggedIdx === 0 || targetIdx === 0) {
-      await detectAndSetSmartRatio(refImages[0]);
+  const owner = String(window.classicImageJobOwner || "");
+  const normalized = records.map(normalizeHistoryRecord).filter(record => record && record.ownerId === owner)
+    .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt) || a.outputIndex - b.outputIndex || a.id.localeCompare(b.id));
+  const pageSize = isClassicMobileViewport() ? 12 : 24;
+  const prior = grid.classicHistoryState || { owner, page: 1 };
+  const page = Math.max(1, Math.min(options.page || (prior.owner === owner ? prior.page : 1), Math.ceil(normalized.length / pageSize) || 1));
+  grid.classicHistoryState = { owner, page, records: normalized, hasMore: options.hasMore ?? (prior.owner === owner && prior.hasMore), loadMore: options.loadMore || (prior.owner === owner && prior.loadMore) };
+  const existing = new Map(Array.from(grid.querySelectorAll(":scope > .history-item")).map(card => [card.dataset.recordId, card]));
+  const wanted = [];
+  normalized.slice((page - 1) * pageSize, page * pageSize).forEach(record => {
+    let card = existing.get(record.id);
+    if (!card) {
+      card = document.createElement("div"); card.className = "result-item history-item"; card.dataset.recordId = record.id;
+      card.innerHTML = `<img loading="lazy" decoding="async"><div class="history-time-tag"></div><div class="history-cache-badge cloud"></div><div class="history-prompt-tip"></div><div class="item-overlay"></div>`;
+      const actions = [["zoom", "放大", "🔍"], ["download", "下载原图", "💾"], ["regenerate", "重生", "♻️"], ["reference", "垫图", "🧩"], ["copy", "链接", "🔗"], ["restore", "从本地恢复", "📂"]];
+      for (const [action, label, icon] of actions) {
+        const button = document.createElement("button"); button.className = "overlay-btn history-icon-btn";
+        button.dataset.action = action; button.dataset.label = label; button.textContent = icon; button.title = label;
+        card.querySelector(".item-overlay").appendChild(button);
+      }
+      const action = event => {
+        const kind = event.target.closest?.("[data-action]")?.dataset.action || (event.target.tagName === "IMG" ? "zoom" : "");
+        const row = card.classicHistoryRecord;
+        if (kind === "zoom") openLightbox(row.fullUrl);
+        if (kind === "download") downloadSingleImg(row.fullUrl, row.assetId || row.id);
+        if (kind === "regenerate") regenerateFromHistory(encodeURIComponent(row.prompt));
+        if (kind === "reference") useAsRef(row.fullUrl);
+        if (kind === "copy") copyImgUrl(row.fullUrl);
+        if (kind === "restore") window.restoreClassicLocalFile?.(row.assetId || row.id, row.fullUrl);
+      };
+      card.addEventListener("click", action);
     }
-    renderThumbs();
-  };
-
-  if (history.length === 0) {
-    grid.innerHTML =
-      '<div style="color:var(--text-sub); grid-column:1/-1; text-align:center; padding:20px; font-size:12px;">暂无历史记录</div>';
-    return;
-  }
-
-  history.slice(0, getClassicHistoryRenderLimit()).forEach((item) => {
-    const url = getHistoryDisplayUrl(item);
-    const fullUrl = getHistoryFullUrl(item) || url;
-    const recordId = typeof item === "object" ? item.id : "";
-    // Check for time property, fallback to specific logic or empty
-    const time = typeof item === "object" && item.time ? item.time : "";
-    const prompt = typeof item === "object" && item.prompt ? String(item.prompt) : "";
-    const encodedPrompt = encodeURIComponent(prompt || "");
-    const promptLabel = prompt ? `提示词：${prompt}` : "提示词：无记录";
-    const promptTooltip = prompt ? `<div class="history-prompt-tip">${escapeHtml(promptLabel)}</div>` : "";
-
-    const div = document.createElement("div");
-    div.className = "result-item history-item"; // Inherit overlay styles
-    div.title = promptLabel;
-    div.dataset.fullUrl = fullUrl;
-    div.dataset.displayUrl = url;
-
-    div.innerHTML = `
-            <img loading="lazy" decoding="async" onclick="openLightbox(this.closest('.history-item').dataset.fullUrl || this.src)">
-            <!-- Timestamp Display -->
-            ${time ? `<div class="history-time-tag">${time}</div>` : ""}
-            <div class="history-cache-badge syncing">缓存中</div>
-            ${promptTooltip}
-            
-            <div class="item-overlay">
-                <button class="overlay-btn history-icon-btn" data-label="放大" onclick="openLightbox(this.closest('.history-item').dataset.fullUrl || this.closest('.history-item').querySelector('img').src)">🔍</button>
-                <button class="overlay-btn history-icon-btn" data-label="保存" onclick="downloadSingleImg(this.closest('.history-item').dataset.fullUrl || this.closest('.history-item').querySelector('img').src)">💾</button>
-                <button class="overlay-btn history-icon-btn" data-label="重生" onclick="regenerateFromHistory('${encodedPrompt}')">♻️</button>
-                <button class="overlay-btn history-icon-btn" data-label="垫图" onclick="useAsRef(this.closest('.history-item').dataset.fullUrl || this.closest('.history-item').querySelector('img').src)">🧩</button>
-                <button class="overlay-btn history-icon-btn" data-label="链接" onclick="copyImgUrl(this.closest('.history-item').dataset.fullUrl || '${fullUrl}')">🔗</button>
-            </div>
-        `;
-    grid.appendChild(div);
-    setHistoryCacheBadge(div, "cloud");
-
-    bindClassicPreviewImage(div.querySelector("img"), { id: recordId, src: fullUrl, previewSrc: url });
+    card.classicHistoryRecord = record;
+    card.dataset.assetId = record.assetId || record.id;
+    card.dataset.fullUrl = record.fullUrl;
+    card.dataset.displayUrl = record.previewUrl;
+    card.title = record.prompt ? `提示词：${record.prompt}` : "提示词：无记录";
+    const label = card.querySelector(".history-time-tag"); if (label.textContent !== record.time) label.textContent = record.time;
+    const tip = card.querySelector(".history-prompt-tip"); if (tip.textContent !== card.title) tip.textContent = card.title;
+    const image = card.querySelector("img");
+    const input = { id: record.assetId || record.legacyId || record.id, src: record.fullUrl, previewSrc: record.previewUrl };
+    const signature = JSON.stringify(input);
+    if (card.dataset.imageInput !== signature) {
+      if (card.dataset.imageInput) releaseClassicImageTree(card);
+      card.dataset.imageInput = signature;
+      card.classicPendingImage = input;
+    }
+    wanted.push(card);
   });
+  const keep = new Set(wanted);
+  Array.from(grid.children).forEach(card => { if (!keep.has(card)) { if (card.classList.contains("history-item")) releaseClassicImageTree(card); card.remove(); } });
+  let next = grid.firstChild;
+  for (const card of wanted) {
+    if (card !== next) grid.insertBefore(card, next);
+    next = card.nextSibling;
+    if (card.classicPendingImage) { bindClassicPreviewImage(card.querySelector("img"), card.classicPendingImage); delete card.classicPendingImage; }
+    window.refreshClassicCacheBadge?.(card, card.dataset.assetId);
+  }
+  if (!wanted.length) {
+    const empty = document.createElement("div"); empty.className = "classic-history-empty";
+    empty.style.cssText = "grid-column:1/-1;text-align:center;padding:20px;font-size:12px"; empty.textContent = "暂无历史记录"; grid.appendChild(empty);
+  }
+  let pager = document.getElementById("classicHistoryPager");
+  if (!pager) { pager = document.createElement("div"); pager.id = "classicHistoryPager"; pager.style.cssText = "display:flex;justify-content:center;gap:16px;padding:16px"; grid.insertAdjacentElement("afterend", pager); }
+  const pages = Math.ceil(normalized.length / pageSize) || 1;
+  const hasMore = Boolean(grid.classicHistoryState.hasMore);
+  pager.hidden = pages <= 1 && !hasMore;
+  if (pager.dataset.signature !== `${owner}:${page}:${pages}:${hasMore}`) {
+    pager.dataset.signature = `${owner}:${page}:${pages}:${hasMore}`; pager.replaceChildren();
+    for (const [label, target] of [["上一页", page - 1], [`${page} / ${pages}`, page], ["下一页", page + 1]]) {
+      const button = document.createElement("button"); button.textContent = label; button.disabled = target < 1 || target > pages || target === page;
+      button.onclick = () => renderClassicHistoryRecords(grid.classicHistoryState.records, { page: target }); pager.appendChild(button);
+    }
+    if (hasMore) {
+      const button = document.createElement("button"); button.textContent = "加载更多记录";
+      button.onclick = async () => {
+        button.disabled = true;
+        try { await grid.classicHistoryState.loadMore?.(); }
+        finally { if (button.isConnected) button.disabled = false; }
+      };
+      pager.appendChild(button);
+    }
+  }
+}
+
+async function loadHistory() {
+  const owner = String(window.classicImageJobOwner || "");
+  try {
+    await migrateLocalStorageHistoryToIndexedDB();
+    const records = await readHistoryRecordsFromDB({ ownerId: owner });
+    if (owner !== String(window.classicImageJobOwner || "")) return;
+    renderClassicHistoryRecords(records);
+    return records;
+  } catch (error) { console.warn("loadHistory failed:", error); return []; }
 }
 
 function regenerateFromHistory(encodedPrompt) {

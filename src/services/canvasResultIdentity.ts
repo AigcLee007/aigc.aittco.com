@@ -33,3 +33,7 @@ export async function registerCanvasResult(node:NodeData,source:string,serverCom
   if(node.assetId && node.assetId!==info.id)await imageResultStore.adoptLegacy(info.id,node.assetId,identity.ownerId);
   return info;
 }
+
+export async function recoverCanvasResult(node:NodeData,{taskId,slot,source,previewUrl,storageStatus,completedAt}:{taskId:string;slot:number;source:string;previewUrl?:string;storageStatus?:NodeData['generationStorageStatus'];completedAt?:string}){
+  return registerCanvasResult({...node,taskId,generationResultIndex:slot,generationStorageStatus:storageStatus,thumbnailSrc:previewUrl || node.thumbnailSrc},source,completedAt);
+}

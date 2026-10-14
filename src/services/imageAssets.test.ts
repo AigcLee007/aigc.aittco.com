@@ -1,10 +1,14 @@
 import 'fake-indexeddb/auto';
 import { Blob as NodeBlob } from 'node:buffer';
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
-import { clear, get, set } from 'idb-keyval';
+import { clear, get, keys, set } from 'idb-keyval';
+import { act, renderHook } from '@testing-library/react';
 import { assetStorage } from './assetStorage';
 import { acquireImageAsset, cacheImageSource, readOriginalBlob, resetImageAssetCache } from './imageAssetCache';
 import { imageResultStore } from './imageResultStore';
+import { useGenerationLogic } from '../hooks/useGenerationLogic';
+import { useCanvasStore } from '../store/canvasStore';
+vi.mock('./imageJobClient',()=>({getImageJobOwner:vi.fn(async()=> 'owner-completion')}));
 
 const png = () => new Blob(['original bytes'], { type: 'image/png' });
 class TestImage {
@@ -26,6 +30,46 @@ beforeEach(async () => {
 afterEach(() => { resetImageAssetCache(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 describe('image asset recovery and lifecycle', () => {
+  it('publishes the stable identity before display and completion share their original read',async()=>{
+    const task={id:'completion-display',type:'IMAGE' as const,x:0,y:0,width:512,height:512,loading:true,src:'',generationOwnerId:'owner-completion',taskId:'job-completion'};
+    useCanvasStore.setState({nodes:[task]});localStorage.setItem('auth-session-v1','completion-session');imageResultStore.setAutoDownloadPreference(false);
+    const stable=imageResultStore.resultId(task.generationOwnerId,task.taskId,0);
+    let publishedId:string|undefined,display:Promise<Awaited<ReturnType<typeof acquireImageAsset>>>|undefined,seen=false;
+    const stop=useCanvasStore.subscribe(state=>{const current=state.nodes[0];if(!seen && current?.src==='/completion-display'){seen=true;publishedId=current.assetId;display=acquireImageAsset(current);}});
+    const hook=renderHook(()=>useGenerationLogic());
+    try {
+      await act(async()=>{
+        await hook.result.current.handleUpdateGeneration(task.id,'/completion-display');
+        const lease=await display!;expect(lease.status).toBe('ready');lease.release();
+        await vi.waitFor(()=>{expect(useCanvasStore.getState().nodes[0].height).toBe(288);});
+      });
+      await vi.waitFor(async()=>{expect((await imageResultStore.getState(stable)).originalCached).toBe(true);});
+      expect(publishedId).toBe(stable);expect(fetch).toHaveBeenCalledTimes(1);
+      const originals=(await keys()).filter(key=>typeof key==='string' && key.startsWith('asset-') && !/^asset-(meta|preview|source)-/.test(key));
+      expect(originals).toEqual([`asset-${stable}`]);
+    } finally {stop();hook.unmount();localStorage.removeItem('auth-session-v1');}
+  });
+  it('repairs failed preview decoding under the original stable identity',async()=>{
+    const identity={ownerId:'preview-repair-owner',jobId:'job-preview-repair'};
+    const {id}=await imageResultStore.register({...identity,originalUrl:'/preview-repair'});
+    await imageResultStore.putOriginal(id,new Blob(['corrupt original'],{type:'image/png'}));
+    await imageResultStore.putPreview(id,new Blob(['corrupt preview'],{type:'image/webp'}),{previewVersion:1,width:3840,height:2160});
+    vi.mocked(createImageBitmap).mockImplementation(async(blob:any)=>{if(await blob.text()==='corrupt original')throw new Error('corrupt original');return {width:3840,height:2160,close:vi.fn()} as any;});
+    const urls=new Map<string,Blob>();
+    URL.createObjectURL=vi.fn(blob=>{const key=`blob:checked-${urls.size}`;urls.set(key,blob as Blob);return key;});
+    class CheckingImage extends TestImage {
+      set src(value:string){if(!value)return;void urls.get(value)?.text().then(text=>text==='corrupt preview' ? this.onerror?.() : this.onload?.());}
+    }
+    vi.stubGlobal('Image',CheckingImage);
+    const lease=await acquireImageAsset({assetId:id,src:'/preview-repair'});
+    try {
+      expect(lease.status).toBe('ready');expect(fetch).toHaveBeenCalledTimes(1);
+      expect(await (await imageResultStore.getOriginal(id))!.text()).toBe('original bytes');
+      expect(await get('asset-source-/preview-repair')).toBeUndefined();
+      const originals=(await keys()).filter(key=>typeof key==='string' && key.startsWith('asset-') && !/^asset-(meta|preview|source)-/.test(key));
+      expect(originals).toEqual([`asset-${id}`]);
+    } finally {lease.release();}
+  });
   it('shares generated originals across classic and canvas URLs without decoding during caching',async()=>{
     const identity={ownerId:'shared-owner',jobId:'job-shared',outputIndex:0};
     const info=await imageResultStore.register({...identity,originalUrl:'/provider-original'});

@@ -100,7 +100,7 @@
       const previewBlob = await withTimeout(() => new Promise((resolve, reject) => {
         canvas.toBlob((value) => value ? resolve(value) : reject(new Error('Image preview encode failed')), options.mimeType || 'image/webp', 0.82);
       }), 15000);
-      return { blob: previewBlob, width, height, version: 1 };
+      return { blob: previewBlob, width, height, originalWidth: bitmap.width, originalHeight: bitmap.height, version: 1 };
     } finally {
       if (typeof bitmap.close === 'function') bitmap.close();
       canvas.width = 1;
@@ -138,7 +138,7 @@
     const pendingOriginals = new Map();
     const idsBySource = new Map();
     const queueOptions = { maxPending: options.maxPending || 128, waitMs: options.queueWaitMs || 120000 };
-    const decodeQueue = createPreviewDecodeQueue(1, queueOptions);
+    const decodeQueue = options.decodeQueue || createPreviewDecodeQueue(1, queueOptions);
     // A full original is retained only by the currently preparing preview.
     const preparationQueue = createPreviewDecodeQueue(1, queueOptions);
     const timeoutMs = options.timeoutMs || 45000;

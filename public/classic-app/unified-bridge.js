@@ -1,6 +1,7 @@
 ﻿(() => {
   const API_BASE_URL = "/api";
   const AUTH_SESSION_STORAGE_KEY = "auth-session-v1";
+  const CLASSIC_CONFIRMED_OWNER_KEY = "classic-confirmed-owner-v1";
   const CLASSIC_AUTH_MODE_KEY = "classic-auth-mode";
   const MODEL_STORAGE_KEY = "nb_image_model";
   const LINE_STORAGE_KEY = "nb_line";
@@ -59,8 +60,8 @@
   };
   const remotePendingPollRegistry = new Set();
   const activeTaskPollers = new Map();
-  const HISTORY_INITIAL_PAGE_SIZE = 15;
-  const HISTORY_MOBILE_PAGE_SIZE = 24;
+  const HISTORY_INITIAL_PAGE_SIZE = 24;
+  const HISTORY_MOBILE_PAGE_SIZE = 12;
   const HISTORY_REFRESH_DEBOUNCE_MS = 2000;
   const HISTORY_REFRESH_MIN_INTERVAL_MS = 10000;
   const REMOTE_PENDING_STALE_MS = 30 * 60 * 1000;
@@ -72,6 +73,16 @@
   };
   let historyRefreshTimer = null;
   let lastHistoryRefreshAt = 0;
+  let historyLoadInFlight = null;
+  let historyRequestGeneration = 0;
+  let historyCacheSession = "";
+  let remoteHistoryNextPage = 1;
+  let remoteHistoryTotalPages = 1;
+  const assetFinalizationPollers = new Map();
+  let assetFinalizationInFlight = 0;
+  const recoveredResultSignatures = new Map();
+  const classicAssetRecoveryAttempts = new Map();
+
 
   const isBridgeMobileViewport = () => {
     try {
@@ -86,7 +97,7 @@
   };
 
   const getBridgeHistoryPageSize = (incremental = false) =>
-    isBridgeMobileViewport() ? HISTORY_MOBILE_PAGE_SIZE : incremental ? HISTORY_INITIAL_PAGE_SIZE : 100;
+    isBridgeMobileViewport() ? HISTORY_MOBILE_PAGE_SIZE : HISTORY_INITIAL_PAGE_SIZE;
 
   const shouldBridgeCacheHistoryImages = () => {
     if (isBridgeMobileViewport()) return false;
@@ -178,15 +189,38 @@
   const setStoredSessionToken = (token) => {
     try {
       const cleaned = String(token || "").trim();
+      if (!cleaned || cleaned !== getStoredSessionToken()) localStorage.removeItem(CLASSIC_CONFIRMED_OWNER_KEY);
       if (cleaned) {
         localStorage.setItem(AUTH_SESSION_STORAGE_KEY, cleaned);
-      } else if (false) {
+      } else {
         localStorage.removeItem(AUTH_SESSION_STORAGE_KEY);
       }
       window.dispatchEvent(new Event("auth-session-change"));
     } catch (_) {}
   };
   const clearStoredSessionToken = () => setStoredSessionToken("");
+  const confirmClassicImageOwner = (ownerId, session = getStoredSessionToken()) => {
+    const owner = String(ownerId || "");
+    if (!session || session !== getStoredSessionToken() || !owner) return false;
+    // This receipt selects local bytes only. It never sets authenticated user
+    // state or replaces server confirmation before a paid generation request.
+    try { localStorage.setItem(CLASSIC_CONFIRMED_OWNER_KEY, JSON.stringify({ session, ownerId: owner })); } catch (_) {}
+    window.setClassicImageJobOwner?.(owner);
+    return true;
+  };
+  const restoreConfirmedClassicOwner = () => {
+    const session = getStoredSessionToken();
+    try {
+      const receipt = JSON.parse(localStorage.getItem(CLASSIC_CONFIRMED_OWNER_KEY) || "null");
+      if (!session || !receipt?.ownerId || receipt.session !== session) {
+        localStorage.removeItem(CLASSIC_CONFIRMED_OWNER_KEY);
+        return false;
+      }
+      window.setClassicImageJobOwner?.(String(receipt.ownerId));
+      void loadHistory();
+      return true;
+    } catch (_) { return false; }
+  };
   const getStoredApiKey = () => {
     const input = document.getElementById("apiKey");
     const inputValue = sanitizeApiKey(input?.value || "");
@@ -1594,7 +1628,7 @@
       });
       if (token !== getStoredSessionToken()) return null;
       bridgeAuthState.user = sessionData.user || null;
-      window.setClassicImageJobOwner?.(bridgeAuthState.user?.userId || '');
+      confirmClassicImageOwner(bridgeAuthState.user?.userId || '', token);
 
       const accountData = await fetchJson("/account/me?ledgerPage=1&ledgerPageSize=20", {
         headers: {
@@ -1617,7 +1651,10 @@
       console.warn("[Classic Bridge] refresh session failed:", error);
       if (token !== getStoredSessionToken()) return null;
       // A temporary network failure must not erase the session or abandon its jobs.
-      if (window.ClassicImageJobs?.transient(error)) return null;
+      if (window.ClassicImageJobs?.transient(error)) {
+        restoreConfirmedClassicOwner();
+        return null;
+      }
       clearStoredSessionToken();
       window.setClassicImageJobOwner?.('');
       bridgeAuthState.user = null;
@@ -2126,23 +2163,36 @@
         ...buildSessionHeaders(),
       },
     });
+  const expandRemoteHistoryRecords = (records = [], ownerId = String(window.classicImageJobOwner || "")) => {
+    const outputs = [];
+    for (const record of records) {
+      const urls = Array.isArray(record.resultUrls) ? record.resultUrls : record.fullUrl ? [record.fullUrl] : [];
+      const jobId = String(record.jobId || record.meta?.imageJobId || record.taskId || record.id || "");
+      const owner = String(record.ownerId || ownerId);
+      urls.forEach((fullUrl, slot) => {
+        if (!fullUrl || typeof fullUrl !== "string") return;
+        const outputIndex = record.outputIndex !== undefined && urls.length === 1 ? Number(record.outputIndex) : slot;
+        const assetId = owner && jobId ? window.ImageResultStore?.resultId(owner, jobId, outputIndex) || `${owner}:${jobId}:${outputIndex}` : "";
+        const completedAt = record.completedAt || record.completed_at || record.createdAt || record.created_at;
+        const completedMs = new Date(record.completedAt || record.completed_at || 0).getTime();
+        outputs.push(normalizeHistoryRecord({ ...record, id: assetId || record.id, ownerId: owner, jobId, outputIndex, assetId,
+          fullUrl, previewUrl: record.previewUrls?.[slot] || (slot === 0 || urls.length === 1 ? record.previewUrl || record.preview_url : "") || getClassicLine4ThumbUrl(fullUrl) || fullUrl,
+          createdAt: record.createdAt || record.created_at, completedAt,
+          storageStatus: record.storageStatus || record.storage_status || record.meta?.storageStatus || "",
+          cloudExpiresAt: record.cloudExpiresAt || (completedMs > 0 ? completedMs + 4 * 60 * 60 * 1000 : 0),
+          allowLegacyAssociation: true, autoDownloadEligible: false,
+        }));
+      });
+    }
+    return outputs.filter(Boolean);
+  };
   const dedupeHistoryRecords = (records = []) => {
     const seen = new Set();
-    const ordered = [];
-    (Array.isArray(records) ? records : []).forEach((record) => {
-      const recordId = String(record?.id || "").trim();
-      const urlKey = String(record?.resultUrls?.[0] || record?.previewUrl || "").trim();
-      const key = urlKey || recordId || `${record?.createdAt || ""}:${record?.previewUrl || ""}`;
-      if (!key || seen.has(key)) return;
-      seen.add(key);
-      ordered.push(record);
-    });
-    ordered.sort((a, b) => {
-      const aTime = String(a?.createdAt || "");
-      const bTime = String(b?.createdAt || "");
-      return bTime.localeCompare(aTime);
-    });
-    return ordered;
+    return records.filter(record => {
+      const key = String(record.assetId || record.meta?.imageJobId || record.jobId || record.taskId || record.id || "");
+      if (!key || seen.has(key)) return false;
+      seen.add(key); return true;
+    }).sort((a, b) => new Date(b.createdAt || b.created_at || 0) - new Date(a.createdAt || a.created_at || 0) || Number(a.outputIndex || 0) - Number(b.outputIndex || 0) || String(a.id || "").localeCompare(String(b.id || "")));
   };
   const getHistoryCursorFromRecords = (records = []) => {
     const first = Array.isArray(records) ? records[0] : null;
@@ -2177,126 +2227,49 @@
     if (Number.isNaN(date.getTime())) return "";
     return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
   };
-  const readLocalClassicHistoryRecords = async () => {
+  const readLocalClassicHistoryRecords = async (ownerId = String(window.classicImageJobOwner || "")) => {
     try {
-      if (typeof migrateLocalStorageHistoryToIndexedDB === "function") {
-        await migrateLocalStorageHistoryToIndexedDB();
-      }
-      const raw =
-        typeof readHistoryRecordsFromDB === "function"
-          ? await readHistoryRecordsFromDB()
-          : [];
-      return (Array.isArray(raw) ? raw : [])
-        .map((item) => {
-          const fullUrl = String(item?.fullUrl || item?.url || "").trim();
-          if (!fullUrl) return null;
-          const previewUrl = String(item?.previewUrl || item?.displayUrl || item?.url || fullUrl).trim();
-          const completedAt = String(item?.completedAt || item?.createdAt || new Date().toISOString());
-          return {
-            id: `local:${item?.id || fullUrl}`,
-            resultUrls: [fullUrl],
-            previewUrl: previewUrl || fullUrl,
-            prompt: String(item?.prompt || ""),
-            createdAt: completedAt,
-            completedAt,
-            localRecordId: String(item?.id || ""),
-            localOnly: true,
-          };
-        })
-        .filter(Boolean);
-    } catch (_) {
-      return [];
-    }
+      if (typeof migrateLocalStorageHistoryToIndexedDB === "function") await migrateLocalStorageHistoryToIndexedDB();
+      return typeof readHistoryRecordsFromDB === "function" ? await readHistoryRecordsFromDB({ ownerId }) : [];
+    } catch (_) { return []; }
   };
-  const mergeRemoteAndLocalHistoryRecords = async (records = []) =>
-    dedupeHistoryRecords([...(await readLocalClassicHistoryRecords()), ...(Array.isArray(records) ? records : [])]);
-  const renderRemoteHistoryGrid = async (records = []) => {
-    if (typeof clearHistoryObjectUrlRefs === "function") {
-      clearHistoryObjectUrlRefs();
-    }
-    const renderGeneration = classicHistoryRenderGeneration;
-    const grid = document.getElementById("historyGrid");
-    if (!grid) return;
-    grid.innerHTML = "";
-
-    const mergedRecords = await mergeRemoteAndLocalHistoryRecords(records);
-    if (renderGeneration !== classicHistoryRenderGeneration) return;
-
-    if (!Array.isArray(mergedRecords) || mergedRecords.length === 0) {
-      grid.innerHTML =
-        '<div style="color:var(--text-sub); grid-column:1/-1; text-align:center; padding:20px; font-size:12px;">暂无历史记录</div>';
-      return;
-    }
-
-    const visibleRecords = mergedRecords.slice(0, getBridgeHistoryPageSize(false));
-    visibleRecords.forEach((record) => {
-      const originalUrl = String(record.resultUrls?.[0] || record.previewUrl || "").trim();
-      const url = String(record.previewUrl || originalUrl || "").trim();
-      if (!originalUrl) return;
-      const recordId = String(record.localRecordId || record.id || "").trim();
-      const prompt = String(record.prompt || "");
-      const encodedPrompt = encodeURIComponent(prompt || "");
-      const promptLabel = prompt ? `提示词：${prompt}` : "提示词：无记录";
-      const promptTooltip = prompt ? `<div class="history-prompt-tip">${escapeHtml(promptLabel)}</div>` : "";
-      const time = formatHistoryClock(record.completedAt || record.createdAt);
-
-      const div = document.createElement("div");
-      div.className = "result-item history-item";
-      div.title = promptLabel;
-      div.dataset.fullUrl = originalUrl;
-      div.dataset.displayUrl = url;
-      div.innerHTML = `
-        <img loading="lazy" decoding="async" onclick="openLightbox(this.closest('.history-item').dataset.fullUrl || this.src)">
-        ${time ? `<div class="history-time-tag">${time}</div>` : ""}
-        <div class="history-cache-badge syncing">缓存中</div>
-        ${promptTooltip}
-        <div class="item-overlay">
-          <button class="overlay-btn history-icon-btn" data-label="放大" onclick="openLightbox(this.closest('.history-item').dataset.fullUrl || this.closest('.history-item').querySelector('img').src)">🔍</button>
-          <button class="overlay-btn history-icon-btn" data-label="保存" onclick="downloadSingleImg(this.closest('.history-item').dataset.fullUrl || this.closest('.history-item').querySelector('img').src)">💾</button>
-          <button class="overlay-btn history-icon-btn" data-label="重生" onclick="regenerateFromHistory('${encodedPrompt}')">♻️</button>
-          <button class="overlay-btn history-icon-btn" data-label="垫图" onclick="useAsRef(this.closest('.history-item').dataset.fullUrl || this.closest('.history-item').querySelector('img').src)">🧩</button>
-          <button class="overlay-btn history-icon-btn" data-label="链接" onclick="copyImgUrl(this.closest('.history-item').dataset.fullUrl || '${originalUrl}')">🔗</button>
-        </div>
-      `;
-      grid.appendChild(div);
-
-      if (typeof setHistoryCacheBadge === "function") {
-        setHistoryCacheBadge(div, "cloud");
-      }
-
-      bindClassicPreviewImage(div.querySelector("img"), { id: recordId, src: originalUrl, previewSrc: url });
+  const mergeRemoteAndLocalHistoryRecords = async (records = [], ownerId = String(window.classicImageJobOwner || "")) => {
+    const local = await readLocalClassicHistoryRecords(ownerId);
+    const localById = new Map(local.map(record => [record.assetId || record.id, record]));
+    const remote = expandRemoteHistoryRecords(records, ownerId).map(record => {
+      const previous = localById.get(record.assetId || record.id);
+      if (!previous) return record;
+      return { ...previous, ...record, createdAt: previous.createdAt, completedAt: previous.completedAt,
+        time: previous.time, legacyId: previous.legacyId, ownerId: previous.ownerId,
+        jobId: previous.jobId, outputIndex: previous.outputIndex, assetId: previous.assetId || record.assetId };
     });
+    return dedupeHistoryRecords([...remote, ...local]);
   };
-  const persistRemoteSuccessRecordsToLocalHistory = async (records = []) => {
-    if (typeof writeHistoryRecordsToDB !== "function") return;
-    const successRecords = (Array.isArray(records) ? records : [])
-      .filter((record) => String(record?.status || "").trim().toUpperCase() === "SUCCESS")
-      .map((record) => {
-        const fullUrl = String(record?.resultUrls?.[0] || record?.previewUrl || "").trim();
-        if (!fullUrl) return null;
-        return {
-          id: `remote:${record.id || fullUrl}`,
-          url: fullUrl,
-          fullUrl,
-          previewUrl: String(record.previewUrl || fullUrl).trim(),
-          prompt: String(record.prompt || ""),
-          createdAt: String(record.createdAt || record.completedAt || new Date().toISOString()),
-          completedAt: String(record.completedAt || record.createdAt || new Date().toISOString()),
-        };
-      })
-      .filter(Boolean);
-    if (successRecords.length === 0) return;
+  const renderRemoteHistoryGrid = async (records = [], options = {}) => {
+    const ownerId = String(options.ownerId ?? window.classicImageJobOwner ?? "");
+    const merged = await mergeRemoteAndLocalHistoryRecords(records, ownerId);
+    if (ownerId !== String(window.classicImageJobOwner || "") || (options.isCurrent && !options.isCurrent())) return;
+    renderClassicHistoryRecords(merged, { hasMore: remoteHistoryNextPage <= remoteHistoryTotalPages, loadMore: () => loadHistory({ older: true, force: false }) });
+    return merged;
+  };
+  const persistRemoteSuccessRecordsToLocalHistory = async (records = [], options = {}) => {
+    if (typeof writeHistoryRecordsToDB !== "function") return [];
+    const ownerId = String(options.ownerId ?? window.classicImageJobOwner ?? "");
+    const successes = records.filter(record => String(record.status || "").toUpperCase() === "SUCCESS");
+    const expanded = expandRemoteHistoryRecords(successes, ownerId).map(record => ({ ...record, autoDownloadEligible: options.autoDownloadEligible === true }));
+    if (!expanded.length || (options.isCurrent && !options.isCurrent())) return [];
     try {
-      const localRecords =
-        typeof readHistoryRecordsFromDB === "function" ? await readHistoryRecordsFromDB() : [];
-      const seen = new Set(localRecords.map((record) => String(record.fullUrl || record.url || "").trim()));
-      await writeHistoryRecordsToDB([
-        ...successRecords.filter((record) => !seen.has(String(record.fullUrl || record.url || "").trim())),
-        ...localRecords,
-      ]);
-    } catch (error) {
-      console.warn("[Classic Bridge] persist remote history locally failed:", error);
-    }
+      const saved = await writeHistoryRecordsToDB(expanded, { ownerId });
+      if (ownerId !== String(window.classicImageJobOwner || "") || (options.isCurrent && !options.isCurrent())) return [];
+      const ids = new Set(expanded.map(record => record.id));
+      const updated = saved.filter(record => ids.has(record.id));
+      updated.forEach(record => {
+        const operation = options.autoDownloadEligible === true
+          ? window.cacheClassicResult?.(record) : window.ClassicResultAssets?.registerResult(record);
+        if (operation) void operation.catch(error => console.warn("[Classic Bridge] result cache metadata failed:", error));
+      });
+      return updated;
+    } catch (error) { console.warn("[Classic Bridge] persist remote history locally failed:", error); return []; }
   };
   const renderRemotePendingTasks = (records = []) => {
     const grid = document.getElementById("pendingTasksGrid");
@@ -2340,11 +2313,8 @@
     };
   }
 
-  saveToHistory = function (url, promptText = "", previewUrl = "") {
-    if (legacySaveToHistory) {
-      legacySaveToHistory(url, promptText, previewUrl);
-    }
-    return undefined;
+  saveToHistory = function (url, promptText = "", previewUrl = "", metadata = {}) {
+    return legacySaveToHistory ? legacySaveToHistory(url, promptText, previewUrl, metadata) : undefined;
   };
 
   clearHistory = function () {
@@ -2352,50 +2322,52 @@
   };
 
   loadHistory = async function (options = {}) {
-    const historySession = getStoredSessionToken();
-    const incremental = Boolean(options.incremental);
-    const force = options.force !== false;
-    if (!incremental) {
-      remoteHistoryRecordsCache = [];
-      remoteHistoryCursor = {
-        sinceCreatedAt: "",
-        sinceId: "",
-      };
+    const session = getStoredSessionToken();
+    const ownerId = String(window.classicImageJobOwner || "");
+    if (historyLoadInFlight?.session === session && historyLoadInFlight.ownerId === ownerId) return historyLoadInFlight.promise;
+    if (historyCacheSession !== `${session}:${ownerId}`) {
+      remoteHistoryRecordsCache = []; remoteHistoryCursor = { sinceCreatedAt: "", sinceId: "" };
+      remoteHistoryNextPage = 1; remoteHistoryTotalPages = 1; historyCacheSession = `${session}:${ownerId}`;
     }
-
-    if (isSessionAuthenticated()) {
+    const generation = ++historyRequestGeneration;
+    const isCurrent = () => session === getStoredSessionToken() && ownerId === String(window.classicImageJobOwner || "") && generation === historyRequestGeneration;
+    const entry = { session, ownerId, promise: null };
+    historyLoadInFlight = entry;
+    entry.promise = (async () => {
+      // Paint committed local previews before the first network request.
+      await renderRemoteHistoryGrid(remoteHistoryRecordsCache, { ownerId, isCurrent });
+      if (!isCurrent()) return [];
+      if (!isSessionAuthenticated()) return remoteHistoryRecordsCache;
       try {
-        const result = await fetchGenerationRecords({
-          mediaType: "image",
-          status: "success",
-          page: 1,
+        const incremental = Boolean(options.incremental) && !options.older;
+        const page = options.older ? remoteHistoryNextPage : 1;
+        const result = await fetchGenerationRecords({ mediaType: "image", status: "success", page,
           pageSize: getBridgeHistoryPageSize(incremental),
           sinceCreatedAt: incremental ? remoteHistoryCursor.sinceCreatedAt : "",
           sinceId: incremental ? remoteHistoryCursor.sinceId : "",
         });
-        if (historySession !== getStoredSessionToken()) return [];
+        if (!isCurrent()) return [];
         const records = Array.isArray(result?.records) ? result.records : [];
-        remoteHistoryRecordsCache = dedupeHistoryRecords([
-          ...records,
-          ...remoteHistoryRecordsCache,
-        ]);
+        remoteHistoryRecordsCache = dedupeHistoryRecords([...records, ...remoteHistoryRecordsCache]);
         remoteHistoryCursor = getHistoryCursorFromRecords(remoteHistoryRecordsCache);
+        if (!incremental) { remoteHistoryNextPage = Number(result.page || page) + 1; remoteHistoryTotalPages = Number(result.totalPages || 1); }
         lastHistoryRefreshAt = Date.now();
-        await persistRemoteSuccessRecordsToLocalHistory(remoteHistoryRecordsCache);
-        if (historySession !== getStoredSessionToken()) return [];
-        if (typeof window.reconcileClassicLiveTasksWithGenerationRecords === "function") {
-          window.reconcileClassicLiveTasksWithGenerationRecords(remoteHistoryRecordsCache);
-        }
-        await renderRemoteHistoryGrid(remoteHistoryRecordsCache);
+        await persistRemoteSuccessRecordsToLocalHistory(records, { ownerId, isCurrent });
+        if (!isCurrent()) return [];
+        window.reconcileClassicLiveTasksWithGenerationRecords?.(records);
+        records.forEach(record => {
+          if (record.meta?.imageJobId && String(record.meta?.storageStatus || "").toLowerCase() === "pending") {
+            scheduleClassicAssetFinalization(record.meta.imageJobId, { ownerId, session, createdAt: record.createdAt, completedAt: record.completedAt, prompt: record.prompt });
+          }
+        });
+        await renderRemoteHistoryGrid(remoteHistoryRecordsCache, { ownerId, isCurrent });
         return remoteHistoryRecordsCache;
       } catch (error) {
         console.warn("[Classic Bridge] load remote history failed:", error);
-        if (historySession !== getStoredSessionToken()) return [];
-        if (!force) return remoteHistoryRecordsCache;
+        return isCurrent() ? remoteHistoryRecordsCache : [];
       }
-    }
-
-    return legacyLoadHistory ? legacyLoadHistory() : undefined;
+    })().finally(() => { if (historyLoadInFlight === entry) historyLoadInFlight = null; });
+    return entry.promise;
   };
 
   savePendingTask = function (taskId, key, size, index, mode = "single", model = "") {
@@ -2414,6 +2386,112 @@
     return undefined;
   };
 
+  const retryMissingClassicResultAssets = async (job, options = {}) => {
+    const store = window.ImageResultStore;
+    if (!store?.getState || !window.cacheClassicResult) return;
+    const ownerId = String(options.ownerId || window.classicImageJobOwner || "");
+    const session = options.session ?? getStoredSessionToken();
+    const isCurrent = () => session === getStoredSessionToken() && ownerId === String(window.classicImageJobOwner || "");
+    const completedAt = new Date(job.completed_at || job.completedAt || options.completedAt || 0).getTime() || 0;
+    if (!isCurrent() || options.autoDownloadEligible === false || (completedAt && Date.now() >= completedAt + 4 * 60 * 60 * 1000)) return;
+    const jobId = String(job.task_id || job.taskId || job.id || options.jobId || "");
+    const images = (job.images || job.results || job.resultUrls || []).filter(url => typeof url === "string");
+    for (let outputIndex = 0; outputIndex < images.length; outputIndex++) {
+      if (!isCurrent()) return;
+      const id = store.resultId(ownerId, jobId, outputIndex);
+      const previous = classicAssetRecoveryAttempts.get(id);
+      if (previous?.pending || previous?.nextAt > Date.now()) continue;
+      let state;
+      try { state = await store.getState(id); } catch (_) { continue; }
+      if (!isCurrent() || (state?.ownerId && state.ownerId !== ownerId)) return;
+      if (state?.cloudExpiresAt && state.cloudExpiresAt <= Date.now()) continue;
+      if (!state?.originalCached && (state?.cacheError === 'QUOTA' || state?.originalCacheError === 'QUOTA')) continue;
+      const needsDownload = store.getAutoDownloadPreference?.() && !state?.downloadState;
+      if (state?.originalCached && !needsDownload) continue;
+      const entry = { pending: true, attempts: Number(previous?.attempts || 0) + 1, nextAt: 0 };
+      classicAssetRecoveryAttempts.set(id, entry);
+      // The existing lifecycle queue owns concurrency and persistent download
+      // claims; recovery only reopens work missing after a transient failure.
+      try {
+        await window.cacheClassicResult({ ownerId, jobId, taskId: jobId, outputIndex, assetId: id, id,
+          fullUrl: images[outputIndex], previewUrl: job.preview_urls?.[outputIndex] || (outputIndex === 0 ? job.preview_url || job.previewUrl : '') || '',
+          prompt: job.prompt || options.prompt || '', createdAt: job.created_at || job.createdAt || options.createdAt,
+          completedAt, cloudExpiresAt: completedAt ? completedAt + 4 * 60 * 60 * 1000 : 0,
+          storageStatus: job.storage_status || job.storageStatus || '', autoDownloadEligible: true,
+        });
+      } catch (error) { console.warn('[Classic Bridge] local original recovery waiting:', error); }
+      finally { entry.pending = false; entry.nextAt = Date.now() + Math.min(300000, 30000 * Math.pow(2, Math.min(entry.attempts - 1, 4))); }
+      if (classicAssetRecoveryAttempts.size > 500) {
+        const oldest = Array.from(classicAssetRecoveryAttempts).find(([, attempt]) => !attempt.pending);
+        if (oldest) classicAssetRecoveryAttempts.delete(oldest[0]);
+      }
+    }
+  };
+
+  const applyManagedJobResults = async (job, options = {}) => {
+    const ownerId = String(options.ownerId || window.classicImageJobOwner || "");
+    const session = options.session ?? getStoredSessionToken();
+    if (session !== getStoredSessionToken() || ownerId !== String(window.classicImageJobOwner || "")) return;
+    const jobId = String(job.task_id || job.taskId || job.id || options.jobId || "");
+    const requestId = String(job.request_id || job.requestId || job.clientRequestId || "");
+    const liveIds = job.clientLiveTaskIds || job.client_live_task_ids || options.liveTaskIds || [];
+    const baseId = liveIds[0] || `request-${requestId || jobId}`;
+    const images = (job.images || job.results || job.resultUrls || []).filter(url => typeof url === "string");
+    const completedAt = new Date(job.completed_at || job.completedAt || options.completedAt || 0).getTime() || 0;
+    const createdAt = new Date(job.created_at || job.createdAt || options.createdAt || Date.now()).getTime();
+    const signatureKey = `${ownerId}:${jobId}`;
+    const signature = JSON.stringify([images, job.preview_url || job.previewUrl, job.preview_urls, job.storage_status || job.storageStatus, completedAt]);
+    if (recoveredResultSignatures.get(signatureKey) === signature) {
+      void retryMissingClassicResultAssets(job, { ...options, ownerId, session }).catch(error => console.warn('[Classic Bridge] local result recovery deferred:', error));
+      return;
+    }
+    const eligible = options.autoDownloadEligible !== false && (!completedAt || Date.now() - completedAt < 4 * 60 * 60 * 1000);
+    await Promise.all(images.map(async (url, outputIndex) => {
+      const existing = typeof classicLiveTasks !== "undefined" && classicLiveTasks.find(task => task.ownerId === ownerId && (task.jobId === jobId || task.taskId === jobId) && Number(task.outputIndex || 0) === outputIndex);
+      const liveId = existing?.id || liveIds[outputIndex] || (outputIndex ? `${baseId}:output:${outputIndex}` : baseId);
+      const meta = { ownerId, jobId, taskId: jobId, clientRequestId: requestId, outputIndex,
+        prompt: job.prompt || options.prompt || "", size: job.outputSize || options.size || "1K", modelLabel: job.model || options.modelLabel || "", routeLabel: job.routeId || options.routeLabel || "",
+        createdAt, completedAt, storageStatus: job.storage_status || job.storageStatus || "",
+        previewUrl: job.preview_urls?.[outputIndex] || (outputIndex === 0 ? job.preview_url || job.previewUrl : "") || "",
+        cloudExpiresAt: completedAt ? completedAt + 4 * 60 * 60 * 1000 : 0, connectionMessage: "", autoDownloadEligible: eligible,
+      };
+      window.completeClassicLiveTask?.(liveId, url, meta);
+      await saveToHistory(url, meta.prompt, meta.previewUrl, meta);
+    }));
+    if (session !== getStoredSessionToken() || ownerId !== String(window.classicImageJobOwner || "")) return;
+    recoveredResultSignatures.set(signatureKey, signature);
+    if (recoveredResultSignatures.size > 300) recoveredResultSignatures.delete(recoveredResultSignatures.keys().next().value);
+  };
+  const scheduleClassicAssetFinalization = (jobId, options = {}) => {
+    if (!jobId || assetFinalizationPollers.has(jobId) || assetFinalizationPollers.size >= 100) return;
+    const ownerId = String(options.ownerId || window.classicImageJobOwner || "");
+    const session = options.session ?? getStoredSessionToken();
+    const completedAt = new Date(options.completedAt || 0).getTime() || 0;
+    const expiresAt = completedAt ? completedAt + 4 * 60 * 60 * 1000 : Date.now() + 30 * 60 * 1000;
+    if (expiresAt <= Date.now()) return;
+    const entry = { timer: null, attempts: 0, stop() { if (entry.timer) clearTimeout(entry.timer); assetFinalizationPollers.delete(jobId); } };
+    const isCurrent = () => session === getStoredSessionToken() && ownerId === String(window.classicImageJobOwner || "");
+    const schedule = () => { entry.timer = setTimeout(run, Math.min(30000, 5000 + entry.attempts * 2000)); };
+    const run = async () => {
+      if (!isCurrent() || Date.now() >= expiresAt || entry.attempts >= 480) { entry.stop(); return; }
+      if (assetFinalizationInFlight >= 2) { schedule(); return; }
+      assetFinalizationInFlight++;
+      entry.attempts++;
+      try {
+        const job = await window.ClassicImageJobs.query(jobId, buildSessionHeaders(), "", ownerId);
+        if (!isCurrent()) { entry.stop(); return; }
+        await applyManagedJobResults(job, { ...options, ownerId, session, jobId });
+        if (!isCurrent()) { entry.stop(); return; }
+        const status = String(job.storage_status || job.storageStatus || "").toLowerCase();
+        if (["saved", "failed", "external", "expired"].includes(status)) { entry.stop(); return; }
+      } catch (error) { console.warn("[Classic Bridge] image storage query waiting:", error); }
+      finally { assetFinalizationInFlight--; }
+      if (!isCurrent()) { entry.stop(); return; }
+      schedule();
+    };
+    assetFinalizationPollers.set(jobId, entry); schedule();
+  };
+
   restorePendingTasks = async function () {
     if (!isSessionAuthenticated()) {
       return legacyRestorePendingTasks ? legacyRestorePendingTasks() : undefined;
@@ -2425,7 +2503,7 @@
       if (session !== getStoredSessionToken()) return;
       const ownerId = String(identity.user?.userId || '');
       if (!ownerId) return;
-      window.setClassicImageJobOwner?.(ownerId);
+      confirmClassicImageOwner(ownerId, session);
       bridgeAuthState.user = identity.user;
       const jobsResult = await window.ClassicImageJobs.request('/api/image-jobs?uiMode=classic&limit=100', { headers: buildSessionHeaders() });
       if (session !== getStoredSessionToken()) return;
@@ -2434,12 +2512,11 @@
         const requestId = job.request_id || job.requestId || job.clientRequestId;
         const liveIds = job.clientLiveTaskIds || job.client_live_task_ids || [];
         const liveId = liveIds[0] || `request-${requestId}`;
-        const meta = { taskId: id, clientRequestId: requestId, ownerId, prompt: job.prompt || '', size: job.outputSize || '1K', modelLabel: job.model || '', routeLabel: job.routeId || '', createdAt: Date.parse(job.created_at || job.createdAt) || Date.now() };
+        const meta = { taskId: id, jobId: id, clientRequestId: requestId, ownerId, prompt: job.prompt || '', size: job.outputSize || '1K', modelLabel: job.model || '', routeLabel: job.routeId || '', createdAt: Date.parse(job.created_at || job.createdAt) || Date.now() };
         if (String(job.status).toLowerCase() === 'succeeded') {
-          if (job.images?.[0]) {
-            const wasCompleted = typeof classicLiveTasks !== 'undefined' && classicLiveTasks.some(task => (task.id === liveId || task.taskId === id) && task.status === 'success');
-            window.completeClassicLiveTask?.(liveId, job.images[0], { ...meta, previewUrl: job.preview_url || '', connectionMessage: '' });
-            if (!wasCompleted) saveToHistory(job.images[0], meta.prompt);
+          if (job.images?.length || job.results?.length) {
+            await applyManagedJobResults(job, { ...meta, session });
+            if (String(job.storage_status || '').toLowerCase() === 'pending') scheduleClassicAssetFinalization(id, { ...meta, session, completedAt: job.completed_at });
           }
           else window.promoteClassicLiveTask?.(liveId, id, { ...meta, status: 'result-unavailable', connectionMessage: '生成已完成，但图片保存失败，请联系管理员核对' });
         } else if (String(job.status).toLowerCase() === 'failed') {
@@ -2554,7 +2631,7 @@
       if (session !== getStoredSessionToken()) return;
       const ownerId = String(identity?.user?.userId || '');
       if (session && ownerId !== String(bridgeAuthState.user?.userId || '')) {
-        window.setClassicImageJobOwner?.(ownerId);
+        confirmClassicImageOwner(ownerId, session);
         bridgeAuthState.user = identity.user;
       }
       if (session) liveTaskIds.forEach(id => window.promoteClassicLiveTask?.(id, `request-${requestId}`, { clientRequestId: requestId, ownerId, status: 'submitting' }));
@@ -2688,11 +2765,15 @@
     let promptSnapshot = String(
       options.promptSnapshot || document.getElementById("prompt")?.value?.trim() || "",
     );
-    const liveTaskForSlot = (slot = 0) => liveTaskIds[slot] || liveTaskIds[0] || taskId;
-    const completeLiveTask = (imageUrl, slot = 0, previewUrl = '', resultTaskId = taskId) => {
+    const liveTaskForSlot = (slot = 0) => liveTaskIds[slot] || (slot > 0 ? `${liveTaskIds[0] || taskId}:output:${slot}` : liveTaskIds[0] || taskId);
+    const completeLiveTask = (imageUrl, slot = 0, previewUrl = '', resultTaskId = taskId, resultMeta = {}) => {
       if (typeof window.completeClassicLiveTask !== "function") return;
       window.completeClassicLiveTask(liveTaskForSlot(slot), imageUrl, {
+        ...resultMeta,
+        ownerId: window.classicImageJobOwner || '',
+        jobId: resultTaskId,
         taskId: resultTaskId,
+        outputIndex: slot,
         previewUrl,
         connectionMessage: '',
         prompt: promptSnapshot,
@@ -2764,31 +2845,39 @@
           stopPolling();
           removePendingTask(normalizedTaskId);
           removePendingTaskFromGallery(normalizedTaskId);
-          const liveId = liveTaskForSlot(0);
-          const wasCompleted = typeof classicLiveTasks !== 'undefined' && classicLiveTasks.some(task => (task.id === liveId || task.taskId === liveId || task.taskId === normalizedTaskId) && task.status === 'success');
-          completeLiveTask(imageUrls[0], 0, rawJson.preview_url || '', rawJson.task_id || normalizedTaskId);
-          if (wasCompleted) {
-            if (canUpdateMainUi(options.runToken, trackUi)) {
-              loadedImageCount++;
-              completedTasksCount++;
-              activeTasksCount--;
-              checkAllDone(size);
+          const resultTaskId = rawJson.task_id || normalizedTaskId;
+          const completedAt = Date.parse(rawJson.completed_at || rawJson.completedAt || '') || 0;
+          const resultMeta = { createdAt: Date.parse(rawJson.created_at || rawJson.createdAt || '') || undefined, completedAt,
+            storageStatus: rawJson.storage_status || '', cloudExpiresAt: completedAt ? completedAt + 4 * 60 * 60 * 1000 : 0 };
+          const uiSettlements = window.classicImageJobUiSettlements || (window.classicImageJobUiSettlements = new Map());
+          imageUrls.forEach((imageUrl, slot) => {
+            const liveId = liveTaskForSlot(slot);
+            const previous = typeof classicLiveTasks !== 'undefined' && classicLiveTasks.find(task =>
+              (task.id === liveId || task.taskId === resultTaskId || task.taskId === normalizedTaskId) && Number(task.outputIndex || 0) === slot);
+            const wasCompleted = previous?.status === 'success';
+            const previewUrl = rawJson.preview_urls?.[slot] || (slot === 0 ? rawJson.preview_url || '' : '');
+            const sourceChanged = wasCompleted && (previous.originalUrl !== imageUrl || (previewUrl && previous.previewUrl !== previewUrl));
+            completeLiveTask(imageUrl, slot, previewUrl, resultTaskId, resultMeta);
+            const metadata = { ...resultMeta, ownerId: window.classicImageJobOwner || '', jobId: resultTaskId, taskId: resultTaskId, outputIndex: slot,
+              runToken: options.runToken, trackUi, liveTaskId: liveId, promptSnapshot, modelLabel: options.modelLabel || '', routeLabel: options.routeLabel || '', previewUrl };
+            const settlementKey = `${sessionAtStart}:${resultTaskId}:${slot}:${options.runToken || 0}`;
+            const shouldSettle = canUpdateMainUi(options.runToken, trackUi) && !uiSettlements.has(settlementKey);
+            if (shouldSettle) {
+              uiSettlements.set(settlementKey, Date.now());
+              if (uiSettlements.size > 1000) uiSettlements.delete(uiSettlements.keys().next().value);
             }
-            return;
-          }
-          if (canUpdateMainUi(options.runToken, trackUi)) {
-            appendImageToGrid(imageUrls[0], size, null, {
-              runToken: options.runToken,
-              trackUi,
-              liveTaskId: liveTaskForSlot(0),
-              taskId: normalizedTaskId,
-              promptSnapshot,
-              modelLabel: options.modelLabel || "",
-              routeLabel: options.routeLabel || "",
-              previewUrl: rawJson.preview_url || '',
-            });
-          } else {
-            saveToHistory(imageUrls[0], promptSnapshot);
+            if (wasCompleted) {
+              if (sourceChanged) void saveToHistory(imageUrl, promptSnapshot, previewUrl, metadata);
+              if (shouldSettle) { loadedImageCount++; completedTasksCount++; activeTasksCount--; checkAllDone(size); }
+            } else if (shouldSettle) {
+              appendImageToGrid(imageUrl, size, null, metadata);
+            } else {
+              void saveToHistory(imageUrl, promptSnapshot, previewUrl, metadata);
+            }
+          });
+          if (isManagedJob && String(rawJson.storage_status || '').toLowerCase() === 'pending' && typeof scheduleClassicAssetFinalization === 'function') {
+            scheduleClassicAssetFinalization(resultTaskId, { ownerId: window.classicImageJobOwner || '', session: sessionAtStart,
+              liveTaskIds, prompt: promptSnapshot, size, modelLabel: options.modelLabel, routeLabel: options.routeLabel, completedAt: rawJson.completed_at, createdAt: rawJson.created_at });
           }
           return;
         }
@@ -2927,9 +3016,6 @@
       return;
     }
 
-    if (typeof window.clearClassicLiveTasks === "function") {
-      window.clearClassicLiveTasks({ silent: true });
-    }
     btn.disabled = true;
     btn.innerHTML = "提交中...";
     armSubmitUnlockFailsafe();
@@ -3239,8 +3325,11 @@
 
     const resetImageJobOwner = () => {
       activeTaskPollers.forEach(poller => poller.stop());
+      assetFinalizationPollers.forEach(poller => poller.stop());
+      historyRequestGeneration++; historyLoadInFlight = null; recoveredResultSignatures.clear(); classicAssetRecoveryAttempts.clear();
       bridgeAuthState.user = null;
       window.setClassicImageJobOwner?.('');
+      restoreConfirmedClassicOwner();
       void refreshClassicSession(false);
     };
     window.addEventListener("auth-session-change", resetImageJobOwner);
@@ -3266,6 +3355,7 @@
     await restorePendingTasks();
   };
 
+  restoreConfirmedClassicOwner();
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", () => {
       void initClassicBridge();

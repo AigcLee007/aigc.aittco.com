@@ -270,6 +270,7 @@ export const useGenerationLogic = () => {
         const generatedAt = new Date().toISOString();
         const generationSession=getStoredAuthSessionToken();
         const resultIdentity=isVideo ? undefined : canvasResultIdentity({...currentNode,createdAt:generatedAt},rawSrc);
+        const resultAssetId=resultIdentity ? imageResultStore.resultId(resultIdentity.ownerId,resultIdentity.jobId,resultIdentity.outputIndex) : undefined;
 
         // 1) Show result immediately with original URL first.
         // Avoid blocking first paint on local proxy latency.
@@ -280,7 +281,7 @@ export const useGenerationLogic = () => {
         updateNode(id, {
             src: displaySrc,
             generationResultSrc: displaySrc,
-            assetId: undefined,
+            assetId: resultAssetId,
             thumbnailSrc,
             loading: false,
             error: false,
@@ -292,7 +293,7 @@ export const useGenerationLogic = () => {
         const logId = addLog(
           currentNode.prompt || (isVideo ? "Generated Video" : "Generated Image"),
           displaySrc,
-          undefined,
+          resultAssetId,
           isVideo ? 'VIDEO' : (currentNode.type as 'IMAGE' | 'VIDEO'),
           thumbnailSrc,
         );

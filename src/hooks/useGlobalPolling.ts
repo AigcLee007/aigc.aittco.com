@@ -8,7 +8,7 @@ import { getImageJobOwner, isTransientJobError, queryImageJob } from '../service
 import { buildBillingIdentityHeaders, getStoredAuthSessionToken } from '../services/accountIdentity';
 import { listImageRequests, removeImageRequest } from '../services/imageJobRequests';
 import { imageResultStore } from '../services/imageResultStore';
-import { registerCanvasResult } from '../services/canvasResultIdentity';
+import { recoverCanvasResult } from '../services/canvasResultIdentity';
 
 export const useGlobalPolling = (
   apiKey: string | undefined,
@@ -85,16 +85,18 @@ export const useGlobalPolling = (
             if (!node.loading && !node.error && node.src && (!node.generationResultSrc || node.src === node.generationResultSrc) && ['succeeded', 'success'].includes(String(job.status).toLowerCase())) {
               const urls = job.results || job.images || job.data?.map((item: any) => item.url) || [];
               const siblings = matches.filter(item => !item.loading && !item.error);
-              const slot = node.generationResultIndex ?? (String(job.model || '').toLowerCase().startsWith('grok') && siblings.length === 1
+              const resolvedSlot = node.generationResultIndex ?? (String(job.model || '').toLowerCase().startsWith('grok') && siblings.length === 1
                 ? urls.length - 1 : siblings.findIndex(item => item.id === node.id));
-              const url = urls[Math.min(Math.max(slot, 0), urls.length - 1)];
+              const slot=Math.min(Math.max(resolvedSlot,0),urls.length-1);
+              const url = urls[slot];
               state.updateNode(node.id, {
                 ...(typeof url === 'string' ? { src: url, generationResultSrc: url } : {}),
+                ...(typeof url === 'string' ? { generationResultIndex:slot } : {}),
                 ...(job.preview_url && slot === 0 ? { thumbnailSrc: job.preview_url } : {}),
                 generationStorageStatus: job.storage_status,
               }, true);
               if(typeof url==='string'){
-                void registerCanvasResult({...node,taskId,generationStorageStatus:job.storage_status,thumbnailSrc:job.preview_url && slot===0 ? job.preview_url : node.thumbnailSrc},url,job.completed_at).then(async(info)=>{
+                void recoverCanvasResult(node,{taskId,slot,source:url,storageStatus:job.storage_status,previewUrl:job.preview_url && slot===0 ? job.preview_url : undefined,completedAt:job.completed_at}).then(async(info)=>{
                   if(!info || !node.assetId || node.assetId===info.id)return;
                   const cached=await imageResultStore.getState(info.id);
                   if(active && session===getStoredAuthSessionToken() && cached.originalCached){
