@@ -14,13 +14,22 @@
     ]).finally(() => clearTimeout(timer));
   }
 
-  function createPreviewDecodeQueue(concurrency = 1) {
+  function createPreviewDecodeQueue(concurrency = 1, { maxPending = 128, waitMs = 120000 } = {}) {
     const pending = [];
     let active = 0;
+    const error = (message, code) => Object.assign(new Error(message), { code });
+    function remove(item) {
+      clearTimeout(item.timer);
+      item.signal?.removeEventListener('abort', item.abort);
+      const index = pending.indexOf(item);
+      if (index >= 0) pending.splice(index, 1);
+    }
     function drain() {
       while (active < concurrency && pending.length) {
         const item = pending.shift();
+        remove(item);
         active += 1;
+        item.onStart?.();
         Promise.resolve().then(item.work).then(item.resolve, item.reject).finally(() => {
           active -= 1;
           drain();
@@ -28,9 +37,18 @@
       }
     }
     return {
-      run(work) {
+      run(work, { signal, onQueued, onStart } = {}) {
         return new Promise((resolve, reject) => {
-          pending.push({ work, resolve, reject });
+          if (signal?.aborted) { reject(error('Image read cancelled', 'CANCELLED')); return; }
+          if (active >= concurrency && pending.length >= maxPending) { reject(error('Image queue is full', 'QUEUE_FULL')); return; }
+          const item = { work, resolve, reject, signal, onStart };
+          item.abort = () => { remove(item); reject(error('Image read cancelled', 'CANCELLED')); };
+          signal?.addEventListener('abort', item.abort, { once: true });
+          if (active >= concurrency) {
+            onQueued?.();
+            item.timer = setTimeout(() => { remove(item); reject(error('Image queue wait timed out', 'QUEUE_TIMEOUT')); }, waitMs);
+          }
+          pending.push(item);
           drain();
         });
       },
@@ -119,8 +137,10 @@
     const entries = new Map();
     const pendingOriginals = new Map();
     const idsBySource = new Map();
-    const decodeQueue = createPreviewDecodeQueue(1);
-    const preparationQueue = createPreviewDecodeQueue(1);
+    const queueOptions = { maxPending: options.maxPending || 128, waitMs: options.queueWaitMs || 120000 };
+    const decodeQueue = createPreviewDecodeQueue(1, queueOptions);
+    // A full original is retained only by the currently preparing preview.
+    const preparationQueue = createPreviewDecodeQueue(1, queueOptions);
     const timeoutMs = options.timeoutMs || 45000;
     const urlRegistry = createUrlRegistry();
     let ownerId = 0;
@@ -139,9 +159,13 @@
         }
       });
     }
-    const validate = (blob) => decodeQueue.run(() => options.validateBlob(blob));
+    const validate = (blob, signal) => decodeQueue.run(() => withTimeout(() => options.validateBlob(blob), timeoutMs), { signal });
+    const validateOriginal = (blob, signal) => options.validateOriginalBlob
+      ? withTimeout(() => options.validateOriginalBlob(blob), timeoutMs)
+      : validate(blob, signal);
     const persist = async (operation) => {
-      try { await operation(); } catch (_) { /* Storage is optional when unavailable or full. */ }
+      try { await withTimeout(operation, Math.min(timeoutMs, 15000)); return { saved: true }; }
+      catch (cacheError) { return { saved: false, cacheError }; }
     };
     const readLocal = async (operation) => {
       try { return await withTimeout(operation, Math.min(timeoutMs, 15000)); } catch (_) { return null; }
@@ -160,27 +184,37 @@
       const id = input.id || idsBySource.get(input.src) || input.src;
       if (!id && !input.src && !input.previewSrc) return { status: 'missing' };
       const variant = input.variant || 'preview';
+      const cache = { originalCached: false, previewCached: false, cacheError: null };
+      const save = async (kind, operation) => {
+        const result = await persist(operation);
+        cache[`${kind}Cached`] = result.saved;
+        if (result.cacheError) cache.cacheError = result.cacheError;
+      };
       if (variant === 'preview') {
         const preview = await readLocal(() => options.readPreview(id));
-        if (preview?.version === 1 && await validate(preview.blob).catch(() => false)) {
-          return { ...preview, status: 'ready', source: 'local' };
+        if (preview?.version === 1 && await validate(preview.blob, signal).catch(() => false)) {
+          cache.previewCached = true;
+          const saved = options.getCacheState ? await readLocal(() => options.getCacheState(id)) : null;
+          return { ...preview, ...cache, ...(saved || {}), status: 'ready', source: 'local' };
         }
       }
       const original = await readOriginal(id, input.src);
       if (signal.aborted) throw new Error('Image read cancelled');
       if (original) {
         try {
+          cache.originalCached = true;
           if (variant === 'preview') {
             const preview = await decodeQueue.run(() => {
               if (signal.aborted) throw new Error('Image read cancelled');
-              return options.makePreview(original);
-            });
+              return withTimeout(() => options.makePreview(original), timeoutMs);
+            }, { signal });
             if (signal.aborted) throw new Error('Image read timed out');
-            await persist(() => options.writePreview(id, preview));
-            return { ...preview, status: 'ready', source: 'local' };
+            await save('preview', () => options.writePreview(id, preview));
+            return { ...preview, ...cache, status: 'ready', source: 'local' };
           }
-          if (await validate(original)) return { blob: original, status: 'ready', source: 'local' };
-        } catch (_) { /* Try the canonical remote source without deleting local bytes. */ }
+          if (await validateOriginal(original, signal)) return { blob: original, ...cache, status: 'ready', source: 'local' };
+          cache.originalCached = false;
+        } catch (_) { if (variant === 'original') cache.originalCached = false; /* Preview encoding failure preserves original bytes. */ }
       }
       const sources = variant === 'preview'
         ? [...new Set([input.previewSrc, input.src].filter(Boolean))]
@@ -192,22 +226,22 @@
           const blob = await withTimeout(() => options.fetchBlob(src, signal), Math.min(timeoutMs, 15000));
           if (signal.aborted) throw new Error('Image read timed out');
           if (variant === 'preview') {
+            if (src === input.src && blob?.size && blob.type?.startsWith('image/')) await save('original', () => options.writeOriginal(id, blob));
             const preview = await decodeQueue.run(() => {
               if (signal.aborted) throw new Error('Image read cancelled');
-              return options.makePreview(blob);
-            });
+              return withTimeout(() => options.makePreview(blob), timeoutMs);
+            }, { signal });
             if (signal.aborted) throw new Error('Image read timed out');
-            if (src === input.src) await persist(() => options.writeOriginal(id, blob));
-            await persist(() => options.writePreview(id, preview));
-            return { ...preview, status: 'ready', source: 'remote' };
+            await save('preview', () => options.writePreview(id, preview));
+            return { ...preview, ...cache, status: 'ready', source: 'remote' };
           }
-          if (!await validate(blob)) throw new Error('Invalid image data');
+          if (!await validateOriginal(blob, signal)) throw new Error('Invalid image data');
           if (signal.aborted) throw new Error('Image read timed out');
-          await persist(() => options.writeOriginal(id, blob));
-          return { blob, status: 'ready', source: 'remote' };
+          await save('original', () => options.writeOriginal(id, blob));
+          return { blob, ...cache, status: 'ready', source: 'remote' };
         } catch (caught) { error = caught; }
       }
-      return { status: error ? 'failed' : 'missing', error };
+      return { ...cache, status: error ? 'failed' : 'missing', error };
     }
 
     async function acquire(input = {}) {
@@ -229,7 +263,9 @@
           if (controller.signal.aborted) return { status: 'failed', error: new Error('Image read timed out') };
           return resolve(input, controller.signal);
         };
-        entry.promise = withTimeout(() => variant === 'preview' ? preparationQueue.run(work) : work(), timeoutMs, () => controller.abort())
+        entry.promise = (variant === 'preview' ? preparationQueue.run(() => withTimeout(work, timeoutMs, () => controller.abort()), {
+          signal: controller.signal, onQueued: input.onQueued, onStart: input.onStart,
+        }) : withTimeout(work, timeoutMs, () => controller.abort()))
           .catch((error) => ({ status: 'failed', error }))
           .then((result) => { entry.result = result; trim(); return result; });
         entries.set(key, entry);
@@ -249,9 +285,18 @@
         };
         input.signal.addEventListener('abort', abort, { once: true });
       }) : null;
-      const result = await (cancellation ? Promise.race([entry.promise, cancellation]) : entry.promise);
+      let result = await (cancellation ? Promise.race([entry.promise, cancellation]) : entry.promise);
+      if (options.getCacheState) {
+        const refresh = readLocal(() => options.getCacheState(input.id || idsBySource.get(input.src) || input.src));
+        const cache = await (cancellation ? Promise.race([refresh, cancellation]) : refresh);
+        if (cache) {
+          const unavailableOriginal = variant === 'original' && result.status !== 'ready' && result.originalCached === false;
+          result = { ...result, ...cache };
+          if (unavailableOriginal) result.originalCached = false;
+        }
+      }
       if (abort) input.signal.removeEventListener('abort', abort);
-      if (cancelled) return { status: 'idle', release() {} };
+      if (cancelled) { trim(); return { status: 'idle', release() {} }; }
       if (result.status !== 'ready') {
         entry.refs -= 1;
         trim();
@@ -313,13 +358,17 @@
       const generation = ++binding.generation;
       onState(binding.element, 'reading');
       try {
-        const lease = await reader.acquire({ ...binding.input, variant: 'preview', signal: binding.controller.signal });
+        const current = () => bindings.get(binding.element) === binding && generation === binding.generation;
+        const lease = await reader.acquire({ ...binding.input, variant: 'preview', signal: binding.controller.signal,
+          onQueued: () => { if (current()) onState(binding.element, 'queued'); },
+          onStart: () => { if (current()) onState(binding.element, 'reading'); },
+        });
         if (bindings.get(binding.element) !== binding || generation !== binding.generation || binding.element.isConnected === false) {
           lease.release();
           return;
         }
         if (lease.status !== 'ready') {
-          onState(binding.element, lease.status || 'failed');
+          onState(binding.element, lease.status || 'failed', lease);
           return;
         }
         binding.lease = lease;
@@ -330,7 +379,7 @@
         binding.element.addEventListener?.('error', binding.onError, { once: true });
         binding.element.src = lease.url;
         binding.element.dataset.imageState = 'ready';
-        onState(binding.element, 'ready');
+        onState(binding.element, 'ready', lease);
       } catch (_) {
         if (bindings.get(binding.element) === binding && generation === binding.generation) onState(binding.element, 'failed');
       } finally {

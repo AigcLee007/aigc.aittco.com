@@ -89,6 +89,137 @@ function readerHarness(options = {}) {
   return { reader, revoked, urlCount: () => urls };
 }
 
+test('waiting previews receive their own execution deadline after queue admission', async () => {
+  const queued = [];
+  const h = readerHarness({
+    timeoutMs: 35,
+    queueWaitMs: 500,
+    fetchBlob: async () => { await new Promise(resolve => setTimeout(resolve, 22)); return { size: 100, type: 'image/png' }; },
+  });
+  const leases = await Promise.all([1, 2, 3].map(id => h.reader.acquire({ id: String(id), src: `/${id}.png`, onQueued: () => queued.push(id) })));
+  assert.deepEqual(leases.map(lease => lease.status), ['ready', 'ready', 'ready']);
+  assert.ok(queued.length > 0);
+  leases.forEach(lease => lease.release());
+});
+
+test('bounded queue removes cancelled work and rejects overflow without executing it', { timeout: 1000 }, async () => {
+  const runtime = loadRuntime();
+  const queue = runtime.createPreviewDecodeQueue(1, { maxPending: 1, waitMs: 100 });
+  let finish;
+  const first = queue.run(() => new Promise(resolve => { finish = resolve; }));
+  await Promise.resolve();
+  const controller = new AbortController();
+  let ran = false;
+  const second = queue.run(() => { ran = true; }, { signal: controller.signal });
+  const overflow = queue.run(() => { ran = true; });
+  controller.abort();
+  await assert.rejects(second, /cancel/i);
+  await assert.rejects(overflow, /queue.*full/i);
+  finish('first');
+  assert.equal(await first, 'first');
+  assert.equal(ran, false);
+  assert.equal(await queue.run(() => 'next'), 'next');
+});
+
+test('preview readiness reports committed cache flags instead of claiming original persistence', async () => {
+  let originals = 0;
+  const quota = new Error('cache full'); quota.name = 'QuotaExceededError';
+  const h = readerHarness({
+    fetchBlob: async () => ({ size: 20, type: 'image/webp' }),
+    writeOriginal: async () => { originals++; },
+    writePreview: async () => { throw quota; },
+  });
+  const lease = await h.reader.acquire({ id: 'one', src: '/full.png', previewSrc: '/preview.webp' });
+  assert.equal(lease.status, 'ready');
+  assert.equal(originals, 0);
+  assert.equal(lease.originalCached, false);
+  assert.equal(lease.previewCached, false);
+  assert.equal(lease.cacheError.name, 'QuotaExceededError');
+  lease.release();
+});
+
+test('original byte consumers can validate without decoding a full image', async () => {
+  let decoded = 0;
+  const h = readerHarness({
+    readOriginal: async () => ({ size: 20000000, type: 'image/png' }),
+    validateBlob: async () => { decoded++; return true; },
+    validateOriginalBlob: async blob => blob.size > 0 && blob.type.startsWith('image/'),
+  });
+  const lease = await h.reader.acquire({ id: 'one', src: '/full.png', variant: 'original' });
+  assert.equal(lease.status, 'ready');
+  assert.equal(lease.originalCached, true);
+  assert.equal(decoded, 0);
+  lease.release();
+});
+
+test('remote original is committed even when preview encoding fails', async () => {
+  const saved = [];
+  const h = readerHarness({
+    fetchBlob: async () => ({ size: 1000, type: 'image/png' }),
+    makePreview: async () => { throw new Error('preview encoder unavailable'); },
+    writeOriginal: async (id, blob) => saved.push({ id, blob }),
+  });
+  const lease = await h.reader.acquire({ id: 'original-first', src: '/full.png' });
+  assert.equal(lease.status, 'failed');
+  assert.equal(saved.length, 1);
+  assert.equal(saved[0].id, 'original-first');
+  assert.equal(lease.originalCached, true);
+});
+
+test('admitted preview execution is bounded across all its phases', async () => {
+  const delay = value => new Promise(resolve => setTimeout(() => resolve(value), 22));
+  const h = readerHarness({ timeoutMs: 35, readPreview: () => delay(null), readOriginal: () => delay(null), fetchBlob: () => delay({ size: 1000, type: 'image/png' }) });
+  const lease = await h.reader.acquire({ id: 'slow-phases', src: '/full.png' });
+  assert.equal(lease.status, 'failed');
+});
+
+test('preview encoder failure preserves durable original availability', async () => {
+  const h = readerHarness({ readOriginal: async () => ({ size: 1000, type: 'image/png' }), makePreview: async () => { throw new Error('encoder unavailable'); } });
+  const lease = await h.reader.acquire({ id: 'local-only', src: '/expired.png' });
+  assert.equal(lease.status, 'failed');
+  assert.equal(lease.originalCached, true);
+});
+
+test('reusing a preview refreshes cache flags after another consumer commits its original', async () => {
+  let originalCached = false;
+  const h = readerHarness({
+    readPreview: async () => ({ version: 1, blob: { size: 20, type: 'image/webp' } }),
+    getCacheState: async () => ({ originalCached, previewCached: true }),
+    fetchBlob: async () => ({ size: 1000, type: 'image/png' }),
+    writeOriginal: async () => { originalCached = true; },
+  });
+  const input = { id: 'same', src: '/full.png', previewSrc: '/preview.webp' };
+  const first = await h.reader.acquire(input);
+  assert.equal(first.originalCached, false);
+  const original = await h.reader.acquire({ ...input, variant: 'original' }); original.release();
+  const next = await h.reader.acquire(input);
+  assert.equal(next.originalCached, true);
+  first.release(); next.release();
+});
+
+test('cancellation during cache metadata refresh never creates a preview URL', async () => {
+  let finish;
+  const h = readerHarness({
+    getCacheState: () => new Promise(resolve => { finish = resolve; }),
+    fetchBlob: async () => ({ size: 1000, type: 'image/png' }),
+  });
+  const controller = new AbortController();
+  const pending = h.reader.acquire({ id: 'refresh', src: '/full.png', signal: controller.signal });
+  while (!finish) await new Promise(resolve => setTimeout(resolve, 0));
+  controller.abort();
+  const lease = await pending;
+  finish({ originalCached: true });
+  assert.equal(lease.status, 'idle');
+  assert.equal(h.urlCount(), 0);
+});
+
+test('throwing original validation does not report usable cached original', async () => {
+  const h = readerHarness({ readOriginal: async () => ({ size: 100, type: 'image/png' }), validateOriginalBlob: async () => { throw new Error('corrupt original'); }, getCacheState: async () => ({ originalCached: true }) });
+  const lease = await h.reader.acquire({ id: 'corrupt', src: '/expired.png', variant: 'original' });
+  assert.equal(lease.status, 'failed');
+  assert.equal(lease.originalCached, false);
+});
+
 test('local legacy original produces a bounded preview without touching expired remote URL', async () => {
   const original = { size: 8000, type: 'image/png' };
   const saved = [];
