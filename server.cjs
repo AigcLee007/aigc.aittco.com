@@ -161,6 +161,7 @@ const {
 const {
   persistGeneratedImageResults,
   LINE4_LOCAL_STORAGE_ROOT,
+  cleanupExpiredLocalAssets,
 } = require("./generatedAssetService.cjs");
 const { toPointNumber } = require("./pointMath.cjs");
 const {
@@ -5809,7 +5810,13 @@ const recoverJobCharge = async job => {
   return job;
 };
 const imageJobService = createImageJobService({
-  store: imageJobStore, assets: imageJobAssets, logger,
+  store: imageJobStore, assets: {
+    ...imageJobAssets,
+    cleanup: async () => {
+      await imageJobAssets.cleanup();
+      await cleanupExpiredLocalAssets();
+    },
+  }, logger,
   extractResultUrls: extractResultUrlsFromPayload,
   execute: executeLegacyImageHandler,
   poll: (job, context) => pollImageTaskAndSettle({

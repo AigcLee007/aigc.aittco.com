@@ -14,6 +14,7 @@ import { ToolMode } from '../types';
 import logo from '../src/assets/logo.svg';
 import { getPreferredImageDisplayUrl } from '../src/utils/generatedImageStorage';
 import { AssetImage } from '../src/components/AssetImage';
+import { ImageRetentionNotice } from '../src/components/ImageRetentionNotice';
 
 interface MobileViewProps {
   onOpenSettings: () => void;
@@ -90,6 +91,8 @@ const MobileView: React.FC<MobileViewProps> = ({
           </button>
         </div>
       </div>
+
+      <ImageRetentionNotice className="mx-3 mt-3 shrink-0" />
 
       {nodes.length === 0 && (
         <div className="flex-1 flex flex-col items-center justify-center text-gray-400 p-8 min-h-[50vh]">

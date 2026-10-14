@@ -20,7 +20,7 @@
         document.documentElement.classList.add("classic-vip-mode");
       }
     </script>
-    <link rel="stylesheet" href="/classic-app/style.css?v=classic_vip_mode_v1" />
+    <link rel="stylesheet" href="/classic-app/style.css?v=classic_image_retention_v1" />
   </head>
   <body>
     <div class="top-controls">
@@ -532,6 +532,8 @@
             </div>
           </div>
 
+          <div class="image-retention-notice" role="note">图片云端仅保留 <strong>4 小时</strong>，请尽快下载到本地。</div>
+
           <div class="classic-live-status-row">
             <div class="status-text" id="statusText">SYSTEM READY</div>
             <div class="progress-bar" id="progressBar">
@@ -581,17 +583,7 @@
             </button>
           </div>
           <!-- History Warning -->
-          <div
-            style="
-              font-size: 12px;
-              color: #ffab00;
-              margin-bottom: 10px;
-              padding: 0 5px;
-              text-align: center;
-            "
-          >
-            ⚠️ 历史记录仅临时保存，请及时下载避免丢失
-          </div>
+          <div class="image-retention-notice" role="note">图片云端仅保留 <strong>4 小时</strong>，请尽快下载到本地。</div>
 
           <!-- Pending Tasks Section (New) -->
           <div

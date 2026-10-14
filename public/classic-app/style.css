@@ -1665,6 +1665,22 @@ html.classic-vip-mode .classic-live-empty {
   gap: 14px;
 }
 
+.image-retention-notice {
+  margin: 12px 0;
+  padding: 9px 12px;
+  border: 1px solid rgba(255, 171, 0, 0.18);
+  border-radius: 9px;
+  background: rgba(255, 171, 0, 0.05);
+  color: var(--text-sub);
+  font-size: 12px;
+  line-height: 1.7;
+}
+
+.image-retention-notice strong {
+  color: var(--banana);
+  font-weight: 700;
+}
+
 .classic-live-kicker {
   color: var(--banana);
   font-size: 18px;

@@ -9,7 +9,7 @@ const axios = require('axios');
 const sharp = require('sharp');
 
 const STORAGE_ROOT = path.join(__dirname, 'storage', 'image-jobs');
-const TTL_MS = 72 * 60 * 60 * 1000;
+const TTL_MS = 5 * 60 * 60 * 1000;
 const MIME = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', avif: 'image/avif', gif: 'image/gif' };
 const statusError = (message, status = 404) => Object.assign(new Error(message), { status });
 function publicAddress(address) {
@@ -62,7 +62,8 @@ function createImageJobAssets(options = {}) {
   const root = path.resolve(options.root || STORAGE_ROOT);
   const assetRoot = path.join(root, 'assets');
   const now = options.now || Date.now;
-  const ttl = Number(options.ttlMs) > 0 ? Number(options.ttlMs) : TTL_MS;
+  const configuredTtl = Number(options.ttlMs ?? process.env.IMAGE_JOB_RETENTION_MS);
+  const ttl = Number.isFinite(configuredTtl) && configuredTtl > 0 ? configuredTtl : TTL_MS;
   const maxBytes = Math.max(1024, Number(options.maxBytes || process.env.GENERATED_ASSET_MAX_BYTES || 52428800));
   const timeoutMs = Math.max(1000, Number(options.timeoutMs || process.env.GENERATED_ASSET_DOWNLOAD_TIMEOUT_MS || 120000));
   const retries = Math.max(0, Math.min(2, Number(options.retries ?? 1)));

@@ -15,7 +15,7 @@ const imageExtByMime = {
 
 const LOCAL_LINE4_ROUTE_ID = "nano-banana-pro-line4";
 const STORAGE_TTL_HOURS = Number.parseInt(
-  String(process.env.LINE4_LOCAL_STORAGE_TTL_HOURS || "72"),
+  String(process.env.LINE4_LOCAL_STORAGE_TTL_HOURS || "5"),
   10,
 );
 const THUMB_WIDTH = Number.parseInt(
@@ -429,4 +429,5 @@ module.exports = {
   LOCAL_LINE4_ROUTE_ID,
   LINE4_LOCAL_STORAGE_ROOT: STORAGE_ROOT,
   persistGeneratedImageResults,
+  cleanupExpiredLocalAssets,
 };

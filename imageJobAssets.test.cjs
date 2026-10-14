@@ -138,6 +138,42 @@ test('expired files are removed and never served as infinite loading', async t =
   await assert.rejects(fs.access(file));
 });
 
+test('default cloud storage leaves a buffer after four hours and expires at five hours', async t => {
+  const previous = process.env.IMAGE_JOB_RETENTION_MS;
+  delete process.env.IMAGE_JOB_RETENTION_MS;
+  t.after(() => { if (previous === undefined) delete process.env.IMAGE_JOB_RETENTION_MS; else process.env.IMAGE_JOB_RETENTION_MS = previous; });
+  const started = Date.now();
+  let now = started;
+  const f = await fixture(t, { now: () => now });
+  const result = await f.service.prepare({ resultUrls: [f.source], context });
+  await f.service.drain();
+  const args = assetArgs(result.resultUrls[0]);
+  const file = await f.service.resolveAsset(args);
+  now = started + 4.5 * 60 * 60 * 1000;
+  assert.deepEqual(await fs.readFile(await f.service.resolveAsset(args)), f.buffer);
+  now = started + 5 * 60 * 60 * 1000;
+  await assert.rejects(f.service.resolveAsset(args), error => error.status === 410);
+  now += 60 * 1000;
+  await f.service.cleanup();
+  await assert.rejects(fs.access(file));
+});
+
+test('asset links and physical cleanup obey the configured job retention', async t => {
+  const previous = process.env.IMAGE_JOB_RETENTION_MS;
+  process.env.IMAGE_JOB_RETENTION_MS = String(60 * 60 * 1000);
+  t.after(() => { if (previous === undefined) delete process.env.IMAGE_JOB_RETENTION_MS; else process.env.IMAGE_JOB_RETENTION_MS = previous; });
+  let now = Date.now();
+  const f = await fixture(t, { now: () => now });
+  const result = await f.service.prepare({ resultUrls: [f.source], context });
+  await f.service.drain();
+  const args = assetArgs(result.resultUrls[0]);
+  const file = await f.service.resolveAsset(args);
+  now += 60 * 60 * 1000 + 60 * 1000;
+  await assert.rejects(f.service.resolveAsset(args), error => error.status === 410);
+  await f.service.cleanup();
+  await assert.rejects(fs.access(file));
+});
+
 test('malformed images and private remote addresses are not cached as valid results', async t => {
   const f = await fixture(t);
   await assert.rejects(f.service.prepare({ resultUrls: ['data:image/png;base64,bm90LWltYWdl'], context }));

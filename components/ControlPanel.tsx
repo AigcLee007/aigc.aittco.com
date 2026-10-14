@@ -9,6 +9,7 @@ import { generateVideo } from '../services/videoService';
 import { checkBalance } from '../services/geminiService';
 import { assetStorage } from '../src/services/assetStorage';
 import { AssetImage } from '../src/components/AssetImage';
+import { ImageRetentionNotice } from '../src/components/ImageRetentionNotice';
 import { fetchPromptToolConfig, optimizePrompt, PromptOption } from '../services/promptService';
 import { useHistoryStore } from '../src/store/historyStore';
 import { Wand2, Loader2, ImagePlus, X, Upload, Plus, Move, Sparkles, Minus, Maximize2, ChevronLeft, ChevronRight, Check, Clapperboard, Film, HelpCircle, LayoutGrid, MonitorPlay, Zap, Pin, PinOff, Eraser, Trash2, ShieldCheck } from 'lucide-react';
@@ -2319,6 +2320,7 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
               )}
             </button>
             {/* Removed Exit Edit Mode button as Edit Mode is disabled */}
+            {!isVideoMode && <ImageRetentionNotice />}
           </form>
           </>
           )}

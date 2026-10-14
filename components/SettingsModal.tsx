@@ -1,4 +1,5 @@
 import { AssetImage } from '../src/components/AssetImage';
+import { ImageRetentionNotice } from '../src/components/ImageRetentionNotice';
 import { assetActionSource } from '../src/services/imageAssetActions';
 import { readOriginalBlob } from '../src/services/imageAssetCache';
 ﻿import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
@@ -799,6 +800,8 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
                   视频历史
                 </button>
               </div>
+
+              {historyMediaType === 'image' && <ImageRetentionNotice />}
 
               {filteredLogs.length > 0 && (
                 <div className="flex justify-between items-center px-1">
