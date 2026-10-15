@@ -53,6 +53,11 @@ const isUsableResultUrl = (value = "") => {
 const normalizeImageResultValue = (value = "") => {
   const trimmed = unwrapMiswrappedImageUrl(value);
   if (!trimmed) return "";
+  const inline = trimmed.match(/^data:image\/[^;,]+;base64,([\s\S]+)$/i);
+  const bytes = (inline ? inline[1] : trimmed).replace(/\s+/g, "");
+  const format = bytes.startsWith("/9j/") ? "jpeg" : bytes.startsWith("UklGR") ? "webp"
+    : bytes.startsWith("R0lGOD") ? "gif" : bytes.startsWith("iVBOR") ? "png" : null;
+  if (format && /^[A-Za-z0-9+/]+={0,2}$/.test(bytes)) return `data:image/${format};base64,${bytes}`;
   if (isUsableResultUrl(trimmed)) return trimmed;
   return `data:image/png;base64,${trimmed}`;
 };

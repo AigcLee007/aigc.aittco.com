@@ -81,8 +81,13 @@ export const useGlobalPolling = (
           const matches = state.nodes.filter(node => node.type === 'IMAGE' && (node.generationOwnerId === owner || (!node.generationOwnerId && node.loading && liveIds.includes(node.id))) && (node.clientRequestId === requestId || node.taskId === taskId || liveIds.includes(node.id)));
           for (const node of matches) {
             if (node.loading || node.generationConnectionStatus === 'recovering' || node.generationConnectionStatus === 'unconfirmed' || (node.generationConnectionStatus === 'result-unavailable' && job.images?.length)) state.updateNode(node.id, { taskId, loading: true, error: false }, true);
-            // Saving a remote result runs after generation; upgrade the URL without a second download/log.
-            if (!node.loading && !node.error && node.src && (!node.generationResultSrc || node.src === node.generationResultSrc) && ['succeeded', 'success'].includes(String(job.status).toLowerCase())) {
+            // Persistence removes oversized/malformed sources. Recover only the
+            // original result identity; an edited local image keeps its own asset.
+            const originalAssetId = imageResultStore.resultId(owner, taskId, node.generationResultIndex || 0);
+            const displaysOriginal = node.src ? !node.generationResultSrc || node.src === node.generationResultSrc
+              : !node.assetId || node.assetId === originalAssetId;
+            // Upgrade the URL without a second download/log.
+            if (!node.loading && !node.error && displaysOriginal && ['succeeded', 'success'].includes(String(job.status).toLowerCase())) {
               const urls = job.results || job.images || job.data?.map((item: any) => item.url) || [];
               const siblings = matches.filter(item => !item.loading && !item.error);
               const resolvedSlot = node.generationResultIndex ?? (String(job.model || '').toLowerCase().startsWith('grok') && siblings.length === 1

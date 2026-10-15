@@ -12,7 +12,8 @@ import {
   DEFAULT_ERROR_MESSAGE,
   extractErrorMessage,
 } from '../src/utils/errorDebug';
-import { unwrapMiswrappedImageUrl } from '../src/utils/mediaProxy';
+import { normalizeImageResultValue, unwrapMiswrappedImageUrl } from '../src/utils/mediaProxy';
+export { normalizeImageResultValue } from '../src/utils/mediaProxy';
 import { submitImageJob, queryImageJob } from '../src/services/imageJobClient';
 
 const API_BASE_URL =
@@ -135,14 +136,6 @@ export interface TaskStatusResponse {
 const isUsableResultUrl = (value: unknown): value is string => {
   if (typeof value !== 'string') return false;
   return value.startsWith('http') || value.startsWith('data:') || value.startsWith('/');
-};
-
-export const normalizeImageResultValue = (value: unknown): string | null => {
-  if (typeof value !== 'string') return null;
-  const trimmed = unwrapMiswrappedImageUrl(value);
-  if (!trimmed) return null;
-  if (isUsableResultUrl(trimmed)) return trimmed;
-  return `data:image/png;base64,${trimmed}`;
 };
 
 export function findAllUrlsInObject(obj: any, results: string[] = []) {

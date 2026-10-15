@@ -546,6 +546,12 @@ const normalizeImageResultValue = (value) => {
   if (typeof value !== "string") return "";
   const trimmed = unwrapMiswrappedImageUrl(value);
   if (!trimmed) return "";
+  // JPEG bytes begin with /9j/: normalize bytes before accepting relative URLs.
+  const inline = trimmed.match(/^data:image\/[^;,]+;base64,([\s\S]+)$/i);
+  const bytes = (inline ? inline[1] : trimmed).replace(/\s+/g, "");
+  if (/^(\/9j\/|iVBOR|R0lGOD|UklGR)/.test(bytes) && /^[A-Za-z0-9+/]+={0,2}$/.test(bytes)) {
+    return `data:${guessDataUriMimeType(bytes)};base64,${bytes}`;
+  }
   if (isUsableResultUrl(trimmed)) return trimmed;
   return `data:image/png;base64,${trimmed}`;
 };
@@ -1109,7 +1115,7 @@ const collectResultUrls = (value, bucket = []) => {
   if (!value) return bucket;
 
   if (typeof value === "string") {
-    const trimmed = unwrapMiswrappedImageUrl(value);
+    const trimmed = /^data:image\//i.test(value) ? normalizeImageResultValue(value) : unwrapMiswrappedImageUrl(value);
     if (isUsableResultUrl(trimmed)) {
       bucket.push(trimmed);
     }
