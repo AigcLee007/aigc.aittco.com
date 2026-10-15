@@ -5,6 +5,7 @@ export interface ImageResultIdentity { ownerId: string; jobId: string; outputInd
 export interface ImageResultInput extends ImageResultIdentity {
   originalUrl?: string; previewUrl?: string; createdAt?: number;
   cloudExpiresAt?: number; cloudBacked?: boolean; storageStatus?: string;
+  legacyClassicId?: string;
 }
 export interface ImageResultInfo extends ImageResultInput {
   id: string; outputIndex: number; createdAt: number; updatedAt: number;
@@ -22,6 +23,7 @@ export interface ImageResultStore {
   putPreview(id: string, blob: Blob, metadata?: Partial<ImageResultInfo>): Promise<ImageResultState>;
   getState(id: string): Promise<ImageResultState>;
   adoptLegacy(id: string, legacyAssetId: string, confirmedOwnerId: string): Promise<boolean>;
+  linkLegacySource(id: string, confirmedOwnerId: string): Promise<void>;
   claimDownload(id: string, claimant?: string): Promise<string | null>;
   markDownloadStarted(id: string, token: string): Promise<boolean>;
   pin(id: string): () => void;
@@ -29,6 +31,6 @@ export interface ImageResultStore {
   setAutoDownloadPreference(enabled: boolean): void;
   close(): void;
 }
-type ResultStoreFactory = ImageResultStore & { createStore(options?: { budgetBytes?: number; timeoutMs?: number; indexedDB?: IDBFactory }): ImageResultStore };
+type ResultStoreFactory = ImageResultStore & { createStore(options?: { budgetBytes?: number; previewBudgetBytes?: number; timeoutMs?: number; indexedDB?: IDBFactory }): ImageResultStore };
 export const imageResultStore = (globalThis as unknown as { ImageResultStore: ResultStoreFactory }).ImageResultStore;
 export const createImageResultStore = imageResultStore.createStore;

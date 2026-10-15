@@ -1,4 +1,4 @@
-import { get, keys, setMany, delMany } from 'idb-keyval';
+import { get, keys, setMany, update, createStore, promisifyRequest } from 'idb-keyval';
 import { v4 as uuidv4 } from 'uuid';
 import { createPreview, PREVIEW_VERSION } from './imagePreview';
 import { bounded, ImageAssetError } from './imageAssetTypes';
@@ -7,6 +7,7 @@ import { imageResultStore } from './imageResultStore';
 
 export interface AssetMeta { createdAt: number; width?: number; height?: number; bytes: number; mime: string; previewVersion?: number; previewBytes?: number; sharedResult?: boolean }
 const previews = new Map<string, Promise<Blob>>();
+const withAssetStore = createStore('keyval-store', 'keyval');
 const pins = new Map<string, number>();
 export const pinAsset = (id: string): (() => void) => {
   const releaseShared = id.startsWith('result:v1:') ? imageResultStore.pin(id) : () => {};
@@ -40,9 +41,14 @@ export const assetStorage = {
       const preview=await createPreview(original);
       try {
         if (id.startsWith('result:v1:')) await imageResultStore.putPreview(id,preview.blob,{width:preview.width,height:preview.height,previewVersion:PREVIEW_VERSION});
-        else await bounded(setMany([[`asset-preview-${id}`,preview.blob],[`asset-meta-${id}`,{
-          createdAt:meta?.createdAt || Date.now(),bytes:original.size,mime:original.type,width:preview.width,height:preview.height,previewVersion:PREVIEW_VERSION,previewBytes:preview.blob.size
-        } satisfies AssetMeta]]));
+        else {
+          await bounded(setMany([[`asset-preview-${id}`,preview.blob]]));
+          // Merge at commit: another tab may link this legacy source while its
+          // preview is decoding. A stale metadata snapshot could drop protection.
+          await bounded(update<AssetMeta>(`asset-meta-${id}`, current => ({
+            ...current,createdAt:current?.createdAt || meta?.createdAt || Date.now(),bytes:original.size,mime:original.type,width:preview.width,height:preview.height,previewVersion:PREVIEW_VERSION,previewBytes:preview.blob.size
+          })));
+        }
       } catch { /* A full local cache must not discard a usable small preview. */ }
       return preview.blob;
       }finally{releasePreparation();}
@@ -50,10 +56,22 @@ export const assetStorage = {
     previews.set(id,work);
     try { return await work; } finally { previews.delete(id); unpin(); }
   },
-  async deleteBlob(id: string): Promise<void> {
+  async deleteBlob(id: string): Promise<boolean> {
     // Shared results may still be used by classic or another canvas. Their byte
     // budget owns eviction, independently of this canvas's node references.
-    if (!pins.has(id) && !id.startsWith('result:v1:')) await delMany([`asset-${id}`,`asset-preview-${id}`,`asset-meta-${id}`]);
+    if (pins.has(id) || id.startsWith('result:v1:')) return false;
+    let deleted = false;
+    await bounded(withAssetStore('readwrite', store => {
+      const committed = promisifyRequest(store.transaction);
+      const request = store.get(`asset-meta-${id}`);
+      request.onsuccess = () => {
+        if (pins.has(id) || request.result?.sharedResult) return;
+        [`asset-${id}`,`asset-preview-${id}`,`asset-meta-${id}`].forEach(key => store.delete(key));
+        deleted = true;
+      };
+      return committed;
+    }));
+    return deleted;
   },
   async cleanupUnusedAssets(activeIds: Iterable<string>, currentReferences?: () => Iterable<string>): Promise<{removed:number;kept:number}> {
     const active=new Set([...activeIds,...pins.keys()]); let removed=0,kept=0;
@@ -62,7 +80,7 @@ export const assetStorage = {
       const id=key.slice(6), meta=await this.getMeta(id);
       // Unknown legacy assets remain recoverable; do not guess their ownership.
       if (id.startsWith('result:v1:') || meta?.sharedResult || active.has(id) || pins.has(id) || !meta || Date.now()-meta.createdAt < 7*86400000 || (currentReferences && new Set(currentReferences()).has(id))) { kept++; continue; }
-      await this.deleteBlob(id); removed++;
+      if (await this.deleteBlob(id)) removed++; else kept++;
     }
     return {removed,kept};
   },

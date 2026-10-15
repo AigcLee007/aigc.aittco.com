@@ -109,6 +109,14 @@ test('site URL and late preview replace same output without changing immutable t
   assert.equal((await h.readHistoryRecordsFromDB({ allOwners: true })).length, 2, 'ownerless legacy bytes remain associated only explicitly');
 });
 
+test('normalizing an owned pre-upgrade history row retains its original cache key', () => {
+  const h = historyHarness();
+  const row = h.normalizeHistoryRecord({ id: 'old-owned-row', ownerId: 'owner-a', jobId: 'job-a', fullUrl: '/a.png' });
+  assert.equal(row.id, 'result:owner-a:job-a:0');
+  assert.equal(row.legacyId, 'old-owned-row');
+  assert.equal(h.normalizeHistoryRecord(row).legacyId, 'old-owned-row');
+});
+
 function keyedHistoryHarness() {
   const dom = new JSDOM('<div id="historyGrid"></div>');
   const binds = [], released = [];
@@ -121,6 +129,31 @@ function keyedHistoryHarness() {
   vm.runInContext(between('function renderClassicHistoryRecords(', 'async function loadHistory('), h);
   return { h, dom, binds, released };
 }
+
+test('cold gallery binding registers legacy identity before the first image read', async () => {
+  const dom = new JSDOM('<img id="test">');
+  let finish;
+  const registered = new Promise(resolve => { finish = resolve; });
+  const bindings = new Map(), calls = [];
+  Object.assign(dom.window, { classicImageJobOwner: 'owner-a', ClassicResultAssets: { registerResult: record => { calls.push(['register', record.legacyId]); return registered; } } });
+  const scope = { window: dom.window, document: dom.window.document, classicImageBindings: bindings,
+    classicImageBinder: { bind: (img, input) => calls.push(['bind', input.id]) },
+    registerClassicImageAsset() {}, getClassicImageReader() {}, setClassicImageState() {}, console,
+  };
+  vm.createContext(scope);
+  vm.runInContext(between('function bindClassicPreviewImage(', 'function releaseClassicImageTree('), scope);
+  const img = dom.window.document.getElementById('test');
+  scope.bindClassicPreviewImage(img, { id: 'stable', src: '/expired', record: { ownerId: 'owner-a', jobId: 'job', legacyId: 'old' } });
+  assert.deepEqual(calls, [['register', 'old']]);
+  finish(); await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(calls, [['register', 'old'], ['bind', 'stable']]);
+  calls.length = 0;
+  scope.bindClassicPreviewImage(img, { id: 'stale', record: { ownerId: 'owner-a' } });
+  dom.window.classicImageJobOwner = 'owner-b';
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(calls.some(call => call[0] === 'bind'), false);
+  dom.window.close();
+});
 
 test('gallery merge leaves unchanged cards and previews connected while patching a late preview', () => {
   const { h, dom, binds } = keyedHistoryHarness();

@@ -107,4 +107,75 @@ describe('shared result storage',()=>{
     await small.putPreview(id,preview());
     expect(await small.getState(id)).toMatchObject({originalCached:false,previewCached:true,cacheError:'QUOTA'});small.close();
   });
+  it('does not charge unrelated legacy canvas originals against the managed result budget',async()=>{
+    await set('asset-legacy-canvas',original());
+    await set('asset-meta-legacy-canvas',{bytes:4096,previewBytes:1024,createdAt:1});
+    const small=createImageResultStore({budgetBytes:12});
+    try {
+      const {id}=await small.register({ownerId:'a',jobId:'new-classic'});
+      await small.putOriginal(id,original());
+      expect((await small.getState(id)).originalCached).toBe(true);
+      expect(await get('asset-legacy-canvas')).toBeTruthy();
+      expect(await get('asset-meta-legacy-canvas')).toEqual({bytes:4096,previewBytes:1024,createdAt:1});
+    } finally {small.close();}
+  });
+  it('keeps space for previews when protected originals fill their budget',async()=>{
+    const small=createImageResultStore({budgetBytes:12});
+    try {
+      const old=await small.register({ownerId:'a',jobId:'protected',cloudExpiresAt:Date.now()-1});
+      await small.putOriginal(old.id,original());
+      const next=await small.register({ownerId:'a',jobId:'preview-reserve'});
+      await expect(small.putOriginal(next.id,original())).rejects.toThrow();
+      await small.putPreview(next.id,preview(),{previewVersion:1});
+      expect(await small.getState(next.id)).toMatchObject({originalCached:false,previewCached:true});
+      expect(await small.getOriginal(old.id)).toBeTruthy();
+    } finally {small.close();}
+  });
+  it('links only a confirmed exact canvas source without reading or duplicating blobs',async()=>{
+    await set('asset-canvas-source',original());await set('asset-preview-canvas-source',preview());
+    await set('asset-meta-canvas-source',{bytes:8,previewBytes:7,previewVersion:1,width:3840,height:2160});
+    await set('asset-source-/provider','canvas-source');
+    const {id}=await store.register({ownerId:'a',jobId:'linked',originalUrl:'/provider'});
+    await expect(store.linkLegacySource(id,'b')).rejects.toThrow(/ownership/);
+    expect(await store.getOriginal(id)).toBeUndefined();
+    const reads=vi.spyOn(IDBObjectStore.prototype,'get');
+    await store.linkLegacySource(id,'a');
+    expect(await store.getState(id)).toMatchObject({originalCached:true,previewCached:true,width:3840,height:2160});
+    expect(reads.mock.calls.some(([key])=>key==='asset-canvas-source' || key==='asset-preview-canvas-source')).toBe(false);
+    reads.mockRestore();
+    expect(await get(`asset-${id}`)).toBeUndefined();
+    expect(await get('asset-meta-canvas-source')).toMatchObject({sharedResult:true,bytes:8});
+    await store.register({ownerId:'a',jobId:'linked',originalUrl:'/site'});
+    const reloaded=createImageResultStore();
+    expect(await (await reloaded.getOriginal(id))?.text()).toBe('original');
+    expect(await (await reloaded.getPreview(id))?.text()).toBe('preview');reloaded.close();
+    const unrelated=await store.register({ownerId:'b',jobId:'linked',originalUrl:'/different'});
+    await store.linkLegacySource(unrelated.id,'b');
+    expect(await store.getOriginal(unrelated.id)).toBeUndefined();
+    await set('asset-source-/foreign',id);
+    const foreign=await store.register({ownerId:'b',jobId:'foreign',originalUrl:'/foreign'});
+    await store.linkLegacySource(foreign.id,'b');
+    expect(await store.getOriginal(foreign.id)).toBeUndefined();
+  });
+  it('evicts only the over-budget variant while keeping the other copy usable',async()=>{
+    const small=createImageResultStore({budgetBytes:8,previewBudgetBytes:7});
+    try {
+      const safe=await small.register({ownerId:'a',jobId:'variants',cloudBacked:true,cloudExpiresAt:Date.now()+3600000});
+      await small.putOriginal(safe.id,original());await small.putPreview(safe.id,preview());
+      const next=await small.register({ownerId:'a',jobId:'next-variant'});
+      await small.putOriginal(next.id,original());
+      expect(await small.getState(safe.id)).toMatchObject({originalCached:false,previewCached:true});
+      expect(await get(`asset-meta-${safe.id}`)).toMatchObject({bytes:0,previewBytes:7});
+      await small.putPreview(next.id,preview());
+      expect(await small.getState(next.id)).toMatchObject({originalCached:true,previewCached:true});
+      expect(await small.getState(safe.id)).toMatchObject({originalCached:false,previewCached:false});
+    } finally {small.close();}
+  });
+  it('does not retain a stale canvas source alias whose local bytes were removed',async()=>{
+    await set('asset-source-/deleted-legacy','deleted-legacy');
+    await set('asset-meta-deleted-legacy',{bytes:8,previewVersion:1});
+    const {id}=await store.register({ownerId:'a',jobId:'stale-alias',originalUrl:'/deleted-legacy'});
+    await store.linkLegacySource(id,'a');
+    expect(await store.getState(id)).not.toHaveProperty('legacySourceAssetId');
+  });
 });

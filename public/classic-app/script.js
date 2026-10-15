@@ -335,6 +335,22 @@ async function writeClassicImageCache(store, id, data) {
   } finally { db.close(); }
 }
 
+async function getClassicImageCacheState(id) {
+  const db = await openHistoryCacheDB();
+  try {
+    return await new Promise((resolve, reject) => {
+      const tx = db.transaction([HISTORY_CACHE_STORE, HISTORY_PREVIEW_STORE], "readonly");
+      const state = { originalCached: false, previewCached: false };
+      [[HISTORY_CACHE_STORE, 'originalCached'], [HISTORY_PREVIEW_STORE, 'previewCached']].forEach(([name, field]) => {
+        const request = tx.objectStore(name).getKey(id);
+        request.onsuccess = () => { state[field] = request.result !== undefined; };
+      });
+      tx.oncomplete = () => resolve(state);
+      tx.onabort = tx.onerror = () => reject(tx.error || new Error("图片缓存暂不可读"));
+    });
+  } finally { db.close(); }
+}
+
 async function fetchClassicImageBlob(src, signal) {
   const controller = new AbortController();
   const abort = () => controller.abort();
@@ -432,7 +448,16 @@ function bindClassicPreviewImage(img, input) {
   registerClassicImageAsset(input);
   if (!classicImageBinder) classicImageBinder = window.ClassicImageRuntime.createImageBinder({ reader: getClassicImageReader(), onState: setClassicImageState });
   classicImageBindings.set(img, input);
-  classicImageBinder.bind(img, input);
+  const owner = String(window.classicImageJobOwner || '');
+  const bind = () => {
+    if (img.isConnected && classicImageBindings.get(img) === input && owner === String(window.classicImageJobOwner || '')) classicImageBinder.bind(img, input);
+  };
+  if (input.record && window.ClassicResultAssets) {
+    // Cold local history can paint before the server responds. Establish its
+    // cache identity first so an expired URL cannot mask existing legacy bytes.
+    void window.ClassicResultAssets.registerResult(input.record)
+      .catch(error => console.warn('Result metadata recovery failed:', error)).then(bind);
+  } else bind();
 }
 
 function releaseClassicImageTree(root) {
@@ -576,7 +601,7 @@ function normalizeHistoryRecord(item = {}) {
   return {
     id: assetId || String(item.id || genHistoryId()),
     ownerId, jobId, outputIndex, assetId,
-    legacyId: String(item.legacyId || ""),
+    legacyId: String(item.legacyId || (assetId && item.id && item.id !== assetId ? item.id : "")),
     storageStatus: String(item.storageStatus || ""),
     cloudExpiresAt: Number(item.cloudExpiresAt || 0),
     autoDownloadEligible: item.autoDownloadEligible === true,
@@ -954,7 +979,7 @@ function patchClassicLiveMedia(card, task, selector = ".classic-live-media") {
     const imageKey = JSON.stringify([task.assetId || task.id, full, preview]);
     if (img.dataset.inputKey !== imageKey) {
       img.dataset.inputKey = imageKey;
-      bindClassicPreviewImage(img, { id: task.assetId || task.id, src: full, previewSrc: preview });
+      bindClassicPreviewImage(img, { id: task.assetId || task.id, src: full, previewSrc: preview, record: { ...task, fullUrl: full } });
     }
   } else {
     const img = media.querySelector("img"); if (img) { releaseClassicImageTree(media); img.remove(); }
@@ -4490,6 +4515,7 @@ function renderClassicHistoryRecords(records = [], options = {}) {
     const image = card.querySelector("img");
     const input = { id: record.assetId || record.legacyId || record.id, src: record.fullUrl, previewSrc: record.previewUrl };
     const signature = JSON.stringify(input);
+    input.record = record;
     if (card.dataset.imageInput !== signature) {
       if (card.dataset.imageInput) releaseClassicImageTree(card);
       card.dataset.imageInput = signature;

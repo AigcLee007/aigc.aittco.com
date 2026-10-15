@@ -27,19 +27,31 @@
     current(expected);
     return info?.ownerId === expected ? info : null;
   }
-  async function adoptClassic(info, legacyId) {
-    if (!info || !legacyId || legacyId === info.id) return;
-    return originals.run(async () => {
-      current(info.ownerId);
-      const old = await root.readClassicImageCache?.('images', legacyId).catch(() => null);
-      current(info.ownerId);
-      if (usable(old?.blob) && !await store.getOriginal(info.id)) await store.putOriginal(info.id, old.blob);
-      current(info.ownerId);
-      const preview = await root.readClassicImageCache?.('previews', legacyId).catch(() => null);
-      current(info.ownerId);
-      if (usable(preview?.blob) && !await store.getPreview(info.id)) await store.putPreview(info.id, preview.blob, { previewVersion: 1 });
-      current(info.ownerId);
-    });
+  async function localOriginal(info) {
+    const shared = await store.getOriginal(info.id).catch(() => null); current(info.ownerId);
+    if (usable(shared)) return shared;
+    const old = await root.readClassicImageCache?.('images', info.legacyClassicId || info.id).catch(() => null);
+    current(info.ownerId);
+    return usable(old?.blob) ? old.blob : null;
+  }
+  async function localPreview(info) {
+    const shared = await store.getPreview(info.id).catch(() => null); current(info.ownerId);
+    if (usable(shared)) return { blob: shared, version: 1, width: info.width, height: info.height };
+    const old = await root.readClassicImageCache?.('previews', info.legacyClassicId || info.id).catch(() => null);
+    current(info.ownerId);
+    return usable(old?.blob) ? old : null;
+  }
+  async function cacheState(info) {
+    const state = await store.getState(info.id); current(info.ownerId);
+    // Badges query keys only; never clone every full-resolution Blob to count
+    // cache availability. Legacy bytes remain in their original database.
+    const old = await root.getClassicImageCacheState?.(info.legacyClassicId || info.id).catch(() => null);
+    current(info.ownerId);
+    if (old?.originalCached) state.originalCached = true;
+    if (old?.previewCached) state.previewCached = true;
+    if (state.originalCached && state.previewCached) state.cacheError = null;
+    else if (state.originalCached && !state.previewCacheError) state.cacheError = null;
+    return state;
   }
   async function ensureOriginal(info, signal) {
     current(info.ownerId);
@@ -48,7 +60,7 @@
       current(info.ownerId);
       const unpin = store.pin(info.id);
       try {
-        const local = await store.getOriginal(info.id).catch(error => {
+        const local = await localOriginal(info).catch(error => {
           root.console?.warn('本浏览器缓存暂不可读，尝试云端原图', error); return null;
         });
         current(info.ownerId);
@@ -93,12 +105,13 @@
     const expected = owner();
     const info = await infoFor(id, card.dataset.fullUrl).catch(() => null);
     let state = details;
-    if (info) state = await store.getState(info.id).catch(() => details || { cacheError: 'CACHE_UNAVAILABLE' });
+    if (info) state = await cacheState(info).catch(() => details || { cacheError: 'CACHE_UNAVAILABLE' });
     if (!card.isConnected || expected !== owner()) return;
     const badge = card.querySelector('.history-cache-badge'); if (!badge) return;
     const cacheError = state?.cacheError;
     let label = state?.originalCached ? '原图已缓存（本浏览器）' : state?.previewCached ? '仅预览已缓存，请下载原图' : '云端暂存 · 请尽快下载';
-    if (!state?.originalCached && info?.cloudExpiresAt && info.cloudExpiresAt <= Date.now()) label = '原图已过期 · 从本地文件恢复';
+    if (!state?.originalCached && info?.cloudExpiresAt && info.cloudExpiresAt <= Date.now()) label = state?.previewCached
+      ? '仅预览已缓存 · 云端原图已过期，可从本地文件恢复' : '云端原图已过期 · 从本地文件恢复';
     if (cacheError) label += cacheError === 'QUOTA' || cacheError.name === 'QuotaExceededError' ? ' · 缓存空间不足' : ' · 缓存暂不可读';
     if (state?.downloadState === 'started') label += ' · 已发起下载';
     if (state?.downloadState === 'claimed') label += ' · 请核对下载记录，可手动下载';
@@ -151,10 +164,12 @@
       cloudExpiresAt: time(record.cloudExpiresAt) || undefined,
       cloudBacked: Boolean(record.cloudExpiresAt),
       storageStatus: record.storageStatus || '',
+      legacyClassicId: record.legacyId || '',
     });
     current(expected);
-    if (record.legacyId) await adoptClassic(info, record.legacyId);
-    return info;
+    await store.linkLegacySource(info.id, expected);
+    current(expected);
+    return store.getState(info.id);
   }
   async function cacheResult(record) {
     const info = await registerResult(record);
@@ -170,8 +185,26 @@
         try { await downloadResult(info, record.prompt, false, blob); }
         catch (error) { root.console?.warn('自动下载未发起，请手动下载原图', error); }
       }
+      try {
+        if (!(await cacheState(latest)).previewCached) {
+          const prepared = await decoders.run(async () => {
+            current(expected);
+            if (latest.previewUrl && latest.previewUrl !== latest.originalUrl) {
+              try {
+                const source = await fetchBlob(latest.previewUrl); current(expected);
+                const preview = await runtime.makeBrowserPreview(source); current(expected);
+                return { preview, metadata: { previewVersion: 1 } };
+              } catch (error) { current(expected); root.console?.warn('服务端预览暂不可读，使用原图制作预览', error); }
+            }
+            return { preview: await runtime.makeBrowserPreview(blob), metadata: null };
+          });
+          current(expected);
+          await store.putPreview(id, prepared.preview.blob, prepared.metadata || previewMeta(prepared.preview));
+        }
+      } catch (error) { root.console?.warn('原图可读取，预览缓存未保存', error); }
+      current(expected);
       refreshCards(info.id);
-      return store.getState(info.id);
+      return cacheState(info);
     });
     caching.set(id, work);
     try { return await work; } finally { if (caching.get(id) === work) caching.delete(id); }
@@ -214,7 +247,7 @@
         const info = await infoFor(id, src);
         current(expected);
         if (info) {
-          const blob = await store.getOriginal(info.id); current(info.ownerId); if (blob) return blob;
+          return localOriginal(info);
         }
         const old = await root.readClassicImageCache?.('images', id).catch(() => null);
         current(expected);
@@ -224,8 +257,7 @@
         const expected = owner();
         const info = await infoFor(id);
         if (info) {
-          const blob = await store.getPreview(info.id);
-          if (blob) { const state = await store.getState(info.id); current(expected); return { blob, version: 1, width: state.width, height: state.height }; }
+          return localPreview(info);
         }
         const old = await root.readClassicImageCache?.('previews', id); current(expected); return old;
       },
@@ -242,7 +274,7 @@
         else throw new Error('图片尚未登记，预览缓存等待恢复');
       },
       getCacheState: async id => {
-        const info = await infoFor(id); return info ? store.getState(info.id) : null;
+        const info = await infoFor(id); return info ? cacheState(info) : null;
       },
       fetchBlob: async (src, signal) => {
         const expected = owner();
@@ -265,7 +297,7 @@
   async function showReadError(img, id, details) {
     const expected = owner();
     const info = await infoFor(id, bindings().get(img)?.src).catch(() => null);
-    const state = info ? await store.getState(info.id).catch(() => null) : details;
+    const state = info ? await cacheState(info).catch(() => null) : details;
     if (!img.isConnected || expected !== owner()) return;
     const message = img.parentElement.querySelector(':scope > .classic-image-status');
     if (!message || !message.firstChild || message.firstChild.nodeType !== 3) return;

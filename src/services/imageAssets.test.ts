@@ -5,7 +5,7 @@ import { clear, get, keys, set } from 'idb-keyval';
 import { act, renderHook } from '@testing-library/react';
 import { assetStorage } from './assetStorage';
 import { acquireImageAsset, cacheImageSource, readOriginalBlob, resetImageAssetCache } from './imageAssetCache';
-import { imageResultStore } from './imageResultStore';
+import { imageResultStore, createImageResultStore } from './imageResultStore';
 import { useGenerationLogic } from '../hooks/useGenerationLogic';
 import { useCanvasStore } from '../store/canvasStore';
 vi.mock('./imageJobClient',()=>({getImageJobOwner:vi.fn(async()=> 'owner-completion')}));
@@ -30,6 +30,63 @@ beforeEach(async () => {
 afterEach(() => { resetImageAssetCache(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 describe('image asset recovery and lifecycle', () => {
+  it('canvas can read a retained preview offline after only its cloud-backed original is evicted',async()=>{
+    const small=createImageResultStore({budgetBytes:14});
+    try {
+      const old=await small.register({ownerId:'a',jobId:'eviction-preview',cloudBacked:true,cloudExpiresAt:Date.now()+3600000});
+      await small.putOriginal(old.id,png());
+      await small.putPreview(old.id,new Blob(['retained preview'],{type:'image/webp'}),{previewVersion:1,width:3840,height:2160});
+      const next=await small.register({ownerId:'a',jobId:'eviction-next'});
+      await small.putOriginal(next.id,png());
+      expect(await small.getState(old.id)).toMatchObject({originalCached:false,previewCached:true});
+      vi.mocked(fetch).mockRejectedValue(new Error('offline'));
+      expect(await (await assetStorage.ensurePreview(old.id)).text()).toBe('retained preview');
+      expect(createImageBitmap).not.toHaveBeenCalled();expect(fetch).not.toHaveBeenCalled();
+    } finally {small.close();}
+  });
+  it('keeps linked legacy originals after canvas preview creation and unused-asset cleanup',async()=>{
+    const legacy='old-linked-source';
+    await set(`asset-${legacy}`,png());
+    await set(`asset-meta-${legacy}`,{bytes:14,mime:'image/png',createdAt:Date.now()-8*86400000});
+    await set('asset-source-/old-owned-source',legacy);
+    const info=await imageResultStore.register({ownerId:'a',jobId:'legacy-link',originalUrl:'/old-owned-source'});
+    await imageResultStore.linkLegacySource(info.id,'a');
+    await assetStorage.ensurePreview(legacy);
+    expect(await assetStorage.getMeta(legacy)).toMatchObject({sharedResult:true,previewVersion:1});
+    await assetStorage.deleteBlob(legacy);
+    expect(await imageResultStore.getOriginal(info.id)).toBeTruthy();
+    expect((await assetStorage.cleanupUnusedAssets([])).removed).toBe(0);
+    expect(await imageResultStore.getOriginal(info.id)).toBeTruthy();
+  });
+  it('retains a legacy source linked by another tab while its preview is being decoded',async()=>{
+    const legacy='linked-during-preview';
+    await set(`asset-${legacy}`,png());
+    await set(`asset-meta-${legacy}`,{bytes:14,mime:'image/png',createdAt:Date.now()-8*86400000});
+    await set('asset-source-/linked-during-preview',legacy);
+    let finish:()=>void=()=>{};const held=new Promise<void>(resolve=>{finish=resolve;});
+    vi.mocked(createImageBitmap).mockImplementation(async()=>{await held;return {width:3840,height:2160,close:vi.fn()} as any;});
+    const preparing=assetStorage.ensurePreview(legacy);
+    await vi.waitFor(()=>expect(createImageBitmap).toHaveBeenCalledTimes(1));
+    const info=await imageResultStore.register({ownerId:'a',jobId:'cross-tab-legacy',originalUrl:'/linked-during-preview'});
+    await imageResultStore.linkLegacySource(info.id,'a');
+    finish();await preparing;
+    expect(await assetStorage.getMeta(legacy)).toMatchObject({sharedResult:true,previewVersion:1});
+    await assetStorage.cleanupUnusedAssets([]);
+    expect(await imageResultStore.getOriginal(info.id)).toBeTruthy();
+  });
+  it('concurrent legacy deletion cannot erase an already committed shared link',async()=>{
+    for(let index=0;index<3;index++) {
+      const legacy=`delete-link-race-${index}`,url=`/delete-link-race-${index}`;
+      await set(`asset-${legacy}`,png());
+      await set(`asset-meta-${legacy}`,{bytes:14,mime:'image/png',createdAt:Date.now()-8*86400000});
+      await set(`asset-source-${url}`,legacy);
+      const info=await imageResultStore.register({ownerId:'a',jobId:legacy,originalUrl:url});
+      await Promise.all([assetStorage.deleteBlob(legacy),imageResultStore.linkLegacySource(info.id,'a')]);
+      const state=await imageResultStore.getState(info.id);
+      if((state as any).legacySourceAssetId) expect(await imageResultStore.getOriginal(info.id)).toBeTruthy();
+      else expect(state.originalCached).toBe(false);
+    }
+  });
   it('publishes the stable identity before display and completion share their original read',async()=>{
     const task={id:'completion-display',type:'IMAGE' as const,x:0,y:0,width:512,height:512,loading:true,src:'',generationOwnerId:'owner-completion',taskId:'job-completion'};
     useCanvasStore.setState({nodes:[task]});localStorage.setItem('auth-session-v1','completion-session');imageResultStore.setAutoDownloadPreference(false);

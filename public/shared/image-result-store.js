@@ -17,6 +17,7 @@
     const timeoutMs = options.timeoutMs || 15000;
     const mobile = /Android|iPhone|iPad|Mobile/i.test(root.navigator?.userAgent || '');
     const budgetBytes = options.budgetBytes ?? (mobile ? 128 : 384) * 1024 * 1024;
+    const previewBudgetBytes = options.previewBudgetBytes ?? (mobile ? 24 : 64) * 1024 * 1024;
     const errors = new Map(), pins = new Map();
     const tabId = makeToken();
     function open() {
@@ -67,7 +68,7 @@
             try {
               const previous = request.result || {};
               const info = { ...previous, id, ownerId: String(input.ownerId), jobId: String(input.jobId), outputIndex: Math.max(0, Math.floor(Number(input.outputIndex) || 0)), createdAt: previous.createdAt || input.createdAt || Date.now(), updatedAt: Date.now() };
-              for (const field of ['originalUrl','previewUrl','cloudExpiresAt','cloudBacked','storageStatus']) if (input[field] !== undefined && input[field] !== '') info[field] = input[field];
+              for (const field of ['originalUrl','previewUrl','cloudExpiresAt','cloudBacked','storageStatus','legacyClassicId']) if (input[field] !== undefined && input[field] !== '') info[field] = input[field];
               store.put(info, infoKey(id));
               for (const source of [input.originalUrl, input.previewUrl]) if (source && !/^(blob:|data:)/i.test(source)) store.put(id, sourceKey(info.ownerId, source));
               ctx.setResult(info);
@@ -76,12 +77,76 @@
         });
       },
       async find(ownerId, source) { const id = await read(sourceKey(ownerId, source)); return id ? read(infoKey(id)) : undefined; },
-      async getOriginal(id) { const value = await read(`asset-${id}`); return isBlob(value) ? value : undefined; },
-      async getPreview(id) { const value = await read(`asset-preview-${id}`); return isBlob(value) ? value : undefined; },
+      async getOriginal(id) {
+        const value = await read(`asset-${id}`); if (isBlob(value)) return value;
+        const info = await read(infoKey(id));
+        const legacy = info?.legacySourceAssetId ? await read(`asset-${info.legacySourceAssetId}`) : undefined;
+        return isBlob(legacy) ? legacy : undefined;
+      },
+      async getPreview(id) {
+        const value = await read(`asset-preview-${id}`); if (isBlob(value)) return value;
+        const info = await read(infoKey(id));
+        const legacy = info?.legacySourceAssetId ? await read(`asset-preview-${info.legacySourceAssetId}`) : undefined;
+        return isBlob(legacy) ? legacy : undefined;
+      },
+      // The authenticated record establishes the exact source URL. Link only
+      // that canvas alias, retaining its bytes without copying a second original.
+      async linkLegacySource(id, confirmedOwnerId) {
+        return transact('readwrite', (store, ctx) => {
+          const request = store.get(infoKey(id)); request.onsuccess = () => {
+            const info = request.result;
+            if (!info || !confirmedOwnerId || info.ownerId !== String(confirmedOwnerId)) { ctx.fail(new Error('Legacy ownership must be explicitly confirmed')); return; }
+            if (info.legacySourceAssetId || !info.originalUrl) return;
+            const alias = store.get(`asset-source-${info.originalUrl}`);
+            alias.onsuccess = () => {
+              const legacyId = alias.result;
+              // Stable shared IDs have their own owner; never treat them as an
+              // ownerless canvas UUID or create chains between result records.
+              if (typeof legacyId !== 'string' || !legacyId || legacyId.startsWith('result:')) return;
+              const metaRequest = store.get(`asset-meta-${legacyId}`);
+              metaRequest.onsuccess = () => {
+                const meta = metaRequest.result;
+                let left = 2, exists = false;
+                [`asset-${legacyId}`, `asset-preview-${legacyId}`].forEach(key => {
+                  const source = store.getKey(key); source.onsuccess = () => {
+                    exists ||= source.result !== undefined;
+                    if (--left || !exists) return;
+                    store.put({ ...info, legacySourceAssetId: legacyId,
+                      width: info.width || meta?.width, height: info.height || meta?.height,
+                      previewVersion: info.previewVersion || meta?.previewVersion,
+                    }, infoKey(id));
+                    // Check source existence and protect it in this transaction,
+                    // serialized with canvas cleanup in other tabs.
+                    store.put({ ...meta, sharedResult: true }, `asset-meta-${legacyId}`);
+                  };
+                });
+              };
+            };
+          };
+        });
+      },
       async getState(id) {
         return transact('readonly', (store, ctx) => {
           const values = {}, keys = [infoKey(id), `asset-${id}`, `asset-preview-${id}`]; let remaining = keys.length;
-          keys.forEach((key, index) => { const request = index === 0 ? store.get(key) : store.getKey(key); request.onsuccess = () => { values[index] = request.result; if (--remaining === 0) ctx.setResult({ ...(values[0] || { id }), originalCached: values[1] !== undefined && Number(values[0]?.originalBytes) > 0, previewCached: values[2] !== undefined && Number(values[0]?.previewBytes) > 0, cacheError: errors.get(id)?.original || errors.get(id)?.preview || values[0]?.originalCacheError || values[0]?.previewCacheError || values[0]?.cacheError || null, downloadState: values[0]?.download?.state || null }); }; });
+          function finish() {
+            const info = values[0] || { id };
+            const originalCached = values[1] !== undefined && Number(info.originalBytes) > 0 || values[3] !== undefined;
+            const previewCached = values[2] !== undefined && Number(info.previewBytes) > 0 || values[4] !== undefined && info.previewVersion === 1;
+            const originalCacheError = originalCached ? null : errors.get(id)?.original || info.originalCacheError || null;
+            const previewCacheError = previewCached ? null : errors.get(id)?.preview || info.previewCacheError || null;
+            ctx.setResult({ ...info, originalCached, previewCached, originalCacheError, previewCacheError,
+              cacheError: originalCacheError || previewCacheError || (!originalCached && !previewCached ? info.cacheError : null) || null,
+              downloadState: info.download?.state || null });
+          }
+          function finishPrimary() {
+            const legacyId = values[0]?.legacySourceAssetId;
+            if (!legacyId) { finish(); return; }
+            let left = 2;
+            [`asset-${legacyId}`, `asset-preview-${legacyId}`].forEach((key, index) => {
+              const request = store.getKey(key); request.onsuccess = () => { values[3 + index] = request.result; if (--left === 0) finish(); };
+            });
+          }
+          keys.forEach((key, index) => { const request = index === 0 ? store.get(key) : store.getKey(key); request.onsuccess = () => { values[index] = request.result; if (--remaining === 0) finishPrimary(); }; });
         });
       },
       async putOriginal(id, blob, meta = {}) { return putBlob(id, blob, false, meta); },
@@ -143,7 +208,7 @@
       if (!isBlob(blob)) throw new Error('Invalid image blob');
       try {
         await transact('readwrite', (store, ctx) => {
-          const infos = [], activePins = new Set(); let total = 0;
+          const infos = [], metas = new Map(), activePins = new Set(); let total = 0;
           let scansRemaining = 3;
           for (const prefix of ['result-info-', 'asset-meta-', 'result-pin-']) {
             // Prefix ranges exclude original/preview Blob values entirely.
@@ -152,8 +217,12 @@
               const item = cursor.result;
               if (item) {
                 if (prefix === 'result-info-') infos.push(item.value);
-                else if (prefix === 'asset-meta-') { const meta = item.value; total += Math.max(0, Number(meta.bytes) || 0) + Math.max(0, Number(meta.previewBytes) || 0); }
-                else { const pin = item.value; if (pin.expiresAt > Date.now()) activePins.add(pin.id); else store.delete(item.key); }
+                else if (prefix === 'asset-meta-' && String(item.key).startsWith('asset-meta-result:v1:')) {
+                  const meta = item.value;
+                  metas.set(item.key, meta);
+                  total += Math.max(0, Number(preview ? meta.previewBytes : meta.bytes) || 0);
+                }
+                else if (prefix === 'result-pin-') { const pin = item.value; if (pin.expiresAt > Date.now()) activePins.add(pin.id); else store.delete(item.key); }
                 item.continue(); return;
               }
               if (--scansRemaining === 0) commit();
@@ -163,13 +232,16 @@
             try {
               const info = infos.find(value => value.id === id); if (!requireInfo(info, ctx)) return;
               const priorBytes = preview ? info.previewBytes || 0 : info.originalBytes || 0;
-              let needed = total + blob.size - priorBytes - budgetBytes;
+              let needed = total + blob.size - priorBytes - (preview ? previewBudgetBytes : budgetBytes);
               const candidates = infos.filter(value => value.id !== id && value.cloudBacked === true && Number(value.cloudExpiresAt) > Date.now() + 300000 && !pins.has(value.id) && !activePins.has(value.id)).sort((a, b) => (a.updatedAt || a.createdAt) - (b.updatedAt || b.createdAt));
               for (const value of candidates) {
                 if (needed <= 0) break;
-                const reclaimed = (value.originalBytes || 0) + (value.previewBytes || 0); if (!reclaimed) continue;
-                store.delete(`asset-${value.id}`); store.delete(`asset-preview-${value.id}`); store.delete(`asset-meta-${value.id}`);
-                store.put({ ...value, originalBytes: 0, previewBytes: 0 }, infoKey(value.id)); needed -= reclaimed;
+                const field = preview ? 'previewBytes' : 'originalBytes';
+                const reclaimed = value[field] || 0; if (!reclaimed) continue;
+                store.delete(`${preview ? 'asset-preview-' : 'asset-'}${value.id}`);
+                store.put({ ...value, [field]: 0 }, infoKey(value.id));
+                store.put({ ...metas.get(`asset-meta-${value.id}`), bytes: preview ? value.originalBytes || 0 : 0, previewBytes: preview ? 0 : value.previewBytes || 0, sharedResult: true }, `asset-meta-${value.id}`);
+                needed -= reclaimed;
               }
               if (needed > 0) { ctx.fail(new DOMException('Local image cache budget is full', 'QuotaExceededError')); return; }
               const updated = { ...info, ...metadata, id, ownerId: info.ownerId, jobId: info.jobId, outputIndex: info.outputIndex, createdAt: info.createdAt, ...(!preview ? { mime: blob.type } : {}), [preview ? 'previewBytes' : 'originalBytes']: blob.size, [preview ? 'previewCacheError' : 'originalCacheError']: null, cacheError: preview ? info.originalCacheError || null : info.previewCacheError || null, updatedAt: Date.now() };
