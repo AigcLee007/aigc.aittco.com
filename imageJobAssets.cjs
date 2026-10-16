@@ -88,6 +88,7 @@ function createImageJobAssets(options = {}) {
     return keyPromise;
   };
   const signature = async (userId, taskId, expires) => crypto.createHmac('sha256', await getKey()).update(`${userId}/${taskId}/${expires}`).digest('hex');
+  const previewSignature = async (userId, taskId, filename) => crypto.createHmac('sha256', await getKey()).update(`preview/v1/${userId}/${taskId}/${filename}`).digest('hex');
   async function makeUrl(context, filename, expires) {
     const user = safeSegment(context.userId), task = safeSegment(context.taskId);
     return `/api/image-job-assets/${user}/${task}/${filename}?token=${expires}.${await signature(user, task, expires)}`;
@@ -119,7 +120,8 @@ function createImageJobAssets(options = {}) {
     const filename = `${asset.hash}.preview.webp`;
     const buffer = await sharp(asset.absolute, { limitInputPixels: 80_000_000 }).rotate().resize({ width: 720, height: 720, fit: 'inside', withoutEnlargement: true }).webp({ quality: 80 }).toBuffer();
     await atomicWrite(path.join(asset.directory, filename), buffer);
-    return makeUrl(context, filename, asset.expires);
+    const user = safeSegment(context.userId), task = safeSegment(context.taskId);
+    return `/api/image-job-assets/${user}/${task}/${filename}?token=preview.${await previewSignature(user, task, filename)}`;
   }
   function checkedLookup(hostname, lookupOptions, callback) {
     dns.lookup(hostname, { all: true }, (error, addresses) => {
@@ -188,12 +190,13 @@ function createImageJobAssets(options = {}) {
         entries.push({ url: asset.url, asset, state: 'saved' });
       } else if (/^\/generated-assets\/line4\/(original|thumb)\//.test(source)) {
         // The legacy provider already saved this image on a mounted volume.
-        entries.push({ url: source, state: 'saved' });
+        entries.push({ url: source, state: 'saved', preview: source.replace('/original/', '/thumb/').replace(/\.[a-zA-Z0-9]+(?=$|[?#])/, '.webp') });
       } else if (source.startsWith('/api/image-job-assets/')) {
         const url = new URL(source, 'https://asset.local');
         const parts = url.pathname.split('/');
-        await resolveAsset({ userId: parts[3], taskId: parts[4], filename: parts[5], token: url.searchParams.get('token') });
-        entries.push({ url: source, state: 'saved' });
+        if (parts[3] !== context.userId || parts[4] !== context.taskId) throw new Error('Image source belongs to another task');
+        const absolute = await resolveAsset({ userId: parts[3], taskId: parts[4], filename: parts[5], token: url.searchParams.get('token') });
+        entries.push({ url: source, state: 'saved', asset: { absolute, directory: path.dirname(absolute), hash: parts[5].split('.')[0] } });
       } else if (isPublicImageUrl(source)) {
         const entry = { url: source, state: 'pending' };
         entries.push(entry); remote.push({ source, entry });
@@ -201,19 +204,34 @@ function createImageJobAssets(options = {}) {
     }
     const snapshot = () => {
       const urls = entries.map(entry => entry.url);
-      const storageStatus = entries.some(entry => entry.state === 'pending') ? 'pending' : entries.some(entry => entry.state === 'failed') ? 'failed' : 'saved';
-      const previewUrl = entries.find(entry => entry.preview)?.preview || null;
-      return { payload: compact(info, urls, previewUrl, storageStatus), resultUrls: urls, previewUrl, storageStatus };
+      const storageStatus = entries.some(entry => entry.state === 'pending' || (entry.asset && !entry.preview && !entry.previewFailed))
+        ? 'pending' : entries.some(entry => entry.state === 'failed' || entry.previewFailed) ? 'failed' : 'saved';
+      const previewUrl = entries[0]?.preview || null;
+      const previewUrls = entries.map(entry => entry.preview || null);
+      return { payload: { ...compact(info, urls, previewUrl, storageStatus), preview_urls: previewUrls }, resultUrls: urls, previewUrl, previewUrls, storageStatus };
     };
     const notify = async () => {
       if (onSaved) await onSaved(snapshot());
     };
     const preview = async entry => {
-      try { entry.preview = await previewSlot(() => savePreview(entry.asset, context)); await notify(); }
-      catch { /* Original is already available; preview failure cannot fail generation. */ }
+      try {
+        for (let attempt = 0; ; attempt++) {
+          try { entry.preview = await previewSlot(() => savePreview(entry.asset, context)); break; }
+          catch (error) { if (attempt >= 1) throw error; }
+        }
+      }
+      catch (error) {
+        entry.previewFailed = true;
+        options.logger?.warn?.({ type: 'Image preview save failed', taskId: context.taskId, message: error.message });
+        await notify().catch(() => {});
+        return; // Original is already available; never refund a successful generation.
+      }
+      await notify().catch(() => {});
     };
+    // Commit previews before returning saved inline/local originals. A process
+    // restart after success must not lose the only long-term representation.
+    for (const entry of entries) if (entry.asset) await preview(entry);
     const initial = snapshot();
-    for (const entry of entries) if (entry.asset) track(preview(entry));
     for (const { source, entry } of remote) track(slot(async () => {
       try {
         let buffer;
@@ -227,7 +245,7 @@ function createImageJobAssets(options = {}) {
         entry.asset = await saveOriginal(Buffer.from(buffer), context, expires);
         entry.url = entry.asset.url; entry.state = 'saved';
         // Publishing is metadata work; it cannot change a successfully saved original.
-        await notify().catch(() => {}); await preview(entry);
+        await preview(entry); await notify().catch(() => {});
       } catch {
         entry.state = 'failed'; await notify().catch(() => {});
       }
@@ -237,11 +255,16 @@ function createImageJobAssets(options = {}) {
   async function resolveAsset({ userId, taskId, filename, token }) {
     const user = safeSegment(userId), task = safeSegment(taskId);
     if (!/^[a-f0-9]{64}(\.preview)?\.(png|jpg|webp|avif|gif)$/.test(String(filename))) throw statusError('Asset not found');
+    const permanent = String(token || '').match(/^preview\.([a-f0-9]{64})$/);
+    const isPreview = /^[a-f0-9]{64}\.preview\.webp$/.test(filename);
     const match = String(token || '').match(/^(\d+)\.([a-f0-9]{64})$/);
-    if (!match) throw statusError('Asset not found');
-    const expected = await signature(user, task, match[1]);
-    if (!crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(match[2]))) throw statusError('Asset not found');
-    if (Number(match[1]) <= now()) throw statusError('图片暂存已过期，请从本地缓存或下载目录恢复', 410);
+    if ((!permanent && !match) || (permanent && !isPreview)) throw statusError('Asset not found');
+    const expected = permanent ? await previewSignature(user, task, filename) : await signature(user, task, match[1]);
+    const supplied = permanent ? permanent[1] : match[2];
+    if (!crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(supplied))) throw statusError('Asset not found');
+    // Valid old preview links remain readable after upgrade. Original access
+    // still requires an unexpired original capability.
+    if (!isPreview && Number(match[1]) <= now()) throw statusError('云端原图已过期，请使用已下载的本地原图', 410);
     const absolute = path.join(assetRoot, user, task, filename);
     try { await fs.access(absolute); } catch { throw statusError('Asset not found'); }
     return absolute;
@@ -258,6 +281,7 @@ function createImageJobAssets(options = {}) {
           const stat = await fs.stat(full).catch(() => null);
           if (stat && stat.mtimeMs < cutoff) await fs.rmdir(full).catch(() => {});
         } else if (child.isFile()) {
+          if (/^[a-f0-9]{64}\.preview\.webp$/.test(child.name)) continue;
           const stat = await fs.stat(full).catch(() => null);
           if (stat && stat.mtimeMs < cutoff) await fs.unlink(full).catch(() => {});
         }

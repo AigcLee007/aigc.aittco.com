@@ -26,6 +26,21 @@ const harness = async (t, options = {}) => {
 const submission = (overrides = {}) => ({userId:'owner-a',endpoint:'/api/generate',body:{prompt:'a bird',clientRequestId:'req-1',asyncTask:true},...overrides});
 const remoteResult = {images:['https://images.example/a.png']};
 
+test('all permanent output previews survive job persistence and reach account record settlement', async t => {
+  const previews = ['/permanent/one.preview.webp', '/permanent/two.preview.webp'];
+  let settled;
+  const { store, service } = await harness(t, {
+    execute: async () => ({ images: ['https://images.example/one.png', 'https://images.example/two.png'] }),
+    assets: { prepare: async ({ resultUrls }) => ({ resultUrls, previewUrl: previews[0], payload: { preview_urls: previews }, storageStatus: 'saved' }) },
+    settleSuccess: async job => { settled = job; },
+  });
+  const ack = await service.submit(submission());
+  await waitFor(() => settled);
+  assert.deepEqual((await service.get(ack.task_id, 'owner-a')).preview_urls, previews);
+  assert.deepEqual((await store.get(ack.task_id)).payload.preview_urls, previews);
+  assert.deepEqual(settled.payload.preview_urls, previews);
+});
+
 test('durable acceptance returns while upstream is delayed and survives a lost acknowledgement', async t => {
   const gate = deferred(); let calls = 0;
   const {store,service} = await harness(t,{execute: async () => { calls++; await gate.promise; return remoteResult; }});

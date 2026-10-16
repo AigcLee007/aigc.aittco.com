@@ -176,7 +176,8 @@ const listFilesRecursively = async (rootDir) => {
 
 const cleanupExpiredLocalAssets = async () => {
   const cutoffMs = Date.now() - Math.max(STORAGE_TTL_HOURS, 1) * 60 * 60 * 1000;
-  for (const rootDir of [ORIGINAL_ROOT, THUMB_ROOT]) {
+  // Thumbnails are the long-term history representation; only originals expire.
+  for (const rootDir of [ORIGINAL_ROOT]) {
     if (!fs.existsSync(rootDir)) continue;
     const files = await listFilesRecursively(rootDir);
     for (const filePath of files) {

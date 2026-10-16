@@ -206,6 +206,16 @@ test('multi-output history has stable distinct identities even when provider URL
   assert.equal(next[0].previewUrl, '/late.webp');
 });
 
+test('account history uses every retained preview and preserves metadata without an original URL', () => {
+  const { h } = bridgeHistoryHarness();
+  const outputs = h.expandRemoteHistoryRecords([{ id: 'record', prompt: 'keep this record', status: 'SUCCESS',
+    meta: { imageJobId: 'job-one', previewUrls: ['/permanent-one.webp', '/permanent-two.webp'] }, resultUrls: [], createdAt: 100 }]);
+  assert.equal(outputs.length, 2);
+  assert.equal(outputs[0].previewUrl, '/permanent-one.webp');
+  assert.equal(outputs[1].previewUrl, '/permanent-two.webp');
+  assert.equal(outputs[0].prompt, 'keep this record');
+});
+
 test('history paints local cards before slow remote query, coalesces refresh, and retains cards offline', async () => {
   const { h, rendered, network } = bridgeHistoryHarness();
   await h.writeHistoryRecordsToDB([{ ownerId: 'owner-a', jobId: 'local', fullUrl: '/local.png' }]);

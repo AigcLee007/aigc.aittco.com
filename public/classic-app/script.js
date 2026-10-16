@@ -581,7 +581,7 @@ function readClassicLiveTasks() {
 
 function normalizeHistoryRecord(item = {}) {
   const fullUrl = getHistoryFullUrl(item);
-  if (!fullUrl) return null;
+  if (!fullUrl && !item.id && !item.assetId) return null;
   const iso = value => {
     const date = new Date(value || Date.now());
     return Number.isNaN(date.getTime()) ? new Date().toISOString() : date.toISOString();

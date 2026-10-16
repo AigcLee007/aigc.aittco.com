@@ -2166,21 +2166,22 @@
   const expandRemoteHistoryRecords = (records = [], ownerId = String(window.classicImageJobOwner || "")) => {
     const outputs = [];
     for (const record of records) {
-      const urls = Array.isArray(record.resultUrls) ? record.resultUrls : record.fullUrl ? [record.fullUrl] : [];
+      const originals = Array.isArray(record.resultUrls) ? record.resultUrls : record.fullUrl ? [record.fullUrl] : [];
+      const urls = originals.length ? originals : Array.from({ length: Math.max(1, record.meta?.previewUrls?.length || record.previewUrls?.length || 0) }, () => '');
       const jobId = String(record.jobId || record.meta?.imageJobId || record.taskId || record.id || "");
       const owner = String(record.ownerId || ownerId);
       urls.forEach((fullUrl, slot) => {
-        if (!fullUrl || typeof fullUrl !== "string") return;
+        if (typeof fullUrl !== "string") return;
         const outputIndex = record.outputIndex !== undefined && urls.length === 1 ? Number(record.outputIndex) : slot;
         const assetId = owner && jobId ? window.ImageResultStore?.resultId(owner, jobId, outputIndex) || `${owner}:${jobId}:${outputIndex}` : "";
         const completedAt = record.completedAt || record.completed_at || record.createdAt || record.created_at;
         const completedMs = new Date(record.completedAt || record.completed_at || 0).getTime();
         outputs.push(normalizeHistoryRecord({ ...record, id: assetId || record.id, ownerId: owner, jobId, outputIndex, assetId,
-          fullUrl, previewUrl: record.previewUrls?.[slot] || (slot === 0 || urls.length === 1 ? record.previewUrl || record.preview_url : "") || getClassicLine4ThumbUrl(fullUrl) || fullUrl,
+          fullUrl, previewUrl: record.previewUrls?.[slot] || record.meta?.previewUrls?.[slot] || (slot === 0 || urls.length === 1 ? record.previewUrl || record.preview_url : "") || getClassicLine4ThumbUrl(fullUrl) || fullUrl,
           createdAt: record.createdAt || record.created_at, completedAt,
           storageStatus: record.storageStatus || record.storage_status || record.meta?.storageStatus || "",
           cloudExpiresAt: record.cloudExpiresAt || (completedMs > 0 ? completedMs + 4 * 60 * 60 * 1000 : 0),
-          allowLegacyAssociation: true, autoDownloadEligible: false,
+          allowLegacyAssociation: Boolean(fullUrl), autoDownloadEligible: false,
         }));
       });
     }

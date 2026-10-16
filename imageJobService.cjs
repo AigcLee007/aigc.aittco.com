@@ -25,6 +25,8 @@ const collectImages = value => {
 const smallPayload = (payload, urls) => ({
   ...(payload?.billing ? {billing:payload.billing} : {}),
   images:urls,results:urls,data:urls.map(url=>({url})),
+  preview_urls: (Array.isArray(payload?.preview_urls) ? payload.preview_urls : Array.isArray(payload?.payload?.preview_urls) ? payload.payload.preview_urls : [])
+    .slice(0,12).map(url => typeof url === 'string' && url.length <= 8192 && /^(https?:\/\/|\/(?!\/))/i.test(url) && !/\[truncated\]/i.test(url) ? url : null),
 });
 
 function createImageJobService(options = {}) {

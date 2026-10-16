@@ -31,12 +31,15 @@ const isInlineDataUrl = (value?: string | null): boolean =>
 const cleanUrlForLocalHistory = (value?: string | null): string =>
   isInlineDataUrl(value) || String(value || '').startsWith('blob:') ? '' : String(value || '').trim();
 
-const sanitizeHistoryLog = (log: Partial<GenerationLog> | null | undefined, allowEmptyAsset = false): GenerationLog | null => {
+const sanitizeHistoryLog = (log: Partial<GenerationLog> | null | undefined): GenerationLog | null => {
   if (!log || typeof log !== 'object') return null;
   const imageUrl = cleanUrlForLocalHistory(log.imageUrl);
   const thumbnailUrl = cleanUrlForLocalHistory(log.thumbnailUrl) || undefined;
   const assetId = String(log.assetId || '').trim() || undefined;
-  if (!allowEmptyAsset && !imageUrl && !thumbnailUrl && !assetId) return null;
+  // Image availability must not decide whether a completed record exists.
+  // Inline/session URLs are stripped, but keep its identity, prompt and time
+  // even when cache writing never completed. Discard only malformed empty rows.
+  if (!imageUrl && !thumbnailUrl && !assetId && !String(log.id || '').trim()) return null;
   return {
     id: String(log.id || `log-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`),
     time: String(log.time || new Date().toISOString()),
@@ -93,7 +96,7 @@ export const useHistoryStore = create<HistoryStore>()(
           thumbnailUrl,
           assetId,
           type,
-        }, true);
+        });
         if (!newLog) return id;
         set(state => ({
           logs: [newLog, ...sanitizeHistoryLogs(state.logs)].slice(0, MAX_HISTORY_LOGS)

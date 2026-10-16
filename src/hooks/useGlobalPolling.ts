@@ -9,6 +9,8 @@ import { buildBillingIdentityHeaders, getStoredAuthSessionToken } from '../servi
 import { listImageRequests, removeImageRequest } from '../services/imageJobRequests';
 import { imageResultStore } from '../services/imageResultStore';
 import { recoverCanvasResult } from '../services/canvasResultIdentity';
+import { fetchGenerationRecords } from '../services/generationRecordService';
+import { canvasHistoryPreviewUpdates, isRetainedPreview } from '../services/canvasHistoryPreviews';
 
 export const useGlobalPolling = (
   apiKey: string | undefined,
@@ -33,7 +35,7 @@ export const useGlobalPolling = (
   }, []);
 
   useEffect(() => {
-    let active = true, busy = false;
+    let active = true, busy = false, lastPreviewCheck = 0;
     const recover = async () => {
       if (busy) return;
       const session = getStoredAuthSessionToken();
@@ -44,6 +46,22 @@ export const useGlobalPolling = (
         const owner = await getImageJobOwner(headers);
         if (!active || session !== getStoredAuthSessionToken()) return;
         setOwnerId(owner);
+        if (Date.now() - lastPreviewCheck > 120000) {
+          const taskIds = [...new Set(useCanvasStore.getState().nodes.filter(node => node.generationOwnerId === owner
+            && node.taskId?.startsWith('job-') && !node.loading && !isRetainedPreview(node.thumbnailSrc)).map(node => node.taskId!))];
+          if (taskIds.length) {
+            lastPreviewCheck = Date.now();
+            void (async () => {
+              for (let offset = 0; offset < taskIds.length; offset += 100) {
+                if (!active || session !== getStoredAuthSessionToken()) return;
+                const result = await fetchGenerationRecords({ mediaType: 'image', status: 'success', pageSize: 100, taskIds: taskIds.slice(offset, offset + 100) });
+                if (!active || session !== getStoredAuthSessionToken()) return;
+                canvasHistoryPreviewUpdates(useCanvasStore.getState().nodes, result.records, owner)
+                  .forEach(({ id, thumbnailSrc }) => useCanvasStore.getState().updateNode(id, { thumbnailSrc }, true));
+              }
+            })().catch(() => {});
+          }
+        }
         const savedRequests = await listImageRequests(owner).catch(() => []);
         if (!active || session !== getStoredAuthSessionToken()) return;
         for (const request of savedRequests) for (const id of request.nodeIds) {
@@ -97,11 +115,11 @@ export const useGlobalPolling = (
               state.updateNode(node.id, {
                 ...(typeof url === 'string' ? { src: url, generationResultSrc: url } : {}),
                 ...(typeof url === 'string' ? { generationResultIndex:slot } : {}),
-                ...(job.preview_url && slot === 0 ? { thumbnailSrc: job.preview_url } : {}),
+                ...((job.preview_urls?.[slot] || (slot === 0 && job.preview_url)) ? { thumbnailSrc: job.preview_urls?.[slot] || job.preview_url } : {}),
                 generationStorageStatus: job.storage_status,
               }, true);
               if(typeof url==='string'){
-                void recoverCanvasResult(node,{taskId,slot,source:url,storageStatus:job.storage_status,previewUrl:job.preview_url && slot===0 ? job.preview_url : undefined,completedAt:job.completed_at}).then(async(info)=>{
+                void recoverCanvasResult(node,{taskId,slot,source:url,storageStatus:job.storage_status,previewUrl:job.preview_urls?.[slot] || (slot===0 ? job.preview_url : undefined),completedAt:job.completed_at}).then(async(info)=>{
                   if(!info || !node.assetId || node.assetId===info.id)return;
                   const cached=await imageResultStore.getState(info.id);
                   if(active && session===getStoredAuthSessionToken() && cached.originalCached){
@@ -279,7 +297,7 @@ export const useGlobalPolling = (
             ? data.urls[data.urls.length - 1]
             : data.urls[urlIndex] || data.urls[0];
           useCanvasStore.getState().updateNode(node.id, { generationResultIndex: isSingleNodeGrok ? data.urls.length - 1 : urlIndex, generationResultSrc: selectedUrl }, true);
-          if (data.raw?.preview_url || data.raw?.storage_status) useCanvasStore.getState().updateNode(node.id, { thumbnailSrc: !isSingleNodeGrok && urlIndex === 0 ? data.raw?.preview_url || undefined : undefined, generationStorageStatus: data.raw?.storage_status }, true);
+          if (data.raw?.preview_url || data.raw?.preview_urls || data.raw?.storage_status) useCanvasStore.getState().updateNode(node.id, { thumbnailSrc: data.raw?.preview_urls?.[isSingleNodeGrok ? data.urls.length - 1 : urlIndex] || (!isSingleNodeGrok && urlIndex === 0 ? data.raw?.preview_url || undefined : undefined), generationStorageStatus: data.raw?.storage_status }, true);
           onUpdateGeneration(node.id, selectedUrl);
           return;
         }

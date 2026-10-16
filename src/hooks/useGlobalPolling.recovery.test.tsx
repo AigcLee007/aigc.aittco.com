@@ -3,7 +3,7 @@ import { act, cleanup, render, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
-const mocks = vi.hoisted(() => ({ nodes: [] as any[], update: vi.fn(), recover: vi.fn() }));
+const mocks = vi.hoisted(() => ({ nodes: [] as any[], update: vi.fn(), recover: vi.fn(), history: vi.fn() }));
 vi.mock('../store/canvasStore', () => ({
   persistImageJobCredentials: vi.fn().mockResolvedValue(undefined),
   useCanvasStore: Object.assign((select: any) => select({ nodes: mocks.nodes }), {
@@ -16,6 +16,7 @@ vi.mock('../services/accountIdentity', () => ({ getStoredAuthSessionToken: () =>
 vi.mock('../services/imageJobClient', () => ({ getImageJobOwner: vi.fn().mockResolvedValue('owner'), isTransientJobError: vi.fn(), queryImageJob: vi.fn() }));
 vi.mock('../services/imageJobRequests', () => ({ listImageRequests: vi.fn().mockResolvedValue([]), removeImageRequest: vi.fn().mockResolvedValue(undefined) }));
 vi.mock('../services/canvasResultIdentity', () => ({ recoverCanvasResult: mocks.recover }));
+vi.mock('../services/generationRecordService', () => ({ fetchGenerationRecords: mocks.history }));
 vi.mock('../services/imageResultStore', () => ({ imageResultStore: {
   resultId: (owner: string, job: string, slot: number) => `result:v1:${owner}:${job}:${slot}`,
   getState: vi.fn().mockResolvedValue({ originalCached: false }),
@@ -29,6 +30,7 @@ beforeEach(() => {
   mocks.update.mockReset();
   mocks.update.mockImplementation((id, patch) => Object.assign(mocks.nodes.find(node => node.id === id), patch));
   mocks.recover.mockReset().mockResolvedValue({ id: 'result:v1:owner:job-old:0' });
+  mocks.history.mockReset().mockResolvedValue({ records: [] });
   vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ jobs: [{
     task_id: 'job-old', status: 'succeeded', results: ['/api/image-job-assets/recovered.jpg'],
     preview_url: '/api/image-job-assets/preview.webp', storage_status: 'saved', completed_at: '2026-10-15T01:00:00.000Z',
@@ -56,4 +58,17 @@ it('keeps a locally edited image when its original generation is still in the re
   expect(mocks.nodes[0].src).toBe('');
   expect(mocks.nodes[0].assetId).toBe('local-background-removed');
   expect(mocks.recover).not.toHaveBeenCalled();
+});
+
+it('backfills retained previews beyond the account API task batch limit', async () => {
+  mocks.nodes = Array.from({ length: 105 }, (_, index) => ({ id: `node-${index}`, type: 'IMAGE', loading: false,
+    generationOwnerId: 'owner', taskId: `job-${index}`, assetId: `result:v1:owner:job-${index}:0` }));
+  vi.mocked(fetch).mockResolvedValue({ ok: true, json: async () => ({ jobs: [] }) } as Response);
+  mocks.history.mockImplementation(async ({ taskIds }: { taskIds: string[] }) => ({ records: taskIds.slice(0, 100).map(taskId => ({
+    userId: 'owner', status: 'SUCCESS', taskId, resultUrls: [], meta: { previewUrls: [`/api/image-job-assets/${taskId}.preview.webp?token=preview.fixture`] },
+  })) }));
+  mount();
+  await waitFor(() => expect(mocks.nodes[104].thumbnailSrc).toBe('/api/image-job-assets/job-104.preview.webp?token=preview.fixture'));
+  expect(mocks.history).toHaveBeenCalledTimes(2);
+  expect(mocks.history.mock.calls.map(([options]) => options.taskIds.length)).toEqual([100, 5]);
 });

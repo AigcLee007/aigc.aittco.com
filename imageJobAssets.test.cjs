@@ -64,6 +64,86 @@ test('preview finishes separately and callback publishes a usable small image', 
   assert.equal((await sharp(preview).metadata()).format, 'webp');
 });
 
+test('previews survive original expiry, physical cleanup and a server restart a year later', async t => {
+  let now = Date.now();
+  const f = await fixture(t, { now: () => now, ttlMs: 100 });
+  let saved;
+  const result = await f.service.prepare({ resultUrls: [f.source], context, onSaved: value => { saved = value; } });
+  await f.service.drain();
+  const original = await f.service.resolveAsset(assetArgs(result.resultUrls[0]));
+  const preview = await f.service.resolveAsset(assetArgs(saved.previewUrl));
+  const expected = await fs.readFile(preview);
+  now += 365 * 24 * 3600000;
+  await f.service.cleanup();
+  await assert.rejects(fs.access(original));
+  await assert.rejects(f.service.resolveAsset(assetArgs(result.resultUrls[0])), error => error.status === 410);
+  const restarted = api.createImageJobAssets({ root: f.root, now: () => now });
+  assert.deepEqual(await fs.readFile(await restarted.resolveAsset(assetArgs(saved.previewUrl))), expected);
+  // A permanent preview capability never authorizes an original or another file.
+  await assert.rejects(restarted.resolveAsset({ ...assetArgs(result.resultUrls[0]), token: assetArgs(saved.previewUrl).token }));
+  await assert.rejects(restarted.resolveAsset({ ...assetArgs(saved.previewUrl), userId: 'usr_other' }));
+});
+
+test('each output publishes its own preview in result order', async t => {
+  const f = await fixture(t);
+  const second = await sharp({ create: { width: 3, height: 7, channels: 3, background: '#ff0000' } }).png().toBuffer();
+  let saved;
+  await f.service.prepare({ resultUrls: [f.source, `data:image/png;base64,${second.toString('base64')}`], context, onSaved: value => { saved = value; } });
+  await f.service.drain();
+  assert.equal(saved.previewUrls.length, 2);
+  assert.notEqual(saved.previewUrls[0], saved.previewUrls[1]);
+  assert.equal(saved.previewUrl, saved.previewUrls[0]);
+  for (const [index, url] of saved.previewUrls.entries()) {
+    const meta = await sharp(await f.service.resolveAsset(assetArgs(url))).metadata();
+    assert.equal(meta.width, index ? 3 : 8);
+  }
+});
+
+test('partial multi-output preview publication stays pending so restart recovery still owns unfinished previews', async t => {
+  const f = await fixture(t);
+  const second = await sharp(f.buffer).jpeg().toBuffer();
+  const updates = [];
+  await f.service.prepare({ resultUrls: [f.source, `data:image/jpeg;base64,${second.toString('base64')}`], context, onSaved: value => { updates.push(value); } });
+  assert.equal(updates[0].storageStatus, 'pending');
+  assert.equal(updates.at(-1).storageStatus, 'saved');
+});
+
+test('preview write failure is observable and never advertises complete saving or loses the original', async t => {
+  const warnings = [];
+  const f = await fixture(t, { logger: { warn: event => warnings.push(event) } });
+  const rename = fs.rename;
+  t.mock.method(fs, 'rename', async (source, destination) => {
+    if (destination.endsWith('.preview.webp')) throw new Error('preview disk unavailable');
+    return rename(source, destination);
+  });
+  const result = await f.service.prepare({ resultUrls: [f.source], context });
+  assert.equal(result.storageStatus, 'failed');
+  assert.equal(result.previewUrl, null);
+  assert.equal(warnings[0].type, 'Image preview save failed');
+  assert.deepEqual(await fs.readFile(await f.service.resolveAsset(assetArgs(result.resultUrls[0]))), f.buffer);
+});
+
+test('last inline preview failure publishes the terminal state after a partial pending update', async t => {
+  const f = await fixture(t);
+  const second = await sharp(f.buffer).jpeg().toBuffer();
+  const rename = fs.rename;
+  let previewWrites = 0;
+  t.mock.method(fs, 'rename', async (source, destination) => {
+    if (destination.endsWith('.preview.webp') && ++previewWrites > 1) throw new Error('last preview disk unavailable');
+    return rename(source, destination);
+  });
+  const updates = [];
+  const result = await f.service.prepare({ resultUrls: [f.source, `data:image/jpeg;base64,${second.toString('base64')}`], context,
+    onSaved: value => { updates.push(value); } });
+  assert.equal(result.storageStatus, 'failed');
+  assert.equal(updates[0].storageStatus, 'pending');
+  assert.equal(updates.at(-1).storageStatus, 'failed');
+  assert.deepEqual(updates.at(-1).previewUrls, result.previewUrls);
+  assert.ok(result.previewUrls[0]);
+  assert.equal(result.previewUrls[1], null);
+  assert.deepEqual(await fs.readFile(await f.service.resolveAsset(assetArgs(result.resultUrls[1]))), second);
+});
+
 test('a notification error cannot mark a saved original failed or stop its preview', async t => {
   const f = await fixture(t, { download: async () => f.buffer });
   const states = [];

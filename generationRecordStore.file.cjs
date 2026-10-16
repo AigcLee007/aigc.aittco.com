@@ -37,15 +37,13 @@ const readStore = () => {
   try {
     const raw = fs.readFileSync(GENERATION_RECORD_FILE, "utf8").trim();
     if (!raw) {
-      const initial = createDefaultStore();
-      writeStore(initial);
-      return initial;
+      throw new Error('Generation record file is empty');
     }
-    return normalizeStore(JSON.parse(raw));
-  } catch (_error) {
-    const fallback = createDefaultStore();
-    writeStore(fallback);
-    return fallback;
+    const parsed = JSON.parse(raw);
+    if (!parsed || !Array.isArray(parsed.records)) throw new Error('Invalid generation record data');
+    return normalizeStore(parsed);
+  } catch (error) {
+    throw new Error('Generation records could not be read; original file retained', { cause: error });
   }
 };
 
@@ -63,7 +61,9 @@ const cleanupStore = (store) => {
   );
 
   if (store.records.length > RECORD_LIMIT) {
-    store.records = store.records.slice(0, RECORD_LIMIT);
+    let otherRecords = 0;
+    store.records = store.records.filter(record =>
+      record.status === 'SUCCESS' && record.mediaType === 'IMAGE' || otherRecords++ < RECORD_LIMIT);
   }
 };
 
@@ -261,10 +261,12 @@ const listGenerationRecordsForUser = async (userId, options = {}) => {
   const pageSize = Math.min(100, parsePositiveInt(options.pageSize, 20));
   const sinceTimestamp = parseCursorTimestamp(options.sinceCreatedAt);
   const sinceId = String(options.sinceId || "").trim();
+  const taskIds = new Set((options.taskIds || []).slice(0, 100));
 
   return withStore((store) => {
     const filtered = store.records.filter((record) => {
       if (String(record.userId || "").trim() !== normalizedUserId) return false;
+      if (taskIds.size && !taskIds.has(record.taskId) && !taskIds.has(parseJsonMeta(record.meta)?.imageJobId)) return false;
       if (mediaType !== "ALL" && normalizeMediaType(record.mediaType) !== mediaType) {
         return false;
       }

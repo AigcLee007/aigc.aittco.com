@@ -10,10 +10,17 @@
   };
   const infoKey = id => `result-info-${id}`;
   const sourceKey = (owner, source) => `result-source-${encodeURIComponent(owner)}-${encodeURIComponent(source)}`;
+  // Provider bytes and truncated diagnostic strings are not reusable addresses.
+  // Large IndexedDB keys are repeated in LevelDB table boundaries and manifests.
+  const malformedSource = source => typeof source !== 'string' || /\[truncated\]/i.test(source)
+    || /^\/9j\/[A-Za-z0-9+/=\s]{32,}$/.test(source)
+    || source.length > 8192 && !/^(data:|blob:)/i.test(source);
+  const aliasableSource = source => !!source && !malformedSource(source) && source.length <= 8192
+    && /^(https?:\/\/|\/(?!\/)|asset:)/i.test(source) && !/^\/9j\//.test(source);
   const makeToken = () => root.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
   function createStore(options = {}) {
-    let connection, opening;
+    let connection, opening, sourceMaintenance;
     const timeoutMs = options.timeoutMs || 15000;
     const mobile = /Android|iPhone|iPad|Mobile/i.test(root.navigator?.userAgent || '');
     const budgetBytes = options.budgetBytes ?? (mobile ? 128 : 384) * 1024 * 1024;
@@ -57,26 +64,47 @@
       });
     }
     const read = key => transact('readonly', (store, ctx) => { const request = store.get(key); request.onsuccess = () => ctx.setResult(request.result); });
+    function pruneOversizedAliases() {
+      if (!sourceMaintenance) sourceMaintenance = transact('readwrite', (store, ctx) => {
+        let removed = 0;
+        // Scan keys only; never clone or delete an original, preview or record.
+        const request = store.openKeyCursor(root.IDBKeyRange.bound('result-source-', 'result-source-\uffff'));
+        request.onsuccess = () => {
+          const cursor = request.result;
+          if (!cursor) { ctx.setResult(removed); return; }
+          const key = String(cursor.key);
+          if (key.length > 128 * 1024 || /%5Btruncated%5D/i.test(key)) { store.delete(cursor.primaryKey); removed++; }
+          cursor.continue();
+        };
+      });
+      return sourceMaintenance;
+    }
     function requireInfo(info, ctx) { if (!info) { ctx.fail(new Error('Unknown image result')); return false; } return true; }
     const api = {
       resultId,
       async register(input) {
         const id = resultId(input.ownerId, input.jobId, input.outputIndex);
+        await pruneOversizedAliases().catch(error => root.console?.warn('Image source alias maintenance failed', error));
         return transact('readwrite', (store, ctx) => {
           const request = store.get(infoKey(id));
           request.onsuccess = () => {
             try {
               const previous = request.result || {};
               const info = { ...previous, id, ownerId: String(input.ownerId), jobId: String(input.jobId), outputIndex: Math.max(0, Math.floor(Number(input.outputIndex) || 0)), createdAt: previous.createdAt || input.createdAt || Date.now(), updatedAt: Date.now() };
-              for (const field of ['originalUrl','previewUrl','cloudExpiresAt','cloudBacked','storageStatus','legacyClassicId']) if (input[field] !== undefined && input[field] !== '') info[field] = input[field];
+              for (const field of ['originalUrl','previewUrl']) if (info[field] && malformedSource(info[field])) delete info[field];
+              for (const field of ['originalUrl','previewUrl','cloudExpiresAt','cloudBacked','storageStatus','legacyClassicId']) {
+                if (input[field] === undefined || input[field] === '') continue;
+                if ((field === 'originalUrl' || field === 'previewUrl') && malformedSource(input[field])) continue;
+                info[field] = input[field];
+              }
               store.put(info, infoKey(id));
-              for (const source of [input.originalUrl, input.previewUrl]) if (source && !/^(blob:|data:)/i.test(source)) store.put(id, sourceKey(info.ownerId, source));
+              for (const source of [input.originalUrl, input.previewUrl]) if (aliasableSource(source)) store.put(id, sourceKey(info.ownerId, source));
               ctx.setResult(info);
             } catch (error) { ctx.fail(error); }
           };
         });
       },
-      async find(ownerId, source) { const id = await read(sourceKey(ownerId, source)); return id ? read(infoKey(id)) : undefined; },
+      async find(ownerId, source) { if (!aliasableSource(source)) return undefined; const id = await read(sourceKey(ownerId, source)); return id ? read(infoKey(id)) : undefined; },
       async getOriginal(id) {
         const value = await read(`asset-${id}`); if (isBlob(value)) return value;
         const info = await read(infoKey(id));

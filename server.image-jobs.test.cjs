@@ -111,4 +111,10 @@ test('image routes durably acknowledge before provider work and settle without a
   assert.equal((await fetch(tampered)).status,404);
   const unsigned=new URL(publicAssetUrl);unsigned.search='';assert.equal((await fetch(unsigned)).status,404);
   assetNow+=2000;assert.equal((await fetch(publicAssetUrl)).status,410);
+  const previewUrl=`http://127.0.0.1:${server.address().port}${saved.previewUrls[0]}`;
+  const previewResponse=await fetch(previewUrl);
+  assert.equal(previewResponse.status,200,'a fresh client still reads the retained preview after original expiry');
+  assert.match(previewResponse.headers.get('content-type'),/^image\/webp/);
+  const originalWithPreviewToken=new URL(publicAssetUrl);originalWithPreviewToken.search=new URL(previewUrl).search;
+  assert.equal((await fetch(originalWithPreviewToken)).status,404,'preview access does not grant original access');
 });

@@ -1,7 +1,7 @@
 import 'fake-indexeddb/auto';
 import { Blob as NodeBlob } from 'node:buffer';
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
-import { clear, get, set } from 'idb-keyval';
+import { clear, get, set, keys } from 'idb-keyval';
 import { imageResultStore as store, createImageResultStore } from './imageResultStore';
 
 const original=()=>new Blob(['original'],{type:'image/png'});
@@ -10,6 +10,52 @@ beforeEach(async()=>{vi.stubGlobal('Blob',NodeBlob);await clear();localStorage.c
 afterEach(()=>{vi.restoreAllMocks();vi.unstubAllGlobals();});
 
 describe('shared result storage',()=>{
+  it('never persists raw image bytes or truncated addresses as URL aliases',async()=>{
+    const raw='/9j/'+ 'A'.repeat(200000);
+    const {id}=await store.register({ownerId:'a',jobId:'invalid-source',originalUrl:raw,previewUrl:'/preview.webp'});
+    expect((await keys()).filter(key=>String(key).length>4096).length).toBe(0);
+    expect(await store.find('a',raw)).toBeUndefined();
+    expect((await store.getState(id)).originalUrl).toBeUndefined();
+    expect((await store.find('a','/preview.webp'))?.id).toBe(id);
+    await store.register({ownerId:'a',jobId:'invalid-source',originalUrl:'data:image/png;base64,abc[truncated]'});
+    expect((await store.getState(id)).originalUrl).toBeUndefined();
+  });
+  it('prunes only oversized legacy aliases and retains original bytes, previews and records',async()=>{
+    const hugeKey='result-source-a-%2F9j%2F'+'A'.repeat(200000);
+    await set(hugeKey,'legacy-result');
+    await set('asset-legacy',original());await set('asset-preview-legacy',preview());
+    await set('infinitemuse-history',JSON.stringify({state:{logs:[{id:'keep'}]}}));
+    const fresh=createImageResultStore();
+    try {
+      await fresh.register({ownerId:'a',jobId:'after-upgrade',originalUrl:'/valid.png'});
+      expect(await get(hugeKey)).toBeUndefined();
+      expect(await get('asset-legacy')).toBeTruthy();expect(await get('asset-preview-legacy')).toBeTruthy();
+      expect(await get('infinitemuse-history')).toContain('keep');
+      expect(await fresh.find('a','/valid.png')).toBeTruthy();
+    } finally {fresh.close();}
+  });
+  it('retains a valid original URL and committed bytes when a later source is malformed',async()=>{
+    const {id}=await store.register({ownerId:'a',jobId:'keep-original',originalUrl:'/valid.png'});
+    await store.putOriginal(id,original());
+    await store.register({ownerId:'a',jobId:'keep-original',originalUrl:'/9j/'+'A'.repeat(1000)});
+    expect(await store.getState(id)).toMatchObject({originalUrl:'/valid.png',originalCached:true});
+  });
+  it('reads committed originals and previews in a new connection the next day after cloud expiry',async()=>{
+    const now=Date.now();
+    const {id}=await store.register({ownerId:'a',jobId:'next-day',originalUrl:'/temporary.png',cloudBacked:true,cloudExpiresAt:now+4*3600000});
+    await store.putOriginal(id,original());await store.putPreview(id,preview(),{previewVersion:1});
+    vi.spyOn(Date,'now').mockReturnValue(now+24*3600000);
+    const nextDay=createImageResultStore();
+    try {
+      expect(await nextDay.getState(id)).toMatchObject({originalCached:true,previewCached:true});
+      expect(await nextDay.getOriginal(id)).toBeTruthy();expect(await nextDay.getPreview(id)).toBeTruthy();
+    }finally{nextDay.close();}
+  });
+  it('keeps download invocation separate from durable image availability',async()=>{
+    const {id}=await store.register({ownerId:'a',jobId:'download-only'});
+    const token=await store.claimDownload(id);await store.markDownloadStarted(id,token!);
+    expect(await store.getState(id)).toMatchObject({downloadState:'started',originalCached:false,previewCached:false});
+  });
   it('retains owner/job/output identity and both aliases when a result URL changes',async()=>{
     const a=await store.register({ownerId:'a',jobId:'job-1',outputIndex:0,originalUrl:'/provider'});
     const b=await store.register({ownerId:'a',jobId:'job-1',outputIndex:0,originalUrl:'/site'});

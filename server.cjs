@@ -2522,6 +2522,7 @@ app.get("/api/generation-records", async (req, res) => {
     const pageSize = Math.min(100, parsePositivePage(req.query?.pageSize, 50));
     const sinceCreatedAt = String(req.query?.sinceCreatedAt || "").trim() || null;
     const sinceId = String(req.query?.sinceId || "").trim() || null;
+    const taskIds = String(req.query?.taskIds || '').split(',').filter(id => /^[a-zA-Z0-9_-]{1,100}$/.test(id)).slice(0, 100);
 
     const result = await listGenerationRecordsForUser(user.userId, {
       mediaType,
@@ -2530,6 +2531,7 @@ app.get("/api/generation-records", async (req, res) => {
       pageSize,
       sinceCreatedAt,
       sinceId,
+      taskIds,
     });
 
     res.json({
@@ -5769,7 +5771,7 @@ const legacyGeminiGenerateHandler = async (req, res) => {
 // ==================== Durable Image Jobs ====================
 const imageJobRoot = path.resolve(process.env.IMAGE_JOB_STORAGE_ROOT || IMAGE_JOB_STORAGE_ROOT);
 const imageJobStore = createImageJobStore({ root: imageJobRoot });
-const imageJobAssets = createImageJobAssets({ root: imageJobRoot });
+const imageJobAssets = createImageJobAssets({ root: imageJobRoot, logger });
 const makeWorkerRequest = (body, context) => ({
   body: (() => { const clean = { ...body }; delete clean.asyncTask; delete clean.clientRequestId; delete clean.client_request_id; return clean; })(),
   headers: { authorization: context.headers?.authorization || "" },
@@ -5840,7 +5842,7 @@ const imageJobService = createImageJobService({
     if (job.innerTaskId) await settlePendingTaskOriginal(job.innerTaskId, "SUCCESS");
     if (job.generationRecordId) await completeGenerationRecord(job.generationRecordId, {
       status: "SUCCESS", resultUrls: job.resultUrls || [], previewUrl: job.previewUrl || job.resultUrls?.[0] || null,
-      meta: { imageJobId: job.taskId, storageStatus: job.storageStatus },
+      meta: { imageJobId: job.taskId, storageStatus: job.storageStatus, previewUrls: job.payload?.preview_urls || [] },
     });
   },
 });
