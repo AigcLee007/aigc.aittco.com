@@ -627,6 +627,7 @@ const App: React.FC = () => {
           batchApiKey={useSelectionStore.getState().apiKey}
           onInitGenerations={handleInitGenerations}
           onUpdateGeneration={handleUpdateGeneration}
+          onUpdateProgress={handleUpdateProgress}
           instructionsOpen={instructionsOpen}
           onCloseInstructions={() => setInstructionsOpen(false)}
           lightboxImage={lightboxImage}

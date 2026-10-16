@@ -65,6 +65,32 @@
   const HISTORY_REFRESH_MIN_INTERVAL_MS = 10000;
   const REMOTE_PENDING_STALE_MS = 30 * 60 * 1000;
   const TASK_POLL_MAX_MS = 30 * 60 * 1000;
+  const TASK_QUERY_TIMEOUT_MS = 20 * 1000;
+  const getTaskSubmitTimeoutMs = (route) =>
+    route?.mode === "sync" && route?.id !== "gpt-image-2-line2"
+      ? 25 * 60 * 1000
+      : 120 * 1000;
+  const fetchClassicTaskJson = async (url, options, timeoutMs, message) => {
+    const controller = new AbortController();
+    let timer;
+    const deadline = new Promise((_, reject) => {
+      timer = setTimeout(() => {
+        reject(new Error(message));
+        controller.abort();
+      }, timeoutMs);
+    });
+    try {
+      return await Promise.race([
+        fetch(url, { ...options, signal: controller.signal }).then(async (response) => ({
+          response,
+          data: await response.json().catch(() => ({})),
+        })),
+        deadline,
+      ]);
+    } finally {
+      clearTimeout(timer);
+    }
+  };
   let remoteHistoryRecordsCache = [];
   let remoteHistoryCursor = {
     sinceCreatedAt: "",
@@ -2498,13 +2524,11 @@
     try {
       const route = options.route || getCurrentRoute();
       const endpoint = String(options.endpoint || CONFIG.submitUrl || "/api/generate").trim();
-      const response = await fetch(endpoint, {
+      const { response, data } = await fetchClassicTaskJson(endpoint, {
         method: "POST",
         headers: buildGenerateHeaders(route, key),
         body: JSON.stringify(payload),
-      });
-
-      const data = await response.json().catch(() => ({}));
+      }, getTaskSubmitTimeoutMs(route), "提交等待超时，结果未确认。任务可能已在后台处理，请先查看画廊记录，避免重复提交扣点。");
       if (!response.ok) {
         throw new Error(extractClassicApiError(data, `请求失败 (${response.status})`));
       }
@@ -2618,6 +2642,7 @@
     const startedAt = Date.now();
     const maxPollMs = TASK_POLL_MAX_MS;
     let pollTimer = null;
+    let deadlineTimer = null;
     let stopped = false;
     const trackUi = options.trackUi !== false;
     const liveTaskIds = Array.isArray(options.liveTaskIds)
@@ -2655,6 +2680,8 @@
 
     const stopPolling = () => {
       stopped = true;
+      clearTimeout(deadlineTimer);
+      deadlineTimer = null;
       if (pollTimer) {
         clearTimeout(pollTimer);
         pollTimer = null;
@@ -2679,18 +2706,19 @@
     const runPoll = async () => {
       try {
         if (Date.now() - startedAt > maxPollMs) {
-          settleAsFailed("查询超时，任务状态未完成");
+          settleAsFailed("等待结果超时，结果未确认。请先查看画廊记录，避免重复提交扣点。");
           return;
         }
 
         const queryUrl = CONFIG.queryUrl.replace("{id}", normalizedTaskId) + `?_t=${Date.now()}`;
-        const response = await fetch(queryUrl, {
+        const { response, data: rawJson } = await fetchClassicTaskJson(queryUrl, {
           method: "GET",
           headers: {
             "Content-Type": "application/json",
             ...(isSessionAuthenticated() ? buildSessionHeaders() : buildApiKeyHeaders(key)),
           },
-        });
+        }, TASK_QUERY_TIMEOUT_MS, "任务查询超时，结果未确认。请稍后查看画廊记录，避免重复提交。");
+        if (stopped) return;
 
         if (response.status === 404) {
           settleAsFailed("任务已失效或未找到");
@@ -2706,7 +2734,6 @@
           return;
         }
 
-        const rawJson = await response.json().catch(() => ({}));
         errorCount = 0;
         const statusRaw = String(
           rawJson.status || rawJson.state || rawJson.data?.status || "",
@@ -2751,6 +2778,7 @@
         }
         scheduleNextPoll();
       } catch (error) {
+        if (stopped) return;
         console.warn(`[Classic Bridge] Poll task ${index} warning:`, error);
         errorCount += 1;
         if (errorCount >= maxErrors) {
@@ -2765,6 +2793,9 @@
       startedAt,
       stop: stopPolling,
     });
+    deadlineTimer = setTimeout(() => {
+      settleAsFailed("等待结果超时，结果未确认。请先查看画廊记录，避免重复提交扣点。");
+    }, maxPollMs);
     scheduleNextPoll();
   };
   runGen = async function () {

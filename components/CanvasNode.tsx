@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Group, Image as KonvaImage, Line as KonvaLine, Rect, Text as KonvaText } from 'react-konva';
 import Konva from 'konva';
 import { useImageAsset } from '../src/hooks/useImageAsset';
+import { useGenerationProgress } from '../src/hooks/useGenerationProgress';
 import { NodeData, Point, Stroke, ToolMode } from '../types';
 import { useCanvasStore } from '../src/store/canvasStore';
 import { formatShortTime } from '../src/utils/timeFormat';
@@ -22,14 +23,17 @@ interface CanvasNodeProps {
   onMouseLeave: (e: Konva.KonvaEventObject<MouseEvent>) => void;
 }
 
-const DreamingPlaceholder: React.FC<{ width: number; height: number; progress: number; statusText: string }> = ({
+type GenerationFeedback = ReturnType<typeof useGenerationProgress>;
+
+const DreamingPlaceholder: React.FC<{ width: number; height: number; feedback: GenerationFeedback }> = ({
   width,
   height,
-  progress,
-  statusText,
+  feedback,
 }) => {
+  const contentScale = Math.min(1, width / 280, height / 170);
+  const fontFamily = "'Inter', 'Microsoft YaHei', sans-serif";
   return (
-    <Group>
+    <Group listening={false}>
       <Rect width={width} height={height} fill="#0f172a" cornerRadius={30} />
       <Rect
         width={width}
@@ -41,25 +45,23 @@ const DreamingPlaceholder: React.FC<{ width: number; height: number; progress: n
         cornerRadius={30}
       />
 
-      <Rect x={width * 0.15} y={height / 2 + 50} width={width * 0.7} height={4} fill="#334155" cornerRadius={2} />
+      <Rect x={width * 0.14} y={height / 2 - 4 * contentScale} width={width * 0.72} height={4 * contentScale} fill="#334155" cornerRadius={2} />
       <Rect
-        x={width * 0.15}
-        y={height / 2 + 50}
-        width={width * 0.7 * (progress / 100)}
-        height={4}
+        x={width * 0.14}
+        y={height / 2 - 4 * contentScale}
+        width={width * 0.72 * (feedback.percent / 100)}
+        height={4 * contentScale}
         fill="#c084fc"
-        shadowColor="#a855f7"
-        shadowBlur={15}
         cornerRadius={2}
       />
 
       <KonvaText
         x={0}
-        y={height / 2 - 20}
+        y={height / 2 - 55 * contentScale}
         width={width}
-        text={`${Math.floor(progress)}%`}
-        fontSize={36}
-        fontFamily="'Courier New', monospace"
+        text={feedback.percentLabel}
+        fontSize={36 * contentScale}
+        fontFamily={fontFamily}
         fontStyle="bold"
         fill="#e2e8f0"
         align="center"
@@ -68,15 +70,24 @@ const DreamingPlaceholder: React.FC<{ width: number; height: number; progress: n
       />
 
       <KonvaText
-        x={0}
-        y={height / 2 + 25}
-        width={width}
-        text={statusText}
-        fontSize={13}
-        fontFamily="'Courier New', monospace"
+        x={width * 0.06}
+        y={height / 2 + 14 * contentScale}
+        width={width * 0.88}
+        text={feedback.statusText}
+        fontSize={13 * contentScale}
+        fontFamily={fontFamily}
         fill="#94a3b8"
         align="center"
         opacity={0.9}
+      />
+      <KonvaText
+        y={height / 2 + 40 * contentScale}
+        width={width}
+        text={feedback.elapsedLabel}
+        fontSize={12 * contentScale}
+        fontFamily={fontFamily}
+        fill="#64748b"
+        align="center"
       />
     </Group>
   );
@@ -123,7 +134,8 @@ const MaskLayer: React.FC<{ strokes: Stroke[] }> = ({ strokes }) => {
 const DownloadingPlaceholder: React.FC<{
   width: number;
   height: number;
-}> = ({ width, height }) => {
+  isVideo?: boolean;
+}> = ({ width, height, isVideo }) => {
   return (
     <Group>
       <Rect width={width} height={height} fill="#1e293b" cornerRadius={30} />
@@ -145,7 +157,7 @@ const DownloadingPlaceholder: React.FC<{
         x={0}
         y={height / 2 + 40}
         width={width}
-        text="Loading asset..."
+        text={isVideo ? '正在加载视频' : '正在加载图片'}
         fontSize={14}
         fontFamily="'Courier New', monospace"
         fontStyle="bold"
@@ -156,10 +168,9 @@ const DownloadingPlaceholder: React.FC<{
   );
 };
 
-const ImageNode: React.FC<{ node: NodeData; progress: number; statusText: string; enabled: boolean; onLoad?: () => void }> = ({
+const ImageNode: React.FC<{ node: NodeData; feedback: GenerationFeedback; enabled: boolean; onLoad?: () => void }> = ({
   node,
-  progress,
-  statusText,
+  feedback,
   enabled,
   onLoad,
 }) => {
@@ -171,7 +182,7 @@ const ImageNode: React.FC<{ node: NodeData; progress: number; statusText: string
   }, [image, onLoad]);
 
   if (node.loading) {
-    return <DreamingPlaceholder width={node.width} height={node.height} progress={progress} statusText={statusText} />;
+    return <DreamingPlaceholder width={node.width} height={node.height} feedback={feedback} />;
   }
   if (node.error) {
     return <ErrorPlaceholder width={node.width} height={node.height} message={node.errorMessage || 'Failed'} />;
@@ -204,10 +215,9 @@ const ImageNode: React.FC<{ node: NodeData; progress: number; statusText: string
   );
 };
 
-const VideoNode: React.FC<{ node: NodeData; progress: number; statusText: string; isInViewport: boolean }> = ({
+const VideoNode: React.FC<{ node: NodeData; feedback: GenerationFeedback; isInViewport: boolean }> = ({
   node,
-  progress,
-  statusText,
+  feedback,
   isInViewport,
 }) => {
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -307,13 +317,13 @@ const VideoNode: React.FC<{ node: NodeData; progress: number; statusText: string
   };
 
   if (node.loading) {
-    return <DreamingPlaceholder width={node.width} height={node.height} progress={progress} statusText={statusText || 'Generating video...'} />;
+    return <DreamingPlaceholder width={node.width} height={node.height} feedback={feedback} />;
   }
   if (node.error) {
     return <ErrorPlaceholder width={node.width} height={node.height} message={node.errorMessage || 'Failed'} />;
   }
   if (!videoImage) {
-    return <DownloadingPlaceholder width={node.width} height={node.height} />;
+    return <DownloadingPlaceholder width={node.width} height={node.height} isVideo />;
   }
 
   return (
@@ -343,14 +353,6 @@ const VideoNode: React.FC<{ node: NodeData; progress: number; statusText: string
       </Group>
     </Group>
   );
-};
-
-const getProgressText = (progress: number): string => {
-  if (progress < 20) return 'Analyzing prompt...';
-  if (progress < 40) return 'Building composition...';
-  if (progress < 60) return 'Rendering details...';
-  if (progress < 80) return 'Refining colors...';
-  return 'Final polish...';
 };
 
 const GenerationTimeTooltip: React.FC<{ node: NodeData }> = ({ node }) => {
@@ -393,8 +395,7 @@ const GenerationTimeTooltip: React.FC<{ node: NodeData }> = ({ node }) => {
 
 const CanvasNode: React.FC<CanvasNodeProps> = React.memo(
   ({ node, isSelected, isInViewport, toolMode, onClick, onPointerDown, onDragStart, onDragEnd, onContextMenu, onDoubleClick, onMouseEnter, onMouseLeave }) => {
-    const [progress, setProgress] = useState(0);
-    const [statusText, setStatusText] = useState('Initializing...');
+    const feedback = useGenerationProgress(node, isInViewport);
     const [isResourceLoaded, setIsResourceLoaded] = useState(false);
     const [isHovering, setIsHovering] = useState(false);
     const groupRef = useRef<Konva.Group>(null);
@@ -403,36 +404,6 @@ const CanvasNode: React.FC<CanvasNodeProps> = React.memo(
       // Source swap (remote URL -> cached blob URL) must invalidate cache readiness.
       setIsResourceLoaded(false);
     }, [node.id, node.src]);
-
-    useEffect(() => {
-      if (!node.loading) {
-        setProgress(0);
-        return;
-      }
-
-      const startTime = Date.now();
-      const duration = 70000;
-      setProgress(1);
-      setStatusText(getProgressText(1));
-
-      const interval = window.setInterval(() => {
-        const elapsed = Date.now() - startTime;
-        let p = 0;
-
-        if (elapsed < duration) {
-          p = (elapsed / duration) * 90;
-        } else {
-          const extraTime = elapsed - duration;
-          p = 90 + (1 - Math.exp(-extraTime / 20000)) * 9;
-        }
-
-        p = Math.min(p, 99);
-        setProgress(p);
-        setStatusText(getProgressText(p));
-      }, 100);
-
-      return () => window.clearInterval(interval);
-    }, [node.loading, node.id]);
 
     useEffect(() => {
       if (!groupRef.current) return;
@@ -469,7 +440,6 @@ const CanvasNode: React.FC<CanvasNodeProps> = React.memo(
     ]);
 
     const isDraggable = !node.locked && toolMode === ToolMode.SELECT;
-    const statusWithTask = node.loading && node.taskId ? `${statusText} #${node.taskId.slice(-6)}` : statusText;
     const handleMouseEnter = (e: Konva.KonvaEventObject<MouseEvent>) => {
       setIsHovering(true);
       onMouseEnter(e);
@@ -514,9 +484,9 @@ const CanvasNode: React.FC<CanvasNodeProps> = React.memo(
         />
 
         {node.type === 'VIDEO' ? (
-          <VideoNode node={node} progress={progress} statusText={statusWithTask} isInViewport={isInViewport} />
+          <VideoNode node={node} feedback={feedback} isInViewport={isInViewport} />
         ) : (
-          <ImageNode node={node} progress={progress} statusText={statusWithTask} enabled={isInViewport || isSelected} onLoad={() => setIsResourceLoaded(true)} />
+          <ImageNode node={node} feedback={feedback} enabled={isInViewport || isSelected} onLoad={() => setIsResourceLoaded(true)} />
         )}
 
         {isHovering && <GenerationTimeTooltip node={node} />}

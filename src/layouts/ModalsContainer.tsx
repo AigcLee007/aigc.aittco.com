@@ -8,6 +8,7 @@ import AnnouncementPopup from '../../components/AnnouncementPopup';
 import { X } from 'lucide-react';
 import type { ImageAssetRef } from '../services/imageAssetTypes';
 import { AssetImage } from '../components/AssetImage';
+import type { NodeGenerationProgressCallback } from '../../types';
 
 interface ModalsContainerProps {
   settingsOpen: boolean;
@@ -28,6 +29,7 @@ interface ModalsContainerProps {
   batchApiKey: string | null;
   onInitGenerations: (count: number, prompt: string, aspectRatio?: string, baseNode?: any, type?: 'IMAGE' | 'VIDEO') => string[];
   onUpdateGeneration: (id: string, src: string | null, error?: string, taskId?: string) => void;
+  onUpdateProgress?: NodeGenerationProgressCallback;
 
   instructionsOpen: boolean;
   onCloseInstructions: () => void;
@@ -63,6 +65,7 @@ export const ModalsContainer: React.FC<ModalsContainerProps> = ({
   batchApiKey,
   onInitGenerations,
   onUpdateGeneration,
+  onUpdateProgress,
   instructionsOpen,
   onCloseInstructions,
   lightboxImage,
@@ -100,6 +103,7 @@ export const ModalsContainer: React.FC<ModalsContainerProps> = ({
         apiKey={batchApiKey}
         onInitGenerations={onInitGenerations}
         onUpdateGeneration={onUpdateGeneration}
+        onUpdateProgress={onUpdateProgress}
       />
 
       <InstructionsModal

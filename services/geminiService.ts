@@ -2,6 +2,8 @@
 
 import { unwrapMiswrappedImageUrl } from '../src/utils/mediaProxy';
 import { formatPoint } from '../src/utils/pointFormat';
+import { readTaskProgress } from '../src/utils/generationProgress';
+import type { GenerationProgressCallback } from '../types';
 
 // API configuration
 // Production should use the relative /api path; local development uses http://localhost:3355/api.
@@ -87,21 +89,12 @@ function findStatusInObject(obj: any): string | null {
 }
 
 // Poll generation tasks through the backend proxy.
-const pollTask = async (apiKey: string | undefined, taskId: string, onProgress?: (progress: number) => void): Promise<string[]> => {
+const pollTask = async (apiKey: string | undefined, taskId: string, onProgress?: GenerationProgressCallback): Promise<string[]> => {
   const url = `${cleanUrl(API_BASE_URL)}/task/${taskId}`;
   const maxAttempts = 450; // 15 minutes (450 * 2s = 900s)
 
-  const startTime = Date.now();
-
     for (let i = 0; i < maxAttempts; i++) {
         await sleep(2000);
-
-        // Simulated Progress (Target 90% at 80s)
-        const elapsed = (Date.now() - startTime) / 1000;
-        // k ~= 0.028 so the simulated progress reaches about 90% at 80 seconds.
-        const simulated = (1 - Math.exp(-0.028 * elapsed)) * 100;
-        const displayProgress = Math.min(Math.floor(simulated), 99);
-        if (onProgress) onProgress(displayProgress);
 
         try {
             const response = await fetch(url, {
@@ -141,6 +134,9 @@ const pollTask = async (apiKey: string | undefined, taskId: string, onProgress?:
                 }
             } else if (isFailed) {
                 throw new Error(`Task failed: ${JSON.stringify(data)}`);
+            } else {
+                const progress = readTaskProgress(data);
+                onProgress?.(progress ?? 0, progress === undefined ? 'estimated' : 'reported', statusRaw);
             }
 
         } catch (error) {
@@ -202,7 +198,7 @@ export const generateImage = async (
     aspectRatio: string = '1:1',
     imageSize: string = '1k',
     n: number = 1,
-    onProgress?: (progress: number) => void,
+    onProgress?: GenerationProgressCallback,
     options?: { routeId?: string; model?: string; modelId?: string }
 ): Promise<string[]> => {
     const endpoint = `${cleanUrl(API_BASE_URL)}/generate`;
@@ -250,6 +246,7 @@ export const generateImage = async (
 
     if (!taskId) throw new Error("No Task ID received from API.");
 
+    onProgress?.(0, 'estimated', 'PENDING');
     return await pollTask(apiKey, taskId, onProgress);
 };
 
@@ -261,7 +258,7 @@ export const editImage = async (
     aspectRatio: string = '1:1',
     imageSize: string = '1k',
     n: number = 1,
-    onProgress?: (progress: number) => void,
+    onProgress?: GenerationProgressCallback,
     options?: { routeId?: string; model?: string; modelId?: string }
 ): Promise<string[]> => {
     const endpoint = `${cleanUrl(API_BASE_URL)}/generate`;
@@ -302,6 +299,7 @@ export const editImage = async (
 
     if (!taskId) throw new Error("No Task ID received from API.");
 
+    onProgress?.(0, 'estimated', 'PENDING');
     return await pollTask(apiKey, taskId, onProgress);
 };
 

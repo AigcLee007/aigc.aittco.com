@@ -1,7 +1,8 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
-const { test } = require('node:test');
+const nodeTest = require('node:test');
+const test = globalThis.test || nodeTest.test;
 
 function loadRuntime(overrides = {}) {
   if (!fs.existsSync('public/classic-app/image-runtime.js')) return {};

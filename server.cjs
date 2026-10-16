@@ -4703,9 +4703,15 @@ app.post("/api/edit", generateLimiter, async (req, res) => {
   let billingCharge = null;
   let localTaskId = null;
   let chargeRouteId = null;
+  let generationRecord = null;
   try {
     const fallbackAuthorization = req.headers["authorization"];
     const requestBody = { ...(req.body || {}) };
+    const uiMode = normalizeGenerationUiMode(requestBody.uiMode);
+    const clientLiveTaskIds = normalizeClientLiveTaskIds(requestBody.clientLiveTaskIds || requestBody.clientLiveTaskId);
+    delete requestBody.uiMode;
+    delete requestBody.clientLiveTaskIds;
+    delete requestBody.clientLiveTaskId;
     const requestedRoute = await resolveImageRoute(requestBody.routeId);
     const requestedImageModel = await resolveRequestedImageModel(requestBody);
     const route = requestedRoute?.editPath
@@ -4858,6 +4864,15 @@ app.post("/api/edit", generateLimiter, async (req, res) => {
       });
     }
 
+    generationRecord = await buildGenerationRecordPayload({
+      req, billingAccount, mediaType: "IMAGE", actionName: "edit",
+      prompt: requestBody.prompt, modelId: requestedImageModel?.id || null,
+      modelName: requestedImageModel?.label || requestBody.model, route,
+      quantity: requestBody.n, aspectRatio: requestBody.aspect_ratio || requestBody.aspectRatio || null,
+      outputSize: requestBody.image_size || requestBody.size || null, uiMode, status: "PENDING",
+      meta: { transport: route.transport, routeMode: route.mode, clientLiveTaskIds, chargeId: billingCharge?.chargeId || null },
+    });
+
     if (shouldRunGptImage2SyncRouteInBackground(route, requestBody)) {
       const localJobId = createLocalImageJobId();
       localTaskId = buildImageTaskToken(route.id, localJobId);
@@ -4878,6 +4893,10 @@ app.post("/api/edit", generateLimiter, async (req, res) => {
           routeId: route.id,
           action: "edit",
         });
+      }
+
+      if (generationRecord?.id) {
+        await attachTaskToGenerationRecord(generationRecord.id, localTaskId);
       }
 
       (async () => {
@@ -4925,6 +4944,7 @@ app.post("/api/edit", generateLimiter, async (req, res) => {
             resultUrls,
             req,
             billingAccount,
+            generationRecord,
             route,
             modelId: requestedImageModel?.id || null,
             taskId: localTaskId,
@@ -4941,6 +4961,11 @@ app.post("/api/edit", generateLimiter, async (req, res) => {
             responseData: successPayload,
           });
           await settlePendingTask(localTaskId, "SUCCESS");
+          await completeGenerationRecordSuccessSafe({
+            recordId: generationRecord?.id, taskId: localTaskId,
+            resultUrls: persistedResult.resultUrls, previewUrl: persistedResult.previewUrl,
+            meta: mergeGeneratedAssetMeta({ transport: route.transport, routeMode: route.mode, clientLiveTaskIds, chargeId: billingCharge?.chargeId || null }, persistedResult),
+          });
         } catch (error) {
           const normalizedError = normalizeGenerationError(error);
           setLocalImageJob(localJobId, {
@@ -4965,6 +4990,10 @@ app.post("/api/edit", generateLimiter, async (req, res) => {
               routeId: route.id,
             });
           }
+          await completeGenerationRecordFailureSafe({
+            recordId: generationRecord?.id, taskId: localTaskId, errorMessage: normalizedError.error,
+            meta: { transport: route.transport, routeMode: route.mode, clientLiveTaskIds, chargeId: billingCharge?.chargeId || null },
+          });
           logger.error({
             timestamp: new Date().toISOString(),
             type: "GPT-image-2 Sync Background Edit Error",
@@ -5027,9 +5056,15 @@ app.post("/api/edit", generateLimiter, async (req, res) => {
         resultUrls: editResultUrls,
         req,
         billingAccount,
+        generationRecord,
         route,
         modelId: requestedImageModel?.id || null,
         taskId: localTaskId,
+      });
+      await completeGenerationRecordSuccessSafe({
+        recordId: generationRecord?.id, resultUrls: persistedResult.resultUrls,
+        previewUrl: persistedResult.previewUrl,
+        meta: mergeGeneratedAssetMeta({ transport: route.transport, routeMode: route.mode, clientLiveTaskIds, chargeId: billingCharge?.chargeId || null }, persistedResult),
       });
       return res.json(
         shouldUseBilling
@@ -5059,6 +5094,9 @@ app.post("/api/edit", generateLimiter, async (req, res) => {
           routeId: route.id,
           action: "edit",
         });
+      }
+      if (generationRecord?.id) {
+        await attachTaskToGenerationRecord(generationRecord.id, localTaskId);
       }
       const normalizedResponse = shouldUseBilling
         ? {
@@ -5091,10 +5129,22 @@ app.post("/api/edit", generateLimiter, async (req, res) => {
       resultUrls: editResultUrls,
       req,
       billingAccount,
+      generationRecord,
       route,
       modelId: requestedImageModel?.id || null,
       taskId: localTaskId,
     });
+    if (persistedResult.resultUrls.length > 0) {
+      await completeGenerationRecordSuccessSafe({
+        recordId: generationRecord?.id, resultUrls: persistedResult.resultUrls,
+        previewUrl: persistedResult.previewUrl,
+        meta: mergeGeneratedAssetMeta({ transport: route.transport, routeMode: route.mode, clientLiveTaskIds, chargeId: billingCharge?.chargeId || null }, persistedResult),
+      });
+    } else {
+      await completeGenerationRecordFailureSafe({
+        recordId: generationRecord?.id, errorMessage: "编辑响应未返回任务 ID 或图片结果",
+      });
+    }
     res.json(
       shouldUseBilling
         ? {
@@ -5114,6 +5164,10 @@ app.post("/api/edit", generateLimiter, async (req, res) => {
         routeId: chargeRouteId,
       });
     }
+    await completeGenerationRecordFailureSafe({
+      recordId: generationRecord?.id, taskId: localTaskId,
+      errorMessage: normalizedError.error,
+    });
     console.error("[Edit] Error:", error.message);
     respondWithUserFacingGenerationError(res, error, 500);
   }

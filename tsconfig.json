@@ -27,5 +27,15 @@
     },
     "allowImportingTsExtensions": true,
     "noEmit": true
-  }
+  },
+  "exclude": [
+    "node_modules",
+    "dist",
+    "output",
+    "storage",
+    ".worktrees",
+    ".codex-chrome-profile",
+    ".codex-chrome-profile-preview",
+    ".playwright-cli"
+  ]
 }

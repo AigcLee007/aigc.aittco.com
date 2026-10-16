@@ -26,6 +26,7 @@ import {
 } from '../src/config/imageModels';
 import { useImageModelCatalog } from '../src/hooks/useImageModelCatalog';
 import GlassModal from './GlassModal';
+import type { NodeGenerationProgressCallback } from '../types';
 
 interface BatchProcessModalProps {
   isOpen: boolean;
@@ -40,6 +41,7 @@ interface BatchProcessModalProps {
     options?: { preserveToolMode?: boolean },
   ) => string[];
   onUpdateGeneration: (id: string, src: string | null, error?: string) => void;
+  onUpdateProgress?: NodeGenerationProgressCallback;
 }
 
 type PromptItem = {
@@ -54,6 +56,7 @@ const BatchProcessModal: React.FC<BatchProcessModalProps> = ({
   apiKey,
   onInitGenerations,
   onUpdateGeneration,
+  onUpdateProgress,
 }) => {
   useImageRouteCatalog();
   useImageModelCatalog();
@@ -154,7 +157,7 @@ const BatchProcessModal: React.FC<BatchProcessModalProps> = ({
               aspectRatio,
               imageSize,
               1,
-              undefined,
+              (progress, source, status) => onUpdateProgress?.(generationId, progress, source, status),
               {
                 routeId: selectedImageRoute.id,
                 model: selectedImageModel,
@@ -168,7 +171,7 @@ const BatchProcessModal: React.FC<BatchProcessModalProps> = ({
               aspectRatio,
               imageSize,
               1,
-              undefined,
+              (progress, source, status) => onUpdateProgress?.(generationId, progress, source, status),
               {
                 routeId: selectedImageRoute.id,
                 model: selectedImageModel,

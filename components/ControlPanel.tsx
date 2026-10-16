@@ -2,6 +2,7 @@ import { createPreview, decodeImage } from '../src/services/imagePreview';
 import { readOriginalBlob } from '../src/services/imageAssetCache';
 ﻿import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { AppStatus, NodeData, ToolMode } from '../types';
+import type { NodeGenerationProgressCallback } from '../types';
 import { useSelectionStore, type ReferenceImage } from '../src/store/selectionStore';
 import { useCanvasStore } from '../src/store/canvasStore';
 import { editImageApi, generateImageApi, generateGeminiImage, normalizeImageResultValue } from '../services/api';
@@ -72,7 +73,7 @@ interface ControlPanelProps {
     options?: { preserveToolMode?: boolean },
   ) => string[];
   onUpdateGeneration: (id: string, src: string | null, error?: string, taskId?: string) => void;
-  onUpdateProgress?: (id: string, progress: number) => void;
+  onUpdateProgress?: NodeGenerationProgressCallback;
   onOpenBatchModal: () => void;
 }
 
@@ -1521,8 +1522,8 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
             generateAudio: videoGenerateAudio,
           } : {}),
         } : {}),
-      }, (progress) => {
-        if (onUpdateProgress) onUpdateProgress(pid, progress);
+      }, (progress, source, status) => {
+        onUpdateProgress?.(pid, progress, source, status);
       });
       onUpdateGeneration(pid, videoUrl);
     } catch (err: any) {

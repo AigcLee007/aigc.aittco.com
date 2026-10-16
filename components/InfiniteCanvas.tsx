@@ -7,13 +7,14 @@ import { useSelectionStore } from '../src/store/selectionStore';
 import { useZoom } from '../src/hooks/useZoom';
 import { useCanvasInteraction } from '../src/hooks/useCanvasInteraction';
 import { useViewportCulling } from '../src/hooks/useViewportCulling';
+import { useGenerationProgress } from '../src/hooks/useGenerationProgress';
 import { isLowEndDevice } from '../src/utils/performance';
 import CanvasNode from './CanvasNode';
 import { assetActionSource } from '../src/services/imageAssetActions';
 import { RefreshCw } from 'lucide-react';
 
 const SmartTooltip: React.FC<{ node: NodeData; x: number; y: number }> = ({ node, x, y }) => {
-  if (!node) return null;
+  const feedback = useGenerationProgress(node);
   const isVideo = node.type === 'VIDEO';
   return (
     <div
@@ -25,22 +26,23 @@ const SmartTooltip: React.FC<{ node: NodeData; x: number; y: number }> = ({ node
       }}
     >
       <div className="flex items-center gap-2 mb-2 pb-2 border-b border-white/5">
-        {node.loading ? (
+        {node.loading && !node.error ? (
              <RefreshCw className="animate-spin text-blue-400" size={12} />
         ) : (
             node.error ? <div className="w-2 h-2 rounded-full bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.5)]"></div> : <div className="w-2 h-2 rounded-full bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.5)]"></div>
         )}
         <span className="text-[10px] font-bold text-gray-300 uppercase tracking-widest flex-1">
-           {node.loading ? `生成中 ${Math.round(node.progress || 0)}%` : (isVideo ? 'AI VIDEO' : 'AI IMAGE')}
+           {node.error ? '生成失败' : node.loading ? `生成中 ${feedback.percentLabel}` : (isVideo ? 'AI VIDEO' : 'AI IMAGE')}
         </span>
       </div>
       
-      {node.loading && (
+      {node.loading && !node.error && (
           <div className="mb-2">
              <div className="h-1.5 w-full bg-gray-800 rounded-full overflow-hidden border border-white/5">
-                <div className="h-full bg-linear-to-r from-blue-600 to-purple-600 transition-all duration-300 ease-out" style={{ width: `${node.progress || 0}%` }} />
+                <div className="h-full bg-linear-to-r from-blue-600 to-purple-600 transition-all duration-300 ease-out" style={{ width: `${feedback.percent}%` }} />
              </div>
-             <div className="text-[10px] text-blue-300 mt-1.5 font-mono">{node.type === 'VIDEO' ? "Rendering frames..." : "Denoising..."}</div>
+             <div className="text-[10px] text-blue-300 mt-1.5">{feedback.statusText}</div>
+             <div className="text-[10px] text-gray-500 mt-1">{feedback.elapsedLabel}</div>
           </div>
       )}
 
@@ -81,6 +83,7 @@ const InfiniteCanvas: React.FC<InfiniteCanvasProps> = ({
 
   // Store state
   const { nodes, canvasState, updateNode, moveNode } = useCanvasStore();
+  const currentHoveredNode = hoveredNode ? nodes.find(node => node.id === hoveredNode.id) : undefined;
   const { selectedIds, select, toolMode, setToolMode, addReferenceImage, showTooltips, brushSize, brushColor } = useSelectionStore();
   const selectedNodeIds = new Set(selectedIds);
 
@@ -572,8 +575,8 @@ const InfiniteCanvas: React.FC<InfiniteCanvasProps> = ({
       </Stage>
 
       {/* Smart Tooltip Overlay */}
-  {showTooltips && !lowEndMode && hoveredNode && hoverPosition && (
-        <SmartTooltip node={hoveredNode} x={hoverPosition.x} y={hoverPosition.y} />
+  {showTooltips && !lowEndMode && currentHoveredNode && hoverPosition && (
+        <SmartTooltip node={currentHoveredNode} x={hoverPosition.x} y={hoverPosition.y} />
       )}
 
       {/* Zoom indicator */}

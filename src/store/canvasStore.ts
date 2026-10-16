@@ -6,6 +6,7 @@ import { NodeData, CanvasState, Point } from '../../types';
 import { historyManager } from '../commands/HistoryManager';
 import { AddNodeCommand, DeleteNodeCommand, UpdateNodeCommand, SetNodesCommand, MoveNodeCommand } from '../commands/nodeCommands';
 import { bounded } from '../services/imageAssetTypes';
+import { resolveGenerationStartedAt } from '../utils/generationProgress';
 import { beginLocalRead, deferLocalRecoveryWrite, finishLocalRead, localStoreWritable, mergeRecoveredLocalState, setLocalReadFailed } from '../services/localHydrationSafety';
 
 // Simple UUID generator
@@ -52,6 +53,16 @@ export const sanitizePersistedNode = (node: NodeData): NodeData => {
   if (typeof node.loading === 'boolean') sanitized.loading = node.loading;
   if (typeof node.error === 'boolean') sanitized.error = node.error;
   if (node.errorMessage) sanitized.errorMessage = String(node.errorMessage);
+  if (Number.isFinite(node.generationStartedAt) && node.generationStartedAt! > 0) {
+    sanitized.generationStartedAt = node.generationStartedAt;
+  } else if (node.loading && !node.error) {
+    sanitized.generationStartedAt = resolveGenerationStartedAt(node);
+  }
+  if (node.generationStatus) sanitized.generationStatus = String(node.generationStatus).slice(0, 64);
+  if (node.progressSource === 'reported' && typeof node.progress === 'number' && Number.isFinite(node.progress) && node.progress >= 0 && node.progress <= 100) {
+    sanitized.progress = node.progress;
+    sanitized.progressSource = 'reported';
+  }
   if (node.history) sanitized.history = node.history.slice(-50).map(item => ({
     src: cleanPersistedUrl(item.src) || '', assetId: item.assetId,
     thumbnailSrc: cleanPersistedUrl(item.thumbnailSrc), prompt: item.prompt,

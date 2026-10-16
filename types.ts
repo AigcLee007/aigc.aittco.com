@@ -11,6 +11,9 @@ export interface Stroke {
 }
 
 export type NodeType = 'IMAGE' | 'VIDEO';
+export type GenerationProgressSource = 'reported' | 'estimated';
+export type GenerationProgressCallback = (progress: number, source?: GenerationProgressSource, status?: string) => void;
+export type NodeGenerationProgressCallback = (id: string, progress: number, source?: GenerationProgressSource, status?: string) => void;
 
 export interface HistoryItem {
   src: string;
@@ -45,8 +48,11 @@ export interface NodeData {
 
   // Loading / Error States for async generation
   taskId?: string; // Task ID for polling
+  generationStartedAt?: number; // Client waiting deadline; independent of simulated progress.
   loading?: boolean;
   progress?: number; // Real-time generation progress (0-100)
+  progressSource?: GenerationProgressSource;
+  generationStatus?: string; // Last confirmed upstream task status.
   error?: boolean;
   errorMessage?: string;
 

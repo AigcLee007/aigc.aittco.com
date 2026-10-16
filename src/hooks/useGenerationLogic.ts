@@ -149,6 +149,7 @@ export const useGenerationLogic = () => {
             opacity: 1,
             locked: false,
             loading: true,
+            generationStartedAt: Date.now(),
             src: '',
             prompt: prompt,
             history: [],
@@ -206,8 +207,16 @@ export const useGenerationLogic = () => {
     }, [generateId, setNodes, setToolMode, canvasState, setCanvasTransform]);
 
     // Update progress
-    const handleUpdateProgress = useCallback((id: string, progress: number) => {
-        updateNode(id, { progress }, true); 
+    const handleUpdateProgress = useCallback((id: string, progress: number, source: 'reported' | 'estimated' = 'estimated', status?: string) => {
+        const node = useCanvasStore.getState().nodes.find(item => item.id === id);
+        if (!node?.loading || node.error || !Number.isFinite(progress)) return;
+        const updates: Partial<NodeData> = {};
+        if (status && status !== node.generationStatus) updates.generationStatus = status;
+        if (source === 'reported' && progress > 0 && progress < 100 && (node.progressSource !== 'reported' || progress > (node.progress ?? 0))) {
+            updates.progress = progress;
+            updates.progressSource = source;
+        }
+        if (Object.keys(updates).length) updateNode(id, updates, true);
     }, [updateNode]);
 
     // Update generation
@@ -218,7 +227,7 @@ export const useGenerationLogic = () => {
         }
 
         if (error || !src || typeof src !== 'string') {
-        updateNode(id, { loading: false, error: true, errorMessage: error || 'Invalid image source' });
+        updateNode(id, { loading: false, error: true, errorMessage: error || 'Invalid image source', progress: undefined, progressSource: undefined });
         return;
         }
 
@@ -249,6 +258,8 @@ export const useGenerationLogic = () => {
             assetId: undefined,
             thumbnailSrc,
             loading: false,
+            progress: 100,
+            progressSource: 'reported',
             error: false,
             opacity: 1,
             createdAt: generatedAt,

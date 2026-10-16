@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
-import { findAllUrlsInObject, normalizeImageResultValue } from './api';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { checkTaskStatus, editImageApi, findAllUrlsInObject, generateImageApi, normalizeImageResultValue } from './api';
 
 describe('image result URL parsing', () => {
   it('does not wrap http image URLs as base64 data URLs', () => {
@@ -44,5 +44,42 @@ describe('image result URL parsing', () => {
     );
 
     expect(results).toEqual([url]);
+  });
+});
+
+describe('image request deadlines', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    localStorage.setItem('auth-session-v1', 'sess_diagnostic');
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+    localStorage.clear();
+  });
+
+  it.each([generateImageApi, editImageApi])('ends an unacknowledged submission without submitting it again', async (submit) => {
+    const fetchMock = vi.fn(() => new Promise<Response>(() => {}));
+    vi.stubGlobal('fetch', fetchMock);
+    const outcome = submit(undefined, { routeId: 'gpt-image-2-line2', model: 'gpt-image-2' }).catch((error) => error);
+    await vi.advanceTimersByTimeAsync(120_001);
+    const error = await Promise.race([outcome, Promise.resolve(null)]);
+    expect(error?.message).toContain('结果未确认');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('bounds reading a stalled JSON body as well as fetching response headers', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: () => new Promise(() => {}) })));
+    const outcome = checkTaskStatus(undefined, 'diagnostic-task').catch((error) => error);
+    await vi.advanceTimersByTimeAsync(20_001);
+    const error = await Promise.race([outcome, Promise.resolve(null)]);
+    expect(error?.message).toContain('查询超时');
+  });
+
+  it('preserves a successful task acknowledgement and clears the deadline', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => ({ task_id: 'acknowledged' }) })));
+    expect((await generateImageApi(undefined, { routeId: 'gpt-image-2-line2' })).taskId).toBe('acknowledged');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(vi.getTimerCount()).toBe(0);
   });
 });

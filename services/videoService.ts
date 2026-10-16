@@ -1,6 +1,8 @@
 import axios from 'axios';
 import { getAuthorizedBillingHeaders } from '../src/services/accountIdentity';
 import { AppError, extractErrorMessage } from '../src/utils/errorDebug';
+import { readTaskProgress } from '../src/utils/generationProgress';
+import type { GenerationProgressCallback } from '../types';
 
 const API_BASE_URL = '/api';
 export const VIDEO_POLL_INTERVAL_MS = 15_000;
@@ -112,7 +114,7 @@ export const isVideoTaskInProgressStatus = (status: string): boolean =>
 export const pollVideoTask = async (
   apiKey: string | undefined,
   taskId: string,
-  onProgress?: (progress: number) => void,
+  onProgress?: GenerationProgressCallback,
 ): Promise<string> =>
   new Promise((resolve, reject) => {
     const startTime = Date.now();
@@ -133,10 +135,6 @@ export const pollVideoTask = async (
         const failReason = task.fail_reason || task.error || task?.data?.fail_reason || task?.data?.error || '';
         const progressStr = String(task.progress ?? task?.data?.progress ?? '');
 
-        if (onProgress) {
-          onProgress(Math.min(95, Math.floor((Date.now() - startTime) / 2000)));
-        }
-
         if (status === 'succeeded' || status === 'completed' || status === 'success') {
           clearInterval(pollInterval);
           if (outputUrl) resolve(outputUrl);
@@ -151,6 +149,8 @@ export const pollVideoTask = async (
         }
 
         if (isVideoTaskInProgressStatus(status)) {
+          const progress = readTaskProgress(task);
+          onProgress?.(progress ?? 0, progress === undefined ? 'estimated' : 'reported', status.toUpperCase());
           errorCount = 0;
         } else {
           console.warn(`[VideoPoll] Unknown status: ${status}`, task);
@@ -175,7 +175,7 @@ export const pollVideoTask = async (
 export const generateVideo = async (
   apiKey: string | undefined,
   input: GenerateVideoInput,
-  onProgress?: (progress: number) => void,
+  onProgress?: GenerationProgressCallback,
 ): Promise<string> => {
   try {
     const headers = await buildVideoRequestHeaders(apiKey);
@@ -186,6 +186,7 @@ export const generateVideo = async (
     );
     const taskId = response?.data?.id || response?.data?.task_id || response?.data?.data?.task_id;
     if (!taskId) throw new Error('未返回任务 ID');
+    onProgress?.(0, 'estimated', 'PENDING');
     return pollVideoTask(apiKey, taskId, onProgress);
   } catch (error: any) {
     throw toAppError(error, '视频生成请求失败');
