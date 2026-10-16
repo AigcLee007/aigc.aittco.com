@@ -44,8 +44,8 @@ function createImageJobService(options = {}) {
   const assets=options.assets;
   // Workers mostly wait on the upstream provider, so the global cap follows provider
   // capacity; the per-user caps keep one large batch from occupying every worker.
-  const concurrency=Math.max(1,Math.min(64,Math.floor(positive(options.concurrency || process.env.IMAGE_JOB_CONCURRENCY,24))));
-  const userConcurrency=Math.max(1,Math.min(concurrency,Math.floor(positive(options.userConcurrency || process.env.IMAGE_JOB_USER_CONCURRENCY,4))));
+  const concurrency=Math.max(1,Math.min(64,Math.floor(positive(options.concurrency || process.env.IMAGE_JOB_CONCURRENCY,48))));
+  const userConcurrency=Math.max(1,Math.min(concurrency,Math.floor(positive(options.userConcurrency || process.env.IMAGE_JOB_USER_CONCURRENCY,6))));
   const maxQueued=Math.max(1,positive(options.maxQueued || process.env.IMAGE_JOB_MAX_QUEUED,200));
   // Counts the user's queued and running jobs, unlike maxQueued which counts queued jobs only.
   const userMaxQueued=Math.max(1,Math.floor(positive(options.userMaxQueued || process.env.IMAGE_JOB_USER_MAX_QUEUED,32)));

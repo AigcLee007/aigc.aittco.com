@@ -18,6 +18,7 @@
 服务器更新到 `codex/image-assets-recovery` 分支（同时包含画布进度条与并发调整）：
 
 ```bash
+set -e
 cd /www/wwwroot/aigc.aittco.com
 git status --short
 git fetch origin
@@ -31,8 +32,8 @@ set_env() {
     printf '\n%s=%s\n' "$1" "$2" >> .env
   fi
 }
-set_env IMAGE_JOB_CONCURRENCY 24
-set_env IMAGE_JOB_USER_CONCURRENCY 4
+set_env IMAGE_JOB_CONCURRENCY 48
+set_env IMAGE_JOB_USER_CONCURRENCY 6
 set_env IMAGE_JOB_MAX_QUEUED 200
 set_env IMAGE_JOB_USER_MAX_QUEUED 32
 docker compose up -d --build app
@@ -46,8 +47,8 @@ docker compose logs --tail=100 app
 
 | 参数 | 默认 | 作用 |
 | --- | --- | --- |
-| IMAGE_JOB_CONCURRENCY | 24 | 全站同时执行的图片任务数（上限 64）；任务主要在等上游，按上游渠道允许的并发设置 |
-| IMAGE_JOB_USER_CONCURRENCY | 4 | 单个用户同时执行的任务数；超出的排队，不占用其他用户的名额 |
+| IMAGE_JOB_CONCURRENCY | 48 | 全站同时执行的图片任务数（上限 64）；任务主要在等上游，按上游渠道允许的并发设置 |
+| IMAGE_JOB_USER_CONCURRENCY | 6 | 单个用户同时执行的任务数；超出的排队，不占用其他用户的名额 |
 | IMAGE_JOB_MAX_QUEUED | 200 | 全站最大排队任务数，超限拒绝受理 |
 | IMAGE_JOB_USER_MAX_QUEUED | 32 | 单个用户排队加执行中的任务上限，超限提示稍后提交 |
 | IMAGE_JOB_MAX_REQUEST_BYTES | 50 MiB | 单次请求上传上限 |
@@ -82,11 +83,21 @@ docker compose logs --tail=100 app
 
 ## 2026-10-16 并发与画布进度集成验证
 
-本次将持久图片任务依赖与画布进度条合并到 `codex/image-assets-recovery`，默认全站并发 24、单用户并发 4、全站排队 200、单用户排队加执行 32。旧服务器 `.env` 中已有值会覆盖默认值，更新时按部署命令写入这四个参数。
+此前将持久图片任务依赖与画布进度条合并到 `codex/image-assets-recovery`，初始全站并发 24、单用户并发 4、全站排队 200、单用户排队加执行 32。当前并发默认值已调整为下述 48／6。旧服务器 `.env` 中已有值会覆盖默认值，更新时按部署命令写入这四个参数。
 
 验证结果：`npm test -- --maxWorkers=2` 通过 337 项、跳过 4 项；`npm run test:node` 串行通过 142 项。`npx tsc --noEmit`、`npm run build`、`docker compose config --quiet` 和差异检查均通过。构建仍有现有体积与静态/动态重复导入提示。
 
 新增回归覆盖用户间公平调度、同时命中全局与个人限额、拒绝后停止重发、断网恢复、真实进度 25%→65%、非默认线路多轮查询、编辑仅生成一条历史记录，以及旧恢复日志不能覆盖新图片结果。Windows 文件元数据原子替换对短暂文件锁增加有界退避；Node 原生测试独立运行，避免被 Vitest 错误收集。
+
+## 2026-10-16 4 核 8 GB 服务器并发预算
+
+按已确认的服务器配置，将服务代码、Compose 和示例环境的默认全站并发调整为 48、单用户并发调整为 6。全站排队上限仍为 200，单用户排队加执行上限仍为 32；保留全局硬上限 64 和用户间公平调度。
+
+调整后 `npm run test:node` 的 142 项回归全部通过，`node --check imageJobService.cjs`、`docker compose config --quiet` 和差异检查通过；Compose 按示例环境展开后的四项预算核对为 48／6／200／32。
+
+这组参数作为上线后的观察起点。现有验证覆盖任务调度与恢复功能，尚未完成真实上游的 48／60 并发资源压测。上线后观察主机可用内存、容器重启、上游 429／超时，以及图片保存积压；可用内存约保留 2 GB 是观察目标。运行稳定且上游容量允许后，再评估提升到 60。
+
+如需降低负载，将 `.env` 的全站／单用户并发改回 24／4，执行 `docker compose up -d --no-deps app` 重建 app 容器即可；先等待当前任务完成再操作。
 
 ## 回退
 
