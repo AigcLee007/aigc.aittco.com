@@ -23,5 +23,5 @@ function preparationQueue(limit:number) {
   };
 }
 
-export const takeSourcePreparationSlot=preparationQueue(3);
+export const takeSourcePreparationSlot=preparationQueue(1);
 export const takePreviewPreparationSlot=preparationQueue(1);

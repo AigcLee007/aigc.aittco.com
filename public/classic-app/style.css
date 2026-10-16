@@ -1665,6 +1665,22 @@ html.classic-vip-mode .classic-live-empty {
   gap: 14px;
 }
 
+.image-retention-notice {
+  margin: 12px 0;
+  padding: 9px 12px;
+  border: 1px solid rgba(255, 171, 0, 0.18);
+  border-radius: 9px;
+  background: rgba(255, 171, 0, 0.05);
+  color: var(--text-sub);
+  font-size: 12px;
+  line-height: 1.7;
+}
+
+.image-retention-notice strong {
+  color: var(--banana);
+  font-weight: 700;
+}
+
 .classic-live-kicker {
   color: var(--banana);
   font-size: 18px;
@@ -3226,6 +3242,21 @@ html.classic-vip-mode .classic-live-empty {
   background: rgba(255, 214, 10, 0.92);
   border-color: rgba(255, 214, 10, 0.95);
 }
+
+.classic-download-settings {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 10px 0;
+  color: var(--text-sub);
+  font-size: 12px;
+}
+.classic-download-settings label { display: flex; align-items: center; gap: 6px; cursor: pointer; }
+.classic-live-action-btn[hidden] { display: none !important; }
+.classic-live-media > .history-cache-badge { top: 42px; left: 10px; max-width: calc(100% - 20px); white-space: normal; }
+.history-cache-badge { max-width: calc(100% - 12px); white-space: normal; pointer-events: none; }
+.classic-gallery-pagination { display: flex; align-items: center; justify-content: center; gap: 12px; padding: 16px 0; }
 
 .history-prompt-tip {
   position: absolute;

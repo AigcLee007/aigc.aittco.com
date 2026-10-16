@@ -7,6 +7,7 @@ import { getProxiedImageUrl } from '../utils/mediaProxy';
 import { getLocalLine4ThumbnailUrl } from '../utils/generatedImageStorage';
 import { imageDimensions } from './imageDimensions';
 import { takeSourcePreparationSlot } from './imagePreparationQueue';
+import { imageResultStore, type ImageResultInput } from './imageResultStore';
 
 const sourceReads=new Map<string,Promise<{blob:Blob;assetId?:string}>>();
 const sourceIds=new Map<string,string>();
@@ -54,12 +55,23 @@ async function fetchImage(src:string,timeoutMs:number):Promise<Blob> {
   } finally { controller.abort();releaseSlot(); }
 }
 
-export async function cacheImageSource(src:string,timeoutMs=15000,forceRemote=false):Promise<{blob:Blob;assetId?:string}> {
+export async function cacheImageSource(src:string,timeoutMs=15000,forceRemote=false,identity?:ImageResultInput):Promise<{blob:Blob;assetId?:string}> {
   if (!src) throw new ImageAssetError('EMPTY','没有图片来源');
-  const previous=sourceReads.get(src); if(previous)return previous;
+  const resultId=identity ? imageResultStore.resultId(identity.ownerId,identity.jobId,identity.outputIndex) : undefined;
+  const sourceKey=resultId || src;
+  const previous=sourceReads.get(sourceKey); if(previous)return previous;
   const work=(async () => {
     const releasePreparation=await takeSourcePreparationSlot(Math.min(45000,timeoutMs*3));
     try {
+    if(identity && resultId){
+      try {
+        await imageResultStore.register({...identity,originalUrl:src});
+        if(!forceRemote){const cached=await imageResultStore.getOriginal(resultId);if(isValidAssetBlob(cached))return {blob:cached,assetId:resultId};}
+      } catch { /* A temporarily unreadable cache does not make its cloud source unreadable. */ }
+      const blob=await fetchImage(src,timeoutMs);
+      try { await imageResultStore.putOriginal(resultId,blob);return {blob,assetId:resultId}; }
+      catch { return {blob}; } // Display/download can proceed while committed state exposes the error.
+    }
     let known=forceRemote ? undefined : sourceIds.get(src);
     if (!forceRemote && !known && !/^(data:|blob:)/i.test(src)) { try { known=await bounded(get<string>(`asset-source-${src}`),timeoutMs); } catch {} }
     if (known) { const blob=await assetStorage.getBlob(known); if(isValidAssetBlob(blob)){sourceIds.set(src,known);return {blob,assetId:known};} }
@@ -72,37 +84,47 @@ export async function cacheImageSource(src:string,timeoutMs=15000,forceRemote=fa
     return {blob,assetId};
     }finally{releasePreparation();}
   })();
-  sourceReads.set(src,work);
-  try{return await work;}finally{if(sourceReads.get(src)===work)sourceReads.delete(src);}
+  sourceReads.set(sourceKey,work);
+  try{return await work;}finally{if(sourceReads.get(sourceKey)===work)sourceReads.delete(sourceKey);}
 }
 
-async function readOriginal(ref:ImageAssetRef,timeoutMs:number) {
+function identityFromAssetId(id?:string):ImageResultInput|undefined {
+  if(!id?.startsWith('result:v1:'))return undefined;
+  const parts=id.split(':');if(parts.length!==5)return undefined;
+  try {
+    const identity={ownerId:decodeURIComponent(parts[2]),jobId:decodeURIComponent(parts[3]),outputIndex:Number(parts[4])};
+    return imageResultStore.resultId(identity.ownerId,identity.jobId,identity.outputIndex)===id ? identity : undefined;
+  } catch {return undefined;}
+}
+async function readOriginal(ref:ImageAssetRef,timeoutMs:number,validate=true) {
+  const identity=identityFromAssetId(ref.assetId);
   if(ref.assetId){
     try{
       const blob=await assetStorage.getBlob(ref.assetId);
-      if(isValidAssetBlob(blob)){await bounded(validateOriginal(blob,ref.assetId),timeoutMs);return {blob,assetId:ref.assetId};}
+      if(isValidAssetBlob(blob)){if(validate)await bounded(validateOriginal(blob,ref.assetId),timeoutMs);return {blob,assetId:ref.assetId};}
     }catch(error){
       if(!ref.src)throw error;
-      return readOriginalSource(ref.src,timeoutMs);
+      return readOriginalSource(ref.src,timeoutMs,identity,!!identity,validate);
     }
   }
   // A preview can never satisfy an original consumer.
-  return readOriginalSource(ref.src || '',timeoutMs);
+  return readOriginalSource(ref.src || '',timeoutMs,identity,false,validate);
 }
-async function readOriginalSource(src:string,timeoutMs:number) {
-  const remote=await cacheImageSource(src,timeoutMs);
+async function readOriginalSource(src:string,timeoutMs:number,identity?:ImageResultInput,forceRemote=false,validate=true) {
+  const remote=await cacheImageSource(src,timeoutMs,forceRemote,identity);
+  if(!validate)return remote;
   try {
     await bounded(validateOriginal(remote.blob,remote.assetId || src),timeoutMs);
     return remote;
   }catch(error){
     if(!remote.assetId || !src)throw error;
-    const recovered=await cacheImageSource(src,timeoutMs,true);
+    const recovered=await cacheImageSource(src,timeoutMs,true,identity);
     await bounded(validateOriginal(recovered.blob,recovered.assetId || src),timeoutMs);
     return recovered;
   }
 }
-export async function readOriginalBlob(ref:ImageAssetRef,timeoutMs=15000):Promise<Blob> {
-  return (await readOriginal(ref,timeoutMs)).blob;
+export async function readOriginalBlob(ref:ImageAssetRef,timeoutMs=15000,{validate=true}:{validate?:boolean}={}):Promise<Blob> {
+  return (await readOriginal(ref,timeoutMs,validate)).blob;
 }
 
 async function load(ref:ImageAssetRef,variant:AssetVariant,timeoutMs:number,key:string,signal?:AbortSignal):Promise<Entry> {
@@ -147,7 +169,7 @@ async function loadWithinSlot(ref:ImageAssetRef,variant:AssetVariant,timeoutMs:n
       URL.revokeObjectURL(url);url='';
       if (variant!=='preview') {
         if(!ref.src)throw error;
-        const remote=await cacheImageSource(ref.src,timeoutMs,true);
+        const remote=await cacheImageSource(ref.src,timeoutMs,true,identityFromAssetId(assetId || ref.assetId));
         blob=remote.blob;url=URL.createObjectURL(blob);
         image=await decodeImage(url,timeoutMs);
       } else {
@@ -157,8 +179,8 @@ async function loadWithinSlot(ref:ImageAssetRef,variant:AssetVariant,timeoutMs:n
         blob=await assetStorage.ensurePreview(assetId,true);
       }catch(localError){
         if(!ref.src)throw localError;
-        const remote=await cacheImageSource(ref.src,timeoutMs,true);
-        blob=remote.assetId ? await assetStorage.ensurePreview(remote.assetId) : (await createPreview(remote.blob)).blob;
+        const remote=await cacheImageSource(ref.src,timeoutMs,true,identityFromAssetId(assetId || ref.assetId));
+        blob=remote.assetId ? await assetStorage.ensurePreview(remote.assetId,true) : (await createPreview(remote.blob)).blob;
       }
         url=URL.createObjectURL(blob);image=await decodeImage(url,timeoutMs);
       }

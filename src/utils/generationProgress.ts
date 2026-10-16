@@ -57,7 +57,9 @@ export function getGenerationProgress(node: NodeData, now: number, fallbackStart
   const percentLabel = `${reported === undefined ? '预计 ' : ''}${percent}%`;
   const longWait = elapsedMs >= 180_000;
   const queued = ['QUEUED', 'IN_QUEUE'].includes(String(node.generationStatus || '').trim().toUpperCase());
-  const statusText = queued
+  const statusText = node.generationConnectionStatus === 'recovering' ? '连接中断，正在恢复任务'
+    : node.generationConnectionStatus === 'unconfirmed' ? '尚未确认受理，请核对历史记录'
+    : queued
     ? longWait ? '排队时间较长，仍在等待' : '正在排队，等待开始生成'
     : !node.taskId && !node.generationStatus
       ? longWait ? '提交耗时较长，等待服务器确认' : '正在提交，等待服务器确认'

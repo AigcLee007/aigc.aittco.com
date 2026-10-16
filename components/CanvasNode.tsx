@@ -184,6 +184,9 @@ const ImageNode: React.FC<{ node: NodeData; feedback: GenerationFeedback; enable
   if (node.loading) {
     return <DreamingPlaceholder width={node.width} height={node.height} feedback={feedback} />;
   }
+  if (node.generationConnectionStatus === 'result-unavailable') {
+    return <ErrorPlaceholder width={node.width} height={node.height} message="生成已完成，但图片保存失败，请联系管理员核对" />;
+  }
   if (node.error) {
     return <ErrorPlaceholder width={node.width} height={node.height} message={node.errorMessage || 'Failed'} />;
   }

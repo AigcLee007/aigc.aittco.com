@@ -1,6 +1,6 @@
 ﻿import { getAuthorizedBillingHeaders } from '../src/services/accountIdentity';
 
-import { unwrapMiswrappedImageUrl } from '../src/utils/mediaProxy';
+import { normalizeImageResultValue, unwrapMiswrappedImageUrl } from '../src/utils/mediaProxy';
 import { formatPoint } from '../src/utils/pointFormat';
 import { readTaskProgress } from '../src/utils/generationProgress';
 import type { GenerationProgressCallback } from '../types';
@@ -71,14 +71,6 @@ function findAllUrlsInObject(obj: any, results: string[] = []) {
         }
     }
 }
-
-const normalizeImageResultValue = (value: unknown): string | null => {
-    if (typeof value !== 'string') return null;
-    const trimmed = unwrapMiswrappedImageUrl(value);
-    if (!trimmed) return null;
-    if (trimmed.startsWith('http') || trimmed.startsWith('data:') || trimmed.startsWith('/')) return trimmed;
-    return `data:image/png;base64,${trimmed}`;
-};
 
 function findStatusInObject(obj: any): string | null {
     if (!obj || typeof obj !== 'object') return null;

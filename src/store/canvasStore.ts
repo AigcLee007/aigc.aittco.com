@@ -50,6 +50,13 @@ export const sanitizePersistedNode = (node: NodeData): NodeData => {
   if (typeof node.videoHd === 'boolean') sanitized.videoHd = node.videoHd;
   if (node.videoDuration) sanitized.videoDuration = String(node.videoDuration);
   if (node.taskId) sanitized.taskId = String(node.taskId);
+  if (node.clientRequestId) sanitized.clientRequestId = String(node.clientRequestId);
+  if (node.generationOwnerId) sanitized.generationOwnerId = String(node.generationOwnerId);
+  if (node.generationStartedAt) sanitized.generationStartedAt = node.generationStartedAt;
+  if (node.generationConnectionStatus) sanitized.generationConnectionStatus = node.generationConnectionStatus;
+  if (node.generationStorageStatus) sanitized.generationStorageStatus = node.generationStorageStatus;
+  if (node.generationResultIndex !== undefined) sanitized.generationResultIndex = node.generationResultIndex;
+  if (node.generationResultSrc) sanitized.generationResultSrc = cleanPersistedUrl(node.generationResultSrc);
   if (typeof node.loading === 'boolean') sanitized.loading = node.loading;
   if (typeof node.error === 'boolean') sanitized.error = node.error;
   if (node.errorMessage) sanitized.errorMessage = String(node.errorMessage);
@@ -167,6 +174,14 @@ const canvasPersistStorage: PersistStorage<any> = {
     }
   },
 };
+
+export async function persistImageJobCredentials() {
+  if (!localStoreWritable('infinitemuse-storage')) throw new Error('Canvas storage is not ready');
+  const state = useCanvasStore.getState();
+  await bounded(set('infinitemuse-storage', { state: {
+    nodes: sanitizePersistedNodes(state.nodes), canvasState: sanitizePersistedCanvasState(state.canvasState),
+  }, version: 0 }), 8000);
+}
 
 export const useCanvasStore = create<CanvasStore>()(
   persist(

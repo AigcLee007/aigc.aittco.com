@@ -1,4 +1,5 @@
 import { AssetImage } from '../src/components/AssetImage';
+import { ImageRetentionNotice } from '../src/components/ImageRetentionNotice';
 import { assetActionSource } from '../src/services/imageAssetActions';
 import { readOriginalBlob } from '../src/services/imageAssetCache';
 ﻿import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
@@ -7,6 +8,7 @@ import JSZip from 'jszip';
 import { saveAs } from 'file-saver';
 import { checkBalance } from '../services/geminiService';
 import { useHistoryStore } from '../src/store/historyStore';
+import { useAccountGenerationHistory } from '../src/hooks/useAccountGenerationHistory';
 import { useCanvasStore } from '../src/store/canvasStore';
 import { useSelectionStore } from '../src/store/selectionStore';
 import wechatQR from '../src/assets/wechat_qr.png';
@@ -18,12 +20,11 @@ import {
   AUTH_SESSION_CHANGE_EVENT,
   AuthSessionPayload,
   fetchCurrentAuthSession,
+  getStoredAuthSessionToken,
 } from '../src/services/accountIdentity';
 import { runLocalCacheMaintenance } from '../src/services/localCacheMaintenance';
 import {
   getPreferredImageDisplayUrl,
-  isLocalLine4StoredImage,
-  isOlderThanHours,
 } from '../src/utils/generatedImageStorage';
 import { formatFullTime, formatRelativeTime } from '../src/utils/timeFormat';
 
@@ -308,13 +309,18 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
   const safeLogs = Array.isArray(logs) ? logs : [];
 
   const [authSession, setAuthSession] = useState<AuthSessionPayload | null>(null);
+  const verifiedSession = useRef<string | null>(null);
 
   const refreshAuthSession = useCallback(async () => {
+    const token = getStoredAuthSessionToken();
+    if (verifiedSession.current !== token) setAuthSession(null);
     try {
       const session = await fetchCurrentAuthSession();
+      if (token !== getStoredAuthSessionToken()) return;
+      verifiedSession.current = token;
       setAuthSession(session);
     } catch {
-      setAuthSession(null);
+      if (verifiedSession.current !== getStoredAuthSessionToken()) setAuthSession(null);
     }
   }, []);
 
@@ -350,14 +356,17 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
     return () => window.removeEventListener('resize', checkMobile);
   }, []);
 
-  const effectiveLogs = safeLogs;
+  const accountHistory = useAccountGenerationHistory({
+    enabled: isOpen && activeTab === 'history',
+    ownerId: authSession?.authenticated ? authSession.user.userId : '',
+    mediaType: historyMediaType,
+    localLogs: safeLogs,
+  });
+  const effectiveLogs = accountHistory.logs;
 
   const filteredLogs = useMemo(() => effectiveLogs.filter(log => {
       const isVideo = log.type === 'VIDEO';
       if (historyMediaType === 'video' ? !isVideo : isVideo) {
-        return false;
-      }
-      if (isLocalLine4StoredImage(log.imageUrl) && isOlderThanHours(log.time, 72)) {
         return false;
       }
       return true;
@@ -465,7 +474,10 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
       return;
     }
     const executeClear = async () => {
+      const session = getStoredAuthSessionToken();
       try {
+        await accountHistory.clearAccountHistory();
+        if (session !== getStoredAuthSessionToken()) return;
         clearLogs();
       } catch (historyError: any) {
         setError(historyError?.message || '清空历史失败');
@@ -800,9 +812,21 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
                 </button>
               </div>
 
+              {historyMediaType === 'image' && <ImageRetentionNotice />}
+
+              {accountHistory.error && (
+                <div role="status" className="mb-3 text-xs text-amber-200">
+                  {accountHistory.error}
+                  <button className="ml-2 underline" onClick={() => void accountHistory.refresh()}>重试</button>
+                </div>
+              )}
+              {accountHistory.loading && <p role="status" className="mb-3 text-xs text-gray-400">正在读取账号历史…</p>}
+              {accountHistory.hasMore && (
+                <button disabled={accountHistory.loading} onClick={() => void accountHistory.loadMore()} className="mb-3 w-full rounded-xl bg-white/5 py-3 text-sm text-gray-300 disabled:opacity-50">加载更早的记录</button>
+              )}
               {filteredLogs.length > 0 && (
                 <div className="flex justify-between items-center px-1">
-                   <span className="text-xs text-gray-500">共 {filteredLogs.length} 条记录</span>
+                   <span className="text-xs text-gray-500">已加载 {filteredLogs.length} 条记录</span>
                    <button
                      onClick={handleDownloadAll}
                      disabled={isDownloadingAll}
@@ -862,8 +886,8 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
               ) : (
                 <div className="flex flex-col items-center justify-center py-20 text-gray-600">
                   <History size={48} strokeWidth={1} className="mb-4 opacity-20" />
-                  <p className="text-sm">暂无生成记录</p>
-                  <p className="text-xs opacity-50 mt-1">您生成的图片和视频会自动保存在这里</p>
+                  <p className="text-sm">{accountHistory.loading ? '正在读取账号历史…' : accountHistory.error ? '账号历史尚未读取' : '暂无生成记录'}</p>
+                  <p className="text-xs opacity-50 mt-1">{accountHistory.error ? '请重试读取历史记录' : '您生成的图片和视频会自动保存在这里'}</p>
                 </div>
               )}
               

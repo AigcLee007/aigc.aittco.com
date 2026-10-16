@@ -2,6 +2,7 @@
 import InfiniteCanvas from "./components/InfiniteCanvas";
 import MobileView from "./components/MobileView";
 import Toolbar from "./components/Toolbar";
+import { ImageRetentionNotice } from "./src/components/ImageRetentionNotice";
 import MultiSelectToolbar from "./components/MultiSelectToolbar";
 import ControlPanel from "./components/ControlPanel";
 import AdminDashboardPage from "./components/AdminDashboardPage";
@@ -352,7 +353,7 @@ const App: React.FC = () => {
         let blob: Blob | null = null;
 
         if (!isVideo) {
-          blob = await originalBlobFromSource(src);
+          blob = await originalBlobFromSource(src,{validate:false});
         } else if (src.startsWith("data:") || src.startsWith("blob:")) {
           const res = await fetch(src);
           if (res.ok) blob = await res.blob();
@@ -422,6 +423,9 @@ const App: React.FC = () => {
              onDragOver={handleDragOver}
              onDrop={handleDrop}
            >
+             <div className="fixed bottom-16 left-1/2 z-30 w-max max-w-[calc(100vw-24px)] -translate-x-1/2 pointer-events-none">
+               <ImageRetentionNotice />
+             </div>
              <div className="flex-1 relative z-0">
                <InfiniteCanvas
                  onContextMenu={handleContextMenu}
@@ -562,6 +566,9 @@ const App: React.FC = () => {
         onDragOver={handleDragOver}
         onDrop={handleDrop}
       >
+        <div className="fixed bottom-[76px] left-1/2 z-30 w-max max-w-[calc(100vw-24px)] -translate-x-1/2 pointer-events-none">
+          <ImageRetentionNotice />
+        </div>
         <div className="flex-1 relative z-0">
           <InfiniteCanvas
             onContextMenu={handleContextMenu}

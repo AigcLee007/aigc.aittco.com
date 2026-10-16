@@ -5,7 +5,8 @@ const nodeTest = require('node:test');
 const test = globalThis.test || nodeTest.test;
 
 const source = fs.readFileSync('server.cjs', 'utf8');
-const handlerSource = source.slice(source.indexOf('app.post("/api/edit"'), source.indexOf('app.get("/api/proxy/image"'));
+const handlerSource = source.slice(source.indexOf('const legacyImageEditHandler ='), source.indexOf('app.get("/api/proxy/image"'))
+  + '\napp.post("/api/edit", generateLimiter, legacyImageEditHandler);';
 
 function harness({ background = true, response = { data: [{ url: 'https://example.com/image.png' }] }, fail = false } = {}) {
   const records = [];
@@ -24,6 +25,7 @@ function harness({ background = true, response = { data: [{ url: 'https://exampl
     isGptImage2RequestModel: () => true, normalizeGptImage2RequestSize: () => '1024x1024', getRouteAuthorization: () => 'test',
     reservePoints: async () => ({ chargeId: 'charge', account: { points: 10 } }), refundPoints: async () => {},
     shouldRunGptImage2SyncRouteInBackground: () => background,
+    imageJobContext: { getStore: () => null },
     createLocalImageJobId: () => 'local-job', buildImageTaskToken: (_route, id) => `token-${id}`,
     setLocalImageJob: (id, data) => jobs.set(id, { ...jobs.get(id), ...data }), scheduleLocalImageJobCleanup() {},
     registerPendingTask: async () => {}, settlePendingTask: async () => {},

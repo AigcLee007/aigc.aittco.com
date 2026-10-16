@@ -16,6 +16,16 @@ export default defineConfig({
       '.worktrees/**',
       '.codex-chrome-profile*/**',
       '.playwright-cli/**',
+      // These suites use node:test directly and run via npm run test:node.
+      'classicImageJobs.test.cjs',
+      'imageHistoryRetention.test.cjs',
+      'imageJobAssets.test.cjs',
+      'imageJobService.test.cjs',
+      'server.image-jobs.test.cjs',
+      'server.native-image-results.test.cjs',
+      'scripts/repair-inline-image-result.test.cjs',
+      'public/classic-app/gallery-stability.test.cjs',
+      'public/classic-app/result-assets.test.cjs',
     ],
     // Server-side suites require large CJS modules (server.cjs) and exceed 5s under a full parallel run.
     testTimeout: 20000,

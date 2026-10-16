@@ -476,6 +476,12 @@ const listGenerationRecordsForUser = async (userId, options = {}) => {
 
   const where = ["user_id = ?"];
   const params = [normalizedUserId];
+  const taskIds = (options.taskIds || []).slice(0, 100);
+  if (taskIds.length) {
+    const slots = taskIds.map(() => '?').join(',');
+    where.push(`(task_id IN (${slots}) OR JSON_UNQUOTE(JSON_EXTRACT(meta_json, '$.imageJobId')) IN (${slots}))`);
+    params.push(...taskIds, ...taskIds);
+  }
 
   if (mediaType !== "ALL") {
     where.push("media_type = ?");
@@ -589,7 +595,7 @@ const cleanupExpiredGenerationRecords = async () => {
     `
       DELETE FROM generation_records
       WHERE
-        (status = 'SUCCESS' AND created_at < UTC_TIMESTAMP() - INTERVAL ? DAY)
+        (status = 'SUCCESS' AND media_type <> 'IMAGE' AND created_at < UTC_TIMESTAMP() - INTERVAL ? DAY)
         OR (status = 'FAILED' AND created_at < UTC_TIMESTAMP() - INTERVAL ? DAY)
         OR (status = 'PENDING' AND created_at < UTC_TIMESTAMP() - INTERVAL ? DAY)
     `,
@@ -598,6 +604,7 @@ const cleanupExpiredGenerationRecords = async () => {
   return {
     removed: Number(result?.affectedRows || 0),
     successRetentionDays: SUCCESS_RETENTION_DAYS,
+    imageSuccessRetentionDays: null,
     failedRetentionDays: FAILED_RETENTION_DAYS,
     pendingRetentionDays: PENDING_RETENTION_DAYS,
   };
@@ -611,7 +618,7 @@ const startGenerationRecordMaintenance = (logger = console) => {
       const result = await cleanupExpiredGenerationRecords();
       if (result.removed > 0) {
         logger.info?.(
-          `[Generation Records] Removed ${result.removed} expired rows (success=${result.successRetentionDays}d, failed=${result.failedRetentionDays}d, pending=${result.pendingRetentionDays}d)`,
+          `[Generation Records] Removed ${result.removed} expired rows (images=permanent, other success=${result.successRetentionDays}d, failed=${result.failedRetentionDays}d, pending=${result.pendingRetentionDays}d)`,
         );
       }
     } catch (error) {
@@ -627,7 +634,7 @@ const startGenerationRecordMaintenance = (logger = console) => {
   }, CLEANUP_INTERVAL_MS);
 
   logger.info?.(
-    `[Generation Records] Maintenance enabled: every ${CLEANUP_INTERVAL_MS}ms (success=${SUCCESS_RETENTION_DAYS}d, failed=${FAILED_RETENTION_DAYS}d, pending=${PENDING_RETENTION_DAYS}d)`,
+    `[Generation Records] Maintenance enabled: every ${CLEANUP_INTERVAL_MS}ms (images=permanent, other success=${SUCCESS_RETENTION_DAYS}d, failed=${FAILED_RETENTION_DAYS}d, pending=${PENDING_RETENTION_DAYS}d)`,
   );
 
   return generationRecordMaintenanceTimer;

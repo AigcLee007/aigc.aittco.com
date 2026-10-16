@@ -63,6 +63,14 @@ describe('canvas generation feedback', () => {
     expect(getGenerationProgress(pending({ generationStatus: 'PENDING' }), startedAt + 20_000).statusText).toBe('正在生成图片');
   });
 
+  it('keeps the percentage while explaining durable task connection recovery', () => {
+    const view = getGenerationProgress(pending({ taskId: 'job-a', progress: 65, progressSource: 'reported', generationConnectionStatus: 'recovering' }), startedAt + 20_000);
+    expect(view.percentLabel).toBe('65%');
+    expect(view.statusText).toBe('连接中断，正在恢复任务');
+    expect(getGenerationProgress(pending({ taskId: 'request-a', generationConnectionStatus: 'unconfirmed' }), startedAt + 20_000).statusText)
+      .toBe('尚未确认受理，请核对历史记录');
+  });
+
   it('never presents 100% while waiting, including a success status without a result', () => {
     const view = getGenerationProgress(pending({ progress: 100, progressSource: 'reported', generationStatus: 'SUCCESS' }), startedAt + 80_000);
     expect(view.percent).toBeLessThan(100);

@@ -10,6 +10,7 @@ import { generateVideo } from '../services/videoService';
 import { checkBalance } from '../services/geminiService';
 import { assetStorage } from '../src/services/assetStorage';
 import { AssetImage } from '../src/components/AssetImage';
+import { ImageRetentionNotice } from '../src/components/ImageRetentionNotice';
 import { fetchPromptToolConfig, optimizePrompt, PromptOption } from '../services/promptService';
 import { useHistoryStore } from '../src/store/historyStore';
 import { Wand2, Loader2, ImagePlus, X, Upload, Plus, Move, Sparkles, Minus, Maximize2, ChevronLeft, ChevronRight, Check, Clapperboard, Film, HelpCircle, LayoutGrid, MonitorPlay, Zap, Pin, PinOff, Eraser, Trash2, ShieldCheck } from 'lucide-react';
@@ -1036,7 +1037,7 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
               routeId: selectedImageRoute.id,
             };
            
-           generateImageApi(apiKey, payload)
+           generateImageApi(apiKey, { ...payload, clientLiveTaskIds: [pid] })
             .then((res: any) => {
                if (res.taskId) {
                  onUpdateGeneration(pid, null, undefined, res.taskId);
@@ -1110,7 +1111,11 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
               },
             };
 
-            const res: any = await generateGeminiImage(apiKey, payload);
+            const res: any = await generateGeminiImage(apiKey, { ...payload, clientLiveTaskIds: [attempt.placeholderId] });
+            if (res.taskId) {
+              onUpdateGeneration(attempt.placeholderId, null, undefined, res.taskId);
+              return;
+            }
             const generatedImages: string[] = [];
 
             if (res.candidates && Array.isArray(res.candidates)) {
@@ -1187,7 +1192,7 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
               ...(isSyncMode ? { isSync: true } : {}),
               ...imagePayload
             };
-            generateImageApi(apiKey, payload)
+            generateImageApi(apiKey, { ...payload, clientLiveTaskIds: placeholderIds })
               .then((res: any) => {
                 if (res.taskId) {
                   placeholderIds.forEach(pid => onUpdateGeneration(pid, null, undefined, res.taskId));
@@ -1230,7 +1235,7 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
               ...getGptImagePayload(promptForModel, 1),
               images: imageDataUrls,
             };
-            editImageApi(apiKey, payload)
+            editImageApi(apiKey, { ...payload, clientLiveTaskIds: placeholderIds })
               .then((res: any) => {
                 if (res.taskId) {
                   placeholderIds.forEach((pid) => onUpdateGeneration(pid, null, undefined, res.taskId));
@@ -1338,7 +1343,7 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
                   routeId: selectedImageRoute.id,
                   ...(isSyncMode ? { isSync: true } : {})
                 };
-          generateImageApi(apiKey, payload)
+          generateImageApi(apiKey, { ...payload, clientLiveTaskIds: placeholderIds })
             .then((res: any) => {
               if (res.taskId) {
                 placeholderIds.forEach(pid => onUpdateGeneration(pid, null, undefined, res.taskId));
@@ -2316,6 +2321,7 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
               )}
             </button>
             {/* Removed Exit Edit Mode button as Edit Mode is disabled */}
+            {!isVideoMode && <ImageRetentionNotice />}
           </form>
           </>
           )}

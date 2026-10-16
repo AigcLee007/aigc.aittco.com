@@ -13,6 +13,7 @@ import { beginLocalRead, deferLocalRecoveryWrite, finishLocalRead, localStoreWri
 import { v4 as uuidv4 } from 'uuid';
 import { migrateVideoSelectionState, type VideoReferenceItem } from '../utils/videoSelectionMigration';
 import type { ImageRouteQuality } from '../config/imageRoutes';
+import { imageResultStore } from '../services/imageResultStore';
 
 export interface ReferenceImage {
   id: string; // Unique UI ID
@@ -415,7 +416,7 @@ export const useSelectionStore = create<SelectionStore>()(
       setGptImageOutputCompression: (val) => set(state => { state.gptImageOutputCompression = val; }),
       setGptImageModeration: (val) => set(state => { state.gptImageModeration = val; }),
       setGrokReferenceMode: (val) => set(state => { state.grokReferenceMode = val; }),
-      setAutoDownloadOnSuccess: (val) => set(state => { state.autoDownloadOnSuccess = val; }),
+      setAutoDownloadOnSuccess: (val) => { imageResultStore.setAutoDownloadPreference(val); set(state => { state.autoDownloadOnSuccess = val; }); },
 
       toggleControlPanel: () =>
         set((state) => {
@@ -671,11 +672,12 @@ export const useSelectionStore = create<SelectionStore>()(
       },
       partialize: partializeSelectionState,
       merge: (persistedState, currentState) => {
-        if (!persistedState) return currentState;
+        if (!persistedState) return {...currentState,autoDownloadOnSuccess:imageResultStore.getAutoDownloadPreference(true)};
         const persisted = migrateVideoSelectionState((persistedState || {}) as Record<string, unknown>) as Partial<SelectionStore>;
         return mergeRecoveredLocalState('selection-storage', {
           ...currentState,
           ...persisted,
+          autoDownloadOnSuccess:imageResultStore.getAutoDownloadPreference(persisted.autoDownloadOnSuccess !== false),
           referenceImages: sanitizePersistedReferenceImages(persisted?.referenceImages || []),
           videoReferenceMode: persisted?.videoReferenceMode === 'frames' ? 'frames' : 'images',
           videoGenerationMode: ['text', 'image', 'reference', 'first_last', 'keyframes'].includes(String(persisted?.videoGenerationMode)) ? persisted?.videoGenerationMode as any : 'text',
@@ -692,3 +694,12 @@ export const useSelectionStore = create<SelectionStore>()(
     }
   )
 );
+
+if(typeof window !== 'undefined') {
+  const syncAutoDownload=()=>{
+    const enabled=imageResultStore.getAutoDownloadPreference(useSelectionStore.getState().autoDownloadOnSuccess);
+    if(enabled!==useSelectionStore.getState().autoDownloadOnSuccess)useSelectionStore.setState({autoDownloadOnSuccess:enabled});
+  };
+  window.addEventListener('image-auto-download-change',syncAutoDownload);
+  window.addEventListener('storage',event=>{if(event.key==='image-auto-download-v1')syncAutoDownload();});
+}

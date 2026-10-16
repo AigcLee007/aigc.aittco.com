@@ -20,7 +20,7 @@
         document.documentElement.classList.add("classic-vip-mode");
       }
     </script>
-    <link rel="stylesheet" href="/classic-app/style.css?v=classic_vip_mode_v1" />
+    <link rel="stylesheet" href="/classic-app/style.css?v=classic_gallery_v2" />
   </head>
   <body>
     <div class="top-controls">
@@ -532,6 +532,13 @@
             </div>
           </div>
 
+          <div class="image-retention-notice" role="note">原图云端仅保留 <strong>4 小时</strong>，请尽快下载到本地；预览和生成记录长期保留。</div>
+
+          <div class="classic-download-settings">
+            <label><input id="classicAutoDownload" type="checkbox" checked> 生成成功后自动下载原图</label>
+            <span>浏览器缓存与下载文件分别保存，请核对下载记录。</span>
+          </div>
+
           <div class="classic-live-status-row">
             <div class="status-text" id="statusText">SYSTEM READY</div>
             <div class="progress-bar" id="progressBar">
@@ -581,16 +588,11 @@
             </button>
           </div>
           <!-- History Warning -->
-          <div
-            style="
-              font-size: 12px;
-              color: #ffab00;
-              margin-bottom: 10px;
-              padding: 0 5px;
-              text-align: center;
-            "
-          >
-            ⚠️ 历史记录仅临时保存，请及时下载避免丢失
+          <div class="image-retention-notice" role="note">原图云端仅保留 <strong>4 小时</strong>，请尽快下载到本地；预览和生成记录长期保留。</div>
+
+          <div class="classic-download-settings">
+            <button type="button" class="classic-live-action-btn" onclick="downloadClassicUnprocessed()">下载未处理原图</button>
+            <span>读取失败可单张重试，原文件可通过“从本地恢复”重新加入。</span>
           </div>
 
           <!-- Pending Tasks Section (New) -->
@@ -1152,8 +1154,11 @@
 </div>
 
     <script src="/classic-app/promptTags.js?v=classic_vip_mode_v1"></script>
-    <script src="/classic-app/image-runtime.js?v=classic_image_assets_v1"></script>
-    <script src="/classic-app/script.js?v=classic_image_assets_v1"></script>
-    <script src="/classic-app/unified-bridge.js?v=classic_image_assets_v1"></script>
+    <script src="/shared/image-result-store.js?v=classic_cache_v3"></script>
+    <script src="/classic-app/image-runtime.js?v=classic_gallery_v2"></script>
+    <script src="/classic-app/image-job-client.js?v=classic_image_jobs_v1"></script>
+    <script src="/classic-app/script.js?v=classic_history_clear_v4"></script>
+    <script src="/classic-app/result-assets.js?v=classic_cache_v3"></script>
+    <script src="/classic-app/unified-bridge.js?v=classic_history_clear_v4"></script>
   </body>
 </html>

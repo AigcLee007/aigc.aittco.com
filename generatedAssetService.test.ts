@@ -10,6 +10,18 @@ const {
 } = require('./generatedAssetService.cjs');
 
 describe('generated asset persistence routing', () => {
+  it('stores JPEG base64 and rewrites the matching b64_json to its original URL', async () => {
+    const buffer = await require('sharp')({ create: { width: 16, height: 9, channels: 3, background: '#334455' } }).jpeg().toBuffer();
+    const base64 = buffer.toString('base64');
+    const result = await persistGeneratedImageResults({
+      payload: { data: [{ b64_json: base64 }] }, resultUrls: [`data:image/jpeg;base64,${base64}`],
+      context: { routeId: LOCAL_LINE4_ROUTE_ID, userId: 'jpeg-test-user', taskId: 'jpeg-test-task' },
+    });
+    expect(result.resultUrls).toHaveLength(1);
+    expect(result.payload.data[0].url).toBe(result.resultUrls[0]);
+    expect(result.payload.data[0].b64_json).toBe(result.resultUrls[0]);
+  });
+
   it('enables local storage for the configured line4 route', () => {
     expect(isGeneratedAssetStorageEnabled({ routeId: LOCAL_LINE4_ROUTE_ID })).toBe(true);
   });

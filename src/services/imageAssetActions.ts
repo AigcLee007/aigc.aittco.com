@@ -11,4 +11,4 @@ export function assetRefFromSource(src: string): ImageAssetRef {
   const log=useHistoryStore.getState().logs.find(l=>l.type==='IMAGE' && l.imageUrl===src);
   return log ? {assetId:log.assetId,src:log.imageUrl,thumbnailSrc:log.thumbnailUrl} : {src};
 }
-export const originalBlobFromSource = (src: string) => readOriginalBlob(assetRefFromSource(src));
+export const originalBlobFromSource = (src: string,options:{validate?:boolean}={}) => readOriginalBlob(assetRefFromSource(src),15000,options);

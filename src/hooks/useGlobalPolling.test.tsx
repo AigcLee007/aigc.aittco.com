@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { useGlobalPolling } from './useGlobalPolling';
 
 const state = vi.hoisted(() => ({ nodes: [] as any[], toast: vi.fn(), query: vi.fn(), updateNode: vi.fn() }));
-vi.mock('../store/canvasStore', () => ({ useCanvasStore: (select: any) => select(state) }));
+vi.mock('../store/canvasStore', () => ({ useCanvasStore: Object.assign((select: any) => select(state), { getState: () => state }) }));
 vi.mock('../context/ToastContext', () => ({ useToast: () => ({ error: state.toast }) }));
 vi.mock('../services/api', () => ({
   checkTaskStatus: (...args: any[]) => state.query(...args),
@@ -61,7 +61,7 @@ describe('canvas task progress', () => {
     try {
       await waitFor(() => expect(h.progress).toHaveBeenCalledWith('node', 25, 'reported'));
       state.query.mockResolvedValue({ status: 'processing', data: { progress: '65%' } });
-      await h.client.refetchQueries({ queryKey: ['task', 'task'] });
+      await h.client.refetchQueries({ queryKey: ['task', '', 'task'] });
       await waitFor(() => expect(h.progress).toHaveBeenCalledWith('node', 65, 'reported'));
       expect(h.update).not.toHaveBeenCalled();
     } finally { h.close(); }
@@ -87,7 +87,7 @@ describe('canvas task progress', () => {
     try {
       await waitFor(() => expect(state.query).toHaveBeenCalled());
       state.query.mockResolvedValue({ status: 'failed', progress: 100, error: 'upstream failed' });
-      await h.client.refetchQueries({ queryKey: ['task', 'task'] });
+      await h.client.refetchQueries({ queryKey: ['task', '', 'task'] });
       await waitFor(() => expect(h.update).toHaveBeenCalledWith('node', null, expect.any(String)));
       expect(h.progress).not.toHaveBeenCalled();
     } finally { h.close(); }
@@ -100,7 +100,7 @@ describe('canvas task progress', () => {
     try {
       await waitFor(() => expect(state.query).toHaveBeenCalled());
       state.query.mockResolvedValue({ status: 'processing', progress: 40 });
-      await h.client.refetchQueries({ queryKey: ['task', 'task'] });
+      await h.client.refetchQueries({ queryKey: ['task', '', 'task'] });
       expect(h.progress).not.toHaveBeenCalled();
       expect(state.updateNode).not.toHaveBeenCalled();
     } finally { h.close(); }

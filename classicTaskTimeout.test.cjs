@@ -22,6 +22,7 @@ function harness(fetchImpl = () => new Promise(() => {})) {
     window: { failClassicLiveTask: (_id, message) => failures.push(message) },
     CONFIG: { submitUrl: '/api/generate', queryUrl: '/api/task/{id}' },
     activeTaskPollers: new Map(), remotePendingPollRegistry: new Set(),
+    historyClearGeneration: 0, historyClearInFlight: false, getStoredSessionToken: () => '',
     getTaskPollDelayMs: () => 5000, getCurrentRoute: () => ({ id: 'gpt-image-2-line2', mode: 'sync' }),
     isSessionAuthenticated: () => true, buildSessionHeaders: () => ({}), buildApiKeyHeaders: () => ({}), buildGenerateHeaders: () => ({}),
     fetch: (...args) => { requests.push(args); return fetchImpl(...args); },
@@ -33,6 +34,7 @@ function harness(fetchImpl = () => new Promise(() => {})) {
     extractImmediateImageUrls: (data) => data.url ? [data.url] : [],
   };
   vm.createContext(context);
+  vm.runInContext(fs.readFileSync('public/classic-app/image-job-client.js', 'utf8'), context);
   vm.runInContext(helperSource + submitSource + pollSource, context);
   return {
     context, failures, requests, timers,
@@ -89,4 +91,12 @@ test('classic query ignores a response arriving after its total deadline', async
   resolveRequest({ ok: true, json: async () => ({ status: 'succeeded', url: 'https://example.com/image.png' }) });
   await h.advance(0);
   assert.equal(completed, 0);
+});
+
+test('classic managed jobs keep recovering after the legacy browser deadline', async () => {
+  const h = harness();
+  await h.context.pollSingleTask('job-durable', '', '1K', 1, { liveTaskId: 'live' });
+  await h.advance(31 * 60000);
+  assert.equal(h.context.activeTaskPollers.size, 1);
+  assert.equal(h.failures.length, 0);
 });
