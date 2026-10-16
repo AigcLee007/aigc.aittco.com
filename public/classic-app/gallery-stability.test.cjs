@@ -186,7 +186,7 @@ function bridgeHistoryHarness() {
   const rendered = [], network = [];
   let session = 'session-a';
   Object.assign(h, { document: { getElementById: () => null }, URLSearchParams,
-    remoteHistoryRecordsCache: [], remoteHistoryCursor: {}, historyLoadInFlight: null, historyRequestGeneration: 0, historyCacheSession: '', lastHistoryRefreshAt: 0, remoteHistoryNextPage: 1, remoteHistoryTotalPages: 1,
+    remoteHistoryRecordsCache: [], remoteHistoryCursor: {}, historyLoadInFlight: null, historyRequestGeneration: 0, historyClearGeneration: 0, historyClearInFlight: null, historyCacheSession: '', lastHistoryRefreshAt: 0, remoteHistoryNextPage: 1, remoteHistoryTotalPages: 1,
     getStoredSessionToken: () => session, isSessionAuthenticated: () => true, getBridgeHistoryPageSize: () => 24,
     fetchGenerationRecords: () => new Promise((resolve, reject) => network.push({ resolve, reject })),
     migrateLocalStorageHistoryToIndexedDB: async () => {}, renderClassicHistoryRecords: rows => rendered.push(rows),
@@ -196,6 +196,187 @@ function bridgeHistoryHarness() {
   vm.runInContext(bridgeBetween('  loadHistory = async function', '  savePendingTask = function'), h);
   return { h, rendered, network, switchAccount: () => { session = 'session-b'; h.window.classicImageJobOwner = 'owner-b'; } };
 }
+
+function clearHistoryHarness() {
+  const fixture = bridgeHistoryHarness();
+  const { h } = fixture;
+  const deletes = [], modals = [], removedKeys = [];
+  Object.assign(h, { historyRefreshTimer: null, assetFinalizationPollers: new Map(),
+    deleteGenerationRecords: async options => { deletes.push(options); },
+    showApiGuideModal: config => modals.push(config), closeApiGuideModal() {},
+    legacyClearHistory() { throw new Error('authenticated clear must not use the local-only handler'); },
+    localStorage: { removeItem: key => removedKeys.push(key) }, clearHistoryObjectUrlRefs() {},
+  });
+  vm.runInContext(bridgeBetween('  clearHistory = function', '  loadHistory = async function'), h);
+  return { ...fixture, deletes, modals, removedKeys };
+}
+
+test('confirmed clear deletes account image history and both caches without deleting another owner', async () => {
+  const { h, rendered, deletes, modals } = clearHistoryHarness();
+  await h.writeHistoryRecordsToDB([{ ownerId: 'owner-a', jobId: 'old', fullUrl: '/old.png' }, { ownerId: 'owner-b', jobId: 'other', fullUrl: '/other.png' }]);
+  h.remoteHistoryRecordsCache = [{ id: 'remote-old', resultUrls: ['/old.png'] }];
+  h.clearHistory();
+  assert.equal(deletes.length, 0, 'opening/cancelling the confirmation must not delete');
+  assert.ok(modals[0]?.onPrimary, 'the confirmed handler must own account deletion');
+  await modals[0].onPrimary();
+  assert.equal(deletes[0].mediaType, 'image');
+  assert.equal(h.remoteHistoryRecordsCache.length, 0);
+  assert.equal((await h.readHistoryRecordsFromDB({ ownerId: 'owner-a' })).length, 0);
+  assert.equal((await h.readHistoryRecordsFromDB({ ownerId: 'owner-b' })).length, 1);
+  assert.equal(rendered.at(-1).length, 0);
+});
+
+test('failed account deletion keeps records and shows an error instead of claiming clear succeeded', async () => {
+  const { h, modals } = clearHistoryHarness();
+  await h.writeHistoryRecordsToDB([{ ownerId: 'owner-a', jobId: 'old', fullUrl: '/old.png' }]);
+  h.deleteGenerationRecords = async () => { throw new Error('network unavailable'); };
+  h.clearHistory();
+  assert.ok(modals[0]?.onPrimary);
+  await modals[0].onPrimary();
+  assert.equal((await h.readHistoryRecordsFromDB()).length, 1);
+  assert.equal(modals.at(-1).title, '清空失败');
+});
+
+test('late history responses cannot refill records after confirmed clear', async () => {
+  const { h, network, modals } = clearHistoryHarness();
+  const oldLoad = h.loadHistory();
+  for (let i = 0; i < 20 && !network.length; i++) await new Promise(resolve => setImmediate(resolve));
+  h.clearHistory();
+  assert.ok(modals[0]?.onPrimary);
+  await modals[0].onPrimary();
+  network[0].resolve({ records: [{ id: 'deleted', status: 'SUCCESS', resultUrls: ['/deleted.png'] }] });
+  await oldLoad;
+  assert.equal((await h.readHistoryRecordsFromDB()).length, 0);
+  assert.equal(h.remoteHistoryRecordsCache.length, 0);
+});
+
+test('account switch during deletion cannot clear the new account local history', async () => {
+  const { h, modals, switchAccount, deletes } = clearHistoryHarness();
+  await h.writeHistoryRecordsToDB([{ ownerId: 'owner-b', jobId: 'private', fullUrl: '/private.png' }]);
+  let finish;
+  h.deleteGenerationRecords = () => new Promise(resolve => { finish = resolve; });
+  h.clearHistory();
+  assert.ok(modals[0]?.onPrimary);
+  const clearing = modals[0].onPrimary();
+  switchAccount(); finish(); await clearing;
+  assert.equal((await h.readHistoryRecordsFromDB({ ownerId: 'owner-b' })).length, 1);
+  assert.equal(deletes.length, 0);
+});
+
+test('an invalidated IndexedDB writer cannot reinsert cleared rows after waiting to open the database', async () => {
+  const h = historyHarness();
+  const open = h.openHistoryCacheDB;
+  let resume, current = true;
+  h.openHistoryCacheDB = async () => { await new Promise(resolve => { resume = resolve; }); return open(); };
+  const write = h.writeHistoryRecordsToDB([{ ownerId: 'owner-a', jobId: 'deleted', fullUrl: '/deleted.png' }], { isCurrent: () => current });
+  current = false; resume(); await write;
+  h.openHistoryCacheDB = open;
+  assert.equal((await h.readHistoryRecordsFromDB()).length, 0);
+});
+
+test('an account switch before confirmation never sends the deletion request', async () => {
+  const { h, modals, switchAccount, deletes } = clearHistoryHarness();
+  h.clearHistory(); switchAccount();
+  await modals[0].onPrimary();
+  assert.equal(deletes.length, 0);
+});
+
+function historyPollHarness() {
+  const fixture = clearHistoryHarness();
+  const { h } = fixture;
+  const timers = [], queries = [], writes = [], completions = [], finalizations = [];
+  Object.assign(h, { activeTaskPollers: new Map(), remotePendingPollRegistry: new Set(),
+    TASK_POLL_MAX_MS: 100000, CONFIG: { queryUrl: '/query/{id}' }, classicLiveTasks: [],
+    setTimeout: fn => { timers.push(fn); return timers.length; }, clearTimeout() {}, getTaskPollDelayMs: () => 1,
+    buildSessionHeaders: () => ({}), canUpdateMainUi: () => false,
+    removePendingTask() {}, removePendingTaskFromGallery() {}, isClassicHistoryTabActive: () => false,
+    scheduleClassicAssetFinalization: (...args) => finalizations.push(args),
+  });
+  h.window.ClassicImageJobs = { query: () => new Promise(resolve => queries.push(resolve)) };
+  h.window.completeClassicLiveTask = (...args) => completions.push(args);
+  vm.runInContext(between('async function saveToHistory(', 'function clearHistory()'), h);
+  const save = h.saveToHistory;
+  h.saveToHistory = (...args) => { const promise = save(...args); writes.push(promise); return promise; };
+  vm.runInContext(bridgeBetween('  pollSingleTask = async function', '  runGen = async function'), h);
+  return { ...fixture, timers, queries, writes, completions, finalizations };
+}
+
+test('a successful task response sent before clear cannot recreate history or start storage recovery', async () => {
+  const { h, modals, timers, queries, writes, completions, finalizations } = historyPollHarness();
+  await h.pollSingleTask('job-deleted', '', '1K', 1, { trackUi: false });
+  const poll = timers.shift()();
+  h.clearHistory(); await modals[0].onPrimary();
+  queries.shift()({ status: 'succeeded', images: ['/deleted.png'], storage_status: 'pending' });
+  await poll; await Promise.all(writes);
+  assert.equal((await h.readHistoryRecordsFromDB()).length, 0);
+  assert.equal(finalizations.length, 0, 'late results must not create a fresh recovery poller after clear');
+  assert.equal(completions.length, 1, 'clearing history does not cancel task UI completion');
+});
+
+test('an unfinished task keeps polling and can save a new result queried after clear', async () => {
+  const { h, modals, timers, queries, writes, completions } = historyPollHarness();
+  await h.pollSingleTask('job-running', '', '1K', 1, { trackUi: false });
+  const oldPoll = timers.shift()();
+  h.clearHistory(); await modals[0].onPrimary();
+  queries.shift()({ status: 'running', images: [] }); await oldPoll;
+  assert.equal(h.activeTaskPollers.has('job-running'), true);
+  const newPoll = timers.shift()();
+  queries.shift()({ status: 'succeeded', images: ['/new.png'], storage_status: 'saved' });
+  await newPoll; await Promise.all(writes);
+  assert.equal((await h.readHistoryRecordsFromDB()).length, 1);
+  assert.equal(completions.length, 1);
+});
+
+test('restoring completed jobs does not recreate explicitly deleted account history', async () => {
+  const { h } = bridgeHistoryHarness();
+  const applied = [];
+  Object.assign(h, { confirmClassicImageOwner() {}, bridgeAuthState: {}, legacyRestorePendingTasks() {},
+    buildSessionHeaders: () => ({}), classicLiveTasks: [],
+    fetchGenerationRecords: async () => ({ records: [] }), renderRemotePendingTasks() {},
+    applyManagedJobResults: async job => applied.push(job), scheduleClassicAssetFinalization() {},
+  });
+  h.window.ClassicImageJobs = { request: async url => url === '/api/auth/session'
+    ? { user: { userId: 'owner-a' } } : { jobs: [{ task_id: 'job-deleted', status: 'succeeded', images: ['/deleted.png'] }] } };
+  vm.runInContext(bridgeBetween('  restorePendingTasks = async function', '  submitSingleTask = async function'), h);
+  await h.restorePendingTasks();
+  assert.equal(applied.length, 0, 'server job recovery is not an authoritative history source after deletion');
+});
+
+test('restoring completed jobs still fills results whose account history exists', async () => {
+  const { h } = bridgeHistoryHarness();
+  const applied = [], queries = [];
+  Object.assign(h, { confirmClassicImageOwner() {}, bridgeAuthState: {}, legacyRestorePendingTasks() {},
+    buildSessionHeaders: () => ({}), classicLiveTasks: [], renderRemotePendingTasks() {},
+    fetchGenerationRecords: async options => { queries.push(options); return { records: options.taskIds ? [{ taskId: 'job-retained' }] : [] }; },
+    applyManagedJobResults: async job => applied.push(job), scheduleClassicAssetFinalization() {},
+  });
+  h.window.ClassicImageJobs = { request: async url => url === '/api/auth/session'
+    ? { user: { userId: 'owner-a' } } : { jobs: [{ task_id: 'job-retained', status: 'succeeded', images: ['/retained.png'] }] } };
+  vm.runInContext(bridgeBetween('  restorePendingTasks = async function', '  submitSingleTask = async function'), h);
+  await h.restorePendingTasks();
+  assert.equal(applied.length, 1);
+  assert.deepEqual(Array.from(queries[0].taskIds), ['job-retained']);
+});
+
+test('clear during completed job restoration cannot start a new storage recovery poller', async () => {
+  const { h, modals } = clearHistoryHarness();
+  const finalizations = [];
+  let resume;
+  Object.assign(h, { confirmClassicImageOwner() {}, bridgeAuthState: {}, classicLiveTasks: [], renderRemotePendingTasks() {},
+    buildSessionHeaders: () => ({}), fetchGenerationRecords: async () => ({ records: [{ taskId: 'job-deleted' }] }),
+    applyManagedJobResults: () => new Promise(resolve => { resume = resolve; }),
+    scheduleClassicAssetFinalization: (...args) => finalizations.push(args),
+  });
+  h.window.ClassicImageJobs = { request: async url => url === '/api/auth/session'
+    ? { user: { userId: 'owner-a' } } : { jobs: [{ task_id: 'job-deleted', status: 'succeeded', images: ['/deleted.png'], storage_status: 'pending' }] } };
+  vm.runInContext(bridgeBetween('  restorePendingTasks = async function', '  submitSingleTask = async function'), h);
+  const restoring = h.restorePendingTasks();
+  for (let i = 0; i < 20 && !resume; i++) await new Promise(resolve => setImmediate(resolve));
+  assert.equal(typeof resume, 'function');
+  h.clearHistory(); await modals[0].onPrimary();
+  resume(); await restoring;
+  assert.equal(finalizations.length, 0);
+});
 
 test('multi-output history has stable distinct identities even when provider URLs change', () => {
   const { h } = bridgeHistoryHarness();

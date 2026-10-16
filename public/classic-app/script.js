@@ -679,6 +679,10 @@ async function writeHistoryRecordsToDB(records = [], options = {}) {
       request.onsuccess = () => {
         try {
           const existing = (request.result || []).map(normalizeHistoryRecord).filter(Boolean);
+          if (options.isCurrent && !options.isCurrent()) {
+            result = existing.filter(record => record.ownerId === ownerId);
+            return;
+          }
           const byId = new Map(existing.map(record => [record.id, record]));
           if (options.replace) existing.filter(record => record.ownerId === ownerId).forEach(record => { byId.delete(record.id); store.delete(record.id); });
           for (const record of incoming) {
@@ -4429,6 +4433,8 @@ async function saveToHistory(url, promptText = "", previewUrl = "", metadata = {
   const fullUrl = String(url || "").trim();
   if (!fullUrl || (fullUrl.length > 5000 && !fullUrl.startsWith("data:image/"))) return;
   const ownerId = String(metadata.ownerId || window.classicImageJobOwner || "");
+  const isCurrent = () => ownerId === String(window.classicImageJobOwner || "") && (!metadata.isCurrent || metadata.isCurrent());
+  if (!isCurrent()) return;
   const live = classicLiveTasks.find(task => task.originalUrl === fullUrl && (!ownerId || task.ownerId === ownerId));
   const jobId = String(metadata.jobId || metadata.taskId || live?.jobId || live?.taskId || live?.id || genHistoryId());
   const newRecord = normalizeHistoryRecord({ ...live, ...metadata, ownerId, jobId,
@@ -4439,8 +4445,8 @@ async function saveToHistory(url, promptText = "", previewUrl = "", metadata = {
   });
   try {
     await migrateLocalStorageHistoryToIndexedDB();
-    const records = await writeHistoryRecordsToDB([newRecord], { ownerId });
-    if (ownerId !== String(window.classicImageJobOwner || "")) return;
+    const records = await writeHistoryRecordsToDB([newRecord], { ownerId, isCurrent });
+    if (!isCurrent()) return;
     const saved = records.find(record => record.id === newRecord.id) || newRecord;
     const operation = saved.autoDownloadEligible ? window.cacheClassicResult?.(saved) : window.ClassicResultAssets?.registerResult(saved);
     if (operation) void operation.catch(error => console.warn("Original cache preparation failed:", error));

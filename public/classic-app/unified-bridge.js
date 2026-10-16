@@ -75,6 +75,8 @@
   let lastHistoryRefreshAt = 0;
   let historyLoadInFlight = null;
   let historyRequestGeneration = 0;
+  let historyClearGeneration = 0;
+  let historyClearInFlight = null;
   let historyCacheSession = "";
   let remoteHistoryNextPage = 1;
   let remoteHistoryTotalPages = 1;
@@ -2140,6 +2142,7 @@
     pageSize = HISTORY_INITIAL_PAGE_SIZE,
     sinceCreatedAt = "",
     sinceId = "",
+    taskIds = [],
   } = {}) => {
     const params = new URLSearchParams();
     params.set("mediaType", String(mediaType || "all"));
@@ -2148,6 +2151,7 @@
     params.set("pageSize", String(pageSize || HISTORY_INITIAL_PAGE_SIZE));
     if (sinceCreatedAt) params.set("sinceCreatedAt", String(sinceCreatedAt));
     if (sinceId) params.set("sinceId", String(sinceId));
+    if (taskIds.length) params.set("taskIds", taskIds.slice(0, 100).join(','));
     return fetchJson(`/generation-records?${params.toString()}`, {
       headers: {
         "Content-Type": "application/json",
@@ -2260,7 +2264,7 @@
     const expanded = expandRemoteHistoryRecords(successes, ownerId).map(record => ({ ...record, autoDownloadEligible: options.autoDownloadEligible === true }));
     if (!expanded.length || (options.isCurrent && !options.isCurrent())) return [];
     try {
-      const saved = await writeHistoryRecordsToDB(expanded, { ownerId });
+      const saved = await writeHistoryRecordsToDB(expanded, { ownerId, isCurrent: options.isCurrent });
       if (ownerId !== String(window.classicImageJobOwner || "") || (options.isCurrent && !options.isCurrent())) return [];
       const ids = new Set(expanded.map(record => record.id));
       const updated = saved.filter(record => ids.has(record.id));
@@ -2319,12 +2323,52 @@
   };
 
   clearHistory = function () {
-    return legacyClearHistory ? legacyClearHistory() : undefined;
+    const session = getStoredSessionToken();
+    const ownerId = String(window.classicImageJobOwner || "");
+    if (!session) return legacyClearHistory ? legacyClearHistory() : undefined;
+    if (historyClearInFlight) return historyClearInFlight.promise;
+    const isCurrent = () => session === getStoredSessionToken() && ownerId === String(window.classicImageJobOwner || "");
+    showApiGuideModal({
+      title: "清空历史记录？",
+      desc: "确定清空当前账号的图片历史记录吗？账号图片历史与画布共用，此操作不可撤销，已下载文件和本地原图缓存会保留。",
+      primaryText: "确认清空", secondaryText: "取消", action: "custom",
+      onPrimary: () => {
+        if (!isCurrent()) { closeApiGuideModal(); return; }
+        if (historyClearInFlight) return historyClearInFlight.promise;
+        const entry = { session, ownerId, promise: null };
+        historyClearInFlight = entry;
+        historyRequestGeneration++; historyClearGeneration++; historyLoadInFlight = null;
+        if (historyRefreshTimer) { window.clearTimeout(historyRefreshTimer); historyRefreshTimer = null; }
+        assetFinalizationPollers.forEach(poller => poller.stop());
+        entry.promise = (async () => {
+          try {
+            // Delete the authoritative account rows before clearing any visible
+            // or local records. A failed request must remain retryable.
+            await deleteGenerationRecords({ mediaType: "image" });
+            if (!isCurrent()) return;
+            await writeHistoryRecordsToDB([], { replace: true, ownerId, isCurrent });
+            if (!isCurrent()) return;
+            remoteHistoryRecordsCache = []; remoteHistoryCursor = { sinceCreatedAt: "", sinceId: "" };
+            remoteHistoryNextPage = 1; remoteHistoryTotalPages = 0; lastHistoryRefreshAt = 0;
+            historyCacheSession = `${session}:${ownerId}`;
+            clearHistoryObjectUrlRefs();
+            renderClassicHistoryRecords([], { hasMore: false });
+            closeApiGuideModal();
+          } catch (error) {
+            console.warn("[Classic Bridge] clear account history failed:", error);
+            if (isCurrent()) showApiGuideModal({ title: "清空失败", desc: error?.message || "请稍后重试，历史记录尚未清空",
+              primaryText: "我知道了", showSecondary: false, action: "close" });
+          } finally { if (historyClearInFlight === entry) historyClearInFlight = null; }
+        })();
+        return entry.promise;
+      },
+    });
   };
 
   loadHistory = async function (options = {}) {
     const session = getStoredSessionToken();
     const ownerId = String(window.classicImageJobOwner || "");
+    if (historyClearInFlight?.session === session && historyClearInFlight.ownerId === ownerId) return remoteHistoryRecordsCache;
     if (historyLoadInFlight?.session === session && historyLoadInFlight.ownerId === ownerId) return historyLoadInFlight.promise;
     if (historyCacheSession !== `${session}:${ownerId}`) {
       remoteHistoryRecordsCache = []; remoteHistoryCursor = { sinceCreatedAt: "", sinceId: "" };
@@ -2432,7 +2476,7 @@
   const applyManagedJobResults = async (job, options = {}) => {
     const ownerId = String(options.ownerId || window.classicImageJobOwner || "");
     const session = options.session ?? getStoredSessionToken();
-    if (session !== getStoredSessionToken() || ownerId !== String(window.classicImageJobOwner || "")) return;
+    if (session !== getStoredSessionToken() || ownerId !== String(window.classicImageJobOwner || "") || (options.isCurrent && !options.isCurrent())) return;
     const jobId = String(job.task_id || job.taskId || job.id || options.jobId || "");
     const requestId = String(job.request_id || job.requestId || job.clientRequestId || "");
     const liveIds = job.clientLiveTaskIds || job.client_live_task_ids || options.liveTaskIds || [];
@@ -2448,9 +2492,11 @@
     }
     const eligible = options.autoDownloadEligible !== false && (!completedAt || Date.now() - completedAt < 4 * 60 * 60 * 1000);
     await Promise.all(images.map(async (url, outputIndex) => {
+      if (options.isCurrent && !options.isCurrent()) return;
       const existing = typeof classicLiveTasks !== "undefined" && classicLiveTasks.find(task => task.ownerId === ownerId && (task.jobId === jobId || task.taskId === jobId) && Number(task.outputIndex || 0) === outputIndex);
       const liveId = existing?.id || liveIds[outputIndex] || (outputIndex ? `${baseId}:output:${outputIndex}` : baseId);
       const meta = { ownerId, jobId, taskId: jobId, clientRequestId: requestId, outputIndex,
+        isCurrent: options.isCurrent,
         prompt: job.prompt || options.prompt || "", size: job.outputSize || options.size || "1K", modelLabel: job.model || options.modelLabel || "", routeLabel: job.routeId || options.routeLabel || "",
         createdAt, completedAt, storageStatus: job.storage_status || job.storageStatus || "",
         previewUrl: job.preview_urls?.[outputIndex] || (outputIndex === 0 ? job.preview_url || job.previewUrl : "") || "",
@@ -2459,7 +2505,7 @@
       window.completeClassicLiveTask?.(liveId, url, meta);
       await saveToHistory(url, meta.prompt, meta.previewUrl, meta);
     }));
-    if (session !== getStoredSessionToken() || ownerId !== String(window.classicImageJobOwner || "")) return;
+    if (session !== getStoredSessionToken() || ownerId !== String(window.classicImageJobOwner || "") || (options.isCurrent && !options.isCurrent())) return;
     recoveredResultSignatures.set(signatureKey, signature);
     if (recoveredResultSignatures.size > 300) recoveredResultSignatures.delete(recoveredResultSignatures.keys().next().value);
   };
@@ -2467,11 +2513,12 @@
     if (!jobId || assetFinalizationPollers.has(jobId) || assetFinalizationPollers.size >= 100) return;
     const ownerId = String(options.ownerId || window.classicImageJobOwner || "");
     const session = options.session ?? getStoredSessionToken();
+    const clearGeneration = historyClearGeneration;
     const completedAt = new Date(options.completedAt || 0).getTime() || 0;
     const expiresAt = completedAt ? completedAt + 4 * 60 * 60 * 1000 : Date.now() + 30 * 60 * 1000;
     if (expiresAt <= Date.now()) return;
     const entry = { timer: null, attempts: 0, stop() { if (entry.timer) clearTimeout(entry.timer); assetFinalizationPollers.delete(jobId); } };
-    const isCurrent = () => session === getStoredSessionToken() && ownerId === String(window.classicImageJobOwner || "");
+    const isCurrent = () => session === getStoredSessionToken() && ownerId === String(window.classicImageJobOwner || "") && clearGeneration === historyClearGeneration;
     const schedule = () => { entry.timer = setTimeout(run, Math.min(30000, 5000 + entry.attempts * 2000)); };
     const run = async () => {
       if (!isCurrent() || Date.now() >= expiresAt || entry.attempts >= 480) { entry.stop(); return; }
@@ -2481,7 +2528,7 @@
       try {
         const job = await window.ClassicImageJobs.query(jobId, buildSessionHeaders(), "", ownerId);
         if (!isCurrent()) { entry.stop(); return; }
-        await applyManagedJobResults(job, { ...options, ownerId, session, jobId });
+        await applyManagedJobResults(job, { ...options, ownerId, session, jobId, isCurrent });
         if (!isCurrent()) { entry.stop(); return; }
         const status = String(job.storage_status || job.storageStatus || "").toLowerCase();
         if (["saved", "failed", "external", "expired"].includes(status)) { entry.stop(); return; }
@@ -2494,29 +2541,46 @@
   };
 
   restorePendingTasks = async function () {
+    if (historyClearInFlight) return;
     if (!isSessionAuthenticated()) {
       return legacyRestorePendingTasks ? legacyRestorePendingTasks() : undefined;
     }
 
     try {
       const session = getStoredSessionToken();
+      const clearGeneration = historyClearGeneration;
+      const isCurrent = () => session === getStoredSessionToken() && clearGeneration === historyClearGeneration;
       const identity = await window.ClassicImageJobs.request('/api/auth/session', { headers: buildSessionHeaders() });
-      if (session !== getStoredSessionToken()) return;
+      if (!isCurrent()) return;
       const ownerId = String(identity.user?.userId || '');
       if (!ownerId) return;
       confirmClassicImageOwner(ownerId, session);
       bridgeAuthState.user = identity.user;
       const jobsResult = await window.ClassicImageJobs.request('/api/image-jobs?uiMode=classic&limit=100', { headers: buildSessionHeaders() });
-      if (session !== getStoredSessionToken()) return;
+      if (!isCurrent()) return;
+      const completedJobIds = (jobsResult.jobs || []).filter(job => String(job.status).toLowerCase() === 'succeeded')
+        .map(job => String(job.task_id || job.taskId || job.id || '')).filter(Boolean);
+      const retainedJobIds = new Set();
+      if (completedJobIds.length) {
+        const history = await fetchGenerationRecords({ mediaType: 'image', status: 'success', pageSize: 100, taskIds: completedJobIds })
+          .catch(error => { console.warn('[Classic Bridge] completed history lookup deferred:', error); return null; });
+        if (!isCurrent()) return;
+        for (const record of history?.records || []) retainedJobIds.add(String(record.meta?.imageJobId || record.taskId || ''));
+      }
       for (const job of jobsResult.jobs || []) {
+        if (!isCurrent()) return;
         const id = job.task_id || job.taskId || job.id;
         const requestId = job.request_id || job.requestId || job.clientRequestId;
         const liveIds = job.clientLiveTaskIds || job.client_live_task_ids || [];
         const liveId = liveIds[0] || `request-${requestId}`;
         const meta = { taskId: id, jobId: id, clientRequestId: requestId, ownerId, prompt: job.prompt || '', size: job.outputSize || '1K', modelLabel: job.model || '', routeLabel: job.routeId || '', createdAt: Date.parse(job.created_at || job.createdAt) || Date.now() };
         if (String(job.status).toLowerCase() === 'succeeded') {
+          // Completed task receipts outlive an explicit history deletion. Only
+          // an existing account history row may restore one to the gallery.
+          if (!retainedJobIds.has(id)) continue;
           if (job.images?.length || job.results?.length) {
-            await applyManagedJobResults(job, { ...meta, session });
+            await applyManagedJobResults(job, { ...meta, session, isCurrent });
+            if (!isCurrent()) return;
             if (String(job.storage_status || '').toLowerCase() === 'pending') scheduleClassicAssetFinalization(id, { ...meta, session, completedAt: job.completed_at });
           }
           else window.promoteClassicLiveTask?.(liveId, id, { ...meta, status: 'result-unavailable', connectionMessage: '生成已完成，但图片保存失败，请联系管理员核对' });
@@ -2539,7 +2603,7 @@
         page: 1,
         pageSize: 100,
       });
-      if (session !== getStoredSessionToken()) return;
+      if (!isCurrent()) return;
       const records = (Array.isArray(result?.records) ? result.records : []).filter(record => !record?.meta?.imageJobId);
       renderRemotePendingTasks(records);
       const recentResult = await fetchGenerationRecords({
@@ -2548,12 +2612,12 @@
         page: 1,
         pageSize: 100,
       }).catch(() => null);
-      if (session !== getStoredSessionToken()) return;
+      if (!isCurrent()) return;
       const recentRecords = (Array.isArray(recentResult?.records) ? recentResult.records : []).filter(record => !record?.meta?.imageJobId);
       if (typeof window.reconcileClassicLiveTasksWithGenerationRecords === "function") {
         window.reconcileClassicLiveTasksWithGenerationRecords(recentRecords);
       }
-      await persistRemoteSuccessRecordsToLocalHistory(recentRecords);
+      await persistRemoteSuccessRecordsToLocalHistory(recentRecords, { ownerId, isCurrent });
       records
         .filter((record) => record?.taskId)
         .forEach((record, index) => {
@@ -2829,6 +2893,13 @@
           return;
         }
 
+        // Invalidate only this query's history writes when a clear overlaps it.
+        // Pending tasks keep polling and may save results from later queries.
+        const clearGeneration = historyClearGeneration;
+        const ownerId = String(window.classicImageJobOwner || '');
+        const historyWasClearing = Boolean(historyClearInFlight);
+        const isHistoryCurrent = () => !historyWasClearing && clearGeneration === historyClearGeneration &&
+          sessionAtStart === getStoredSessionToken() && ownerId === String(window.classicImageJobOwner || '');
         const queryUrl = CONFIG.queryUrl.replace("{id}", normalizedTaskId) + `?_t=${Date.now()}`;
         const rawJson = await window.ClassicImageJobs.query(normalizedTaskId, {
             "Content-Type": "application/json",
@@ -2859,7 +2930,7 @@
             const previewUrl = rawJson.preview_urls?.[slot] || (slot === 0 ? rawJson.preview_url || '' : '');
             const sourceChanged = wasCompleted && (previous.originalUrl !== imageUrl || (previewUrl && previous.previewUrl !== previewUrl));
             completeLiveTask(imageUrl, slot, previewUrl, resultTaskId, resultMeta);
-            const metadata = { ...resultMeta, ownerId: window.classicImageJobOwner || '', jobId: resultTaskId, taskId: resultTaskId, outputIndex: slot,
+            const metadata = { ...resultMeta, ownerId, isCurrent: isHistoryCurrent, jobId: resultTaskId, taskId: resultTaskId, outputIndex: slot,
               runToken: options.runToken, trackUi, liveTaskId: liveId, promptSnapshot, modelLabel: options.modelLabel || '', routeLabel: options.routeLabel || '', previewUrl };
             const settlementKey = `${sessionAtStart}:${resultTaskId}:${slot}:${options.runToken || 0}`;
             const shouldSettle = canUpdateMainUi(options.runToken, trackUi) && !uiSettlements.has(settlementKey);
@@ -2876,7 +2947,7 @@
               void saveToHistory(imageUrl, promptSnapshot, previewUrl, metadata);
             }
           });
-          if (isManagedJob && String(rawJson.storage_status || '').toLowerCase() === 'pending' && typeof scheduleClassicAssetFinalization === 'function') {
+          if (isHistoryCurrent() && isManagedJob && String(rawJson.storage_status || '').toLowerCase() === 'pending' && typeof scheduleClassicAssetFinalization === 'function') {
             scheduleClassicAssetFinalization(resultTaskId, { ownerId: window.classicImageJobOwner || '', session: sessionAtStart,
               liveTaskIds, prompt: promptSnapshot, size, modelLabel: options.modelLabel, routeLabel: options.routeLabel, completedAt: rawJson.completed_at, createdAt: rawJson.created_at });
           }
