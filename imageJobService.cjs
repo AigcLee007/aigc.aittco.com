@@ -61,6 +61,7 @@ function createImageJobService(options = {}) {
   const assetUpdates=new Map();
   const assetPublications=new Map();
   const resumedAssetJobs=new Set();
+  const pendingPublicLists=new Map();
   const outcomePatch = job => Object.fromEntries(['status','progress','resultUrls','previewUrl','storageStatus','storageError','payload','billing','error','completedAt','settlementPending'].filter(key=>job[key]!==undefined).map(key=>[key,job[key]]));
   let started=false,stopped=false,pumping=false,reconciling=false,admission=Promise.resolve(),maintenance,lastCleanup=0,startPromise;
   const warn = error => options.logger?.warn?.({type:'Image job maintenance',message:error.message});
@@ -339,9 +340,21 @@ function createImageJobService(options = {}) {
       setImmediate(()=>void pump());return ack(job);
     }finally{release();}
   };
+  const listPublicJobs = (userId,{uiMode,status='all',limit=100}={}) => {
+    const ownerId=String(userId),mode=uiMode?String(uiMode):undefined;
+    const pending=status==='pending';
+    const safeLimit=Math.max(1,Math.min(100,Math.floor(Number(limit)||100)));
+    const key=JSON.stringify([ownerId,mode||null,pending,safeLimit]);
+    if(pendingPublicLists.has(key))return pendingPublicLists.get(key);
+    const request=store.list({userId:ownerId,uiMode:mode,...(pending?{statuses:['queued','running']}:{}),limit:safeLimit,descending:true,publicListProjection:true})
+      .then(jobs=>jobs.map(job=>({...publicJob(job),ui_mode:job.uiMode,client_live_task_ids:job.clientLiveTaskIds||[]})))
+      .finally(()=>{if(pendingPublicLists.get(key)===request)pendingPublicLists.delete(key);});
+    pendingPublicLists.set(key,request);
+    return request;
+  };
   return {submit,get:async(id,userId)=>publicJob(owner(outcomes.get(id)||await store.get(id),userId)),
     lookupRequest:async(requestId,userId)=>{const job=owner(await store.findByRequest(requestId,userId),userId);return publicJob(outcomes.get(job.taskId)||job);},
-    list:async(userId,{uiMode,status='all',limit=100}={})=>(await store.list({userId:String(userId),uiMode,...(status==='pending'?{statuses:['queued','running']}:{}),limit:Math.max(1,Math.min(100,Number(limit)||100)),descending:true})).map(job=>({...publicJob(job),ui_mode:job.uiMode,client_live_task_ids:job.clientLiveTaskIds||[]})),
+    list:listPublicJobs,
     start,stop,reconcile,persist,processPayload,store};
 }
 module.exports={createImageJobService,imageJobContext,collectImages};

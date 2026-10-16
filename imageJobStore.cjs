@@ -151,7 +151,7 @@ function createImageJobStore(options = {}) {
       if(keep)await fs.writeFile(file,'');else await fs.unlink(file).catch(error=>{if(error.code!=='ENOENT')throw error;});
     }
   };
-  const list = async ({status, statuses, userId, uiMode, includeBody = false, settlementPending, storageStatus, limit, descending=false, createdBefore} = {}) => {
+  const list = async ({status, statuses, userId, uiMode, includeBody = false, publicListProjection = false, settlementPending, storageStatus, limit, descending=false, createdBefore} = {}) => {
     await init();
     if(useMySql){
       const predicates=[],params=[];
@@ -163,7 +163,13 @@ function createImageJobStore(options = {}) {
       if(storageStatus){predicates.push("JSON_UNQUOTE(JSON_EXTRACT(job_json, '$.storageStatus')) = ?");params.push(storageStatus);}
       if(createdBefore){predicates.push('created_at_ms < ?');params.push(createdBefore);}
       const safeLimit=Math.max(1,Math.min(5000,Number(limit)||5000));
-      const [rows]=await pool.execute(`SELECT job_json FROM image_jobs${predicates.length?` WHERE ${predicates.join(' AND ')}`:''} ORDER BY created_at_ms ${descending?'DESC':'ASC'} LIMIT ${safeLimit}`,params);
+      // Public recovery uses resultUrls, billing and payload.preview_urls only.
+      // Drop duplicate provider data in MySQL before it crosses the connection;
+      // maintenance, settlement and individual lookups still read the full job.
+      const projection=publicListProjection
+        ? "JSON_SET(JSON_REMOVE(job_json, '$.payload', '$.images', '$.results'), '$.payload', JSON_OBJECT('preview_urls', JSON_EXTRACT(job_json, '$.payload.preview_urls'))) AS job_json"
+        : 'job_json';
+      const [rows]=await pool.execute(`SELECT ${projection} FROM image_jobs${predicates.length?` WHERE ${predicates.join(' AND ')}`:''} ORDER BY created_at_ms ${descending?'DESC':'ASC'} LIMIT ${safeLimit}`,params);
       return rows.map(parseRow).filter(job=>(!status||job.status===status)&&(!statuses?.length||statuses.includes(job.status))&&(!userId||job.userId===userId)&&(!uiMode||job.uiMode===uiMode)&&(!settlementPending||job.settlementPending)&&(!storageStatus||job.storageStatus===storageStatus));
     }
     const indexDir=storageStatus==='pending'?storagePendingDir:settlementPending?settlementDir:statuses?.every(value=>['queued','running'].includes(value))?pendingDir:status&&['queued','running'].includes(status)?pendingDir:jobsDir;

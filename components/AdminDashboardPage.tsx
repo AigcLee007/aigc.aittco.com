@@ -37,6 +37,7 @@ const DASHBOARD_REFRESH_INTERVAL_MS = 120000;
 const AdminDashboardPage: React.FC = () => {
   const [session, setSession] = useState<AuthSessionPayload | null>(null);
   const [sessionLoading, setSessionLoading] = useState(true);
+  const [sessionError, setSessionError] = useState<string | null>(null);
   const [dashboard, setDashboard] = useState<AdminDashboardPayload | null>(null);
   const [dashboardLoading, setDashboardLoading] = useState(false);
   const [dashboardError, setDashboardError] = useState<string | null>(null);
@@ -45,9 +46,12 @@ const AdminDashboardPage: React.FC = () => {
 
   const refreshSession = useCallback(async () => {
     setSessionLoading(true);
+    setSessionError(null);
     try {
       const nextSession = await fetchCurrentAuthSession();
       setSession(nextSession);
+    } catch (error) {
+      setSessionError((error as Error).message);
     } finally {
       setSessionLoading(false);
     }
@@ -161,6 +165,18 @@ const AdminDashboardPage: React.FC = () => {
             <Loader2 size={16} className="animate-spin" />
             正在加载管理后台...
           </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (sessionError) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-neutral-950 px-4 text-white">
+        <div role="alert" className="max-w-lg rounded-2xl border border-amber-400/20 bg-amber-500/10 p-6">
+          <h1 className="text-lg font-semibold">权限验证暂未完成</h1>
+          <p className="mt-2 text-sm text-amber-100/80">{sessionError}</p>
+          <button type="button" onClick={() => void refreshSession()} className="mt-4 rounded-xl bg-white/10 px-4 py-2 text-sm hover:bg-white/15">重新验证</button>
         </div>
       </div>
     );

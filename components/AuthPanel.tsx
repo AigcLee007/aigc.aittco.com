@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Crown,
   Eye,
@@ -8,6 +8,7 @@ import {
   Lock,
   LogOut,
   Mail,
+  RefreshCw,
   ShieldCheck,
   UserPlus,
   UserRound,
@@ -17,6 +18,7 @@ import {
   changeCurrentUserPassword,
   fetchCurrentAuthSession,
   fetchRegistrationStatus,
+  getStoredAuthSessionToken,
   loginWithEmailCode,
   loginWithPassword,
   logoutAuthSession,
@@ -60,28 +62,43 @@ const AuthPanel: React.FC<AuthPanelProps> = ({ session, onSessionChange }) => {
   const [submitting, setSubmitting] = useState(false);
   const [hint, setHint] = useState<string | null>(null);
   const [registrationStatus, setRegistrationStatus] = useState<RegistrationStatusPayload | null>(null);
+  const refreshVersion = useRef(0);
 
   const refreshSession = useCallback(async () => {
+    const version = ++refreshVersion.current;
+    const token = getStoredAuthSessionToken();
     setLoading(true);
+    setHint(null);
     try {
-      const [current, nextStatus] = await Promise.all([
-        fetchCurrentAuthSession(),
-        fetchRegistrationStatus().catch(() => null),
-      ]);
+      const current = await fetchCurrentAuthSession();
+      if (version !== refreshVersion.current) return;
+      // A 401 clears the same token; an account change must not publish an old result.
+      const currentToken = getStoredAuthSessionToken();
+      if (token !== currentToken && (currentToken !== null || current !== null)) return;
       onSessionChange(current);
-      setRegistrationStatus(nextStatus);
       if (current?.user?.email) {
         setEmail(current.user.email);
         setDisplayName(current.user.displayName || '');
       }
+    } catch (error) {
+      if (version === refreshVersion.current && token === getStoredAuthSessionToken()) setHint((error as Error).message);
     } finally {
-      setLoading(false);
+      if (version === refreshVersion.current) setLoading(false);
     }
   }, [onSessionChange]);
 
   useEffect(() => {
     void refreshSession();
+    return () => { refreshVersion.current += 1; };
   }, [refreshSession]);
+
+  useEffect(() => {
+    let active = true;
+    void fetchRegistrationStatus().then(status => {
+      if (active) setRegistrationStatus(status);
+    }).catch(() => {});
+    return () => { active = false; };
+  }, []);
 
   useEffect(() => {
     if (!session?.authenticated) {
@@ -366,7 +383,16 @@ const AuthPanel: React.FC<AuthPanelProps> = ({ session, onSessionChange }) => {
             支持邮箱 + 密码登录，也支持验证码迁移和忘记密码后的邮箱重置。
           </p>
         </div>
-        {loading && <Loader2 size={16} className="animate-spin text-sky-200" />}
+        <button
+          type="button"
+          aria-label="刷新登录状态"
+          title="刷新登录状态"
+          disabled={loading || submitting}
+          onClick={() => void refreshSession()}
+          className="rounded-lg p-1 text-sky-200 hover:bg-white/5 disabled:opacity-60"
+        >
+          {loading ? <span aria-label="正在验证登录状态"><Loader2 size={16} className="animate-spin" /></span> : <RefreshCw size={16} />}
+        </button>
       </div>
 
       {hint && (

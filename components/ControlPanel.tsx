@@ -100,6 +100,7 @@ type GenerationAccessState =
   | 'checking'
   | 'authenticated'
   | 'valid_api_key'
+  | 'access_error'
   | 'missing_credentials'
   | 'invalid_api_key';
 
@@ -185,6 +186,8 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
   const [generationAccessMessage, setGenerationAccessMessage] = useState(
     '正在验证访问权限...',
   );
+  const [accessRetryVersion, setAccessRetryVersion] = useState(0);
+  const [sessionVerificationError, setSessionVerificationError] = useState<string | null>(null);
 
   // const [aspectRatio, setAspectRatio] = useState('Smart'); // Moved to store
   // const [customRatio, setCustomRatio] = useState(''); // Moved to store
@@ -245,6 +248,7 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
     const trimmedApiKey = String(apiKey || '').trim();
 
     const validateGenerationAccess = async () => {
+      setSessionVerificationError(null);
       if (authSessionTokenSnapshot) {
         setGenerationAccessState('checking');
         setGenerationAccessMessage('正在验证登录状态...');
@@ -261,6 +265,12 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
         } catch (sessionError) {
           console.warn('Failed to validate auth session', sessionError);
           if (!active) return;
+          setSessionVerificationError(extractErrorMessage(sessionError) || '登录状态验证失败，请重试');
+          if (!trimmedApiKey) {
+            setGenerationAccessState('access_error');
+            setGenerationAccessMessage(extractErrorMessage(sessionError) || '登录状态验证失败，请重试');
+            return;
+          }
         }
       }
 
@@ -302,7 +312,7 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
           /invalid api key|http 401|unauthorized/i.test(rawKeyErrorMessage)
             ? '当前 API Key 无法通过验证，请检查后重试。'
             : rawKeyErrorMessage || '当前 API Key 无法通过验证，请检查后重试。';
-        setGenerationAccessState('invalid_api_key');
+        setGenerationAccessState(/invalid api key|http 401|unauthorized/i.test(rawKeyErrorMessage) ? 'invalid_api_key' : 'access_error');
         setGenerationAccessMessage(normalizedKeyErrorMessage);
       }
     };
@@ -315,7 +325,7 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
       active = false;
       window.clearTimeout(timerId);
     };
-  }, [apiKey, authSessionTokenSnapshot]);
+  }, [apiKey, authSessionTokenSnapshot, accessRetryVersion]);
 
   useEffect(() => {
     if (generationAccessState === 'checking') {
@@ -381,6 +391,7 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
     ? hasUnlockedVideoGenerationAccess
     : hasUnlockedImageGenerationAccess;
   const isCheckingGenerationAccess = generationAccessState === 'checking';
+  const hasAccessVerificationError = generationAccessState === 'access_error' || Boolean(sessionVerificationError);
 
 
 
@@ -1879,6 +1890,12 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
               {/* Content area */}
       {!panelMinimized && (
         <div className={`p-4 ${isMobile ? 'pt-3' : ''} flex flex-col gap-4 overflow-y-auto overflow-x-hidden sleek-scroll-y ${isMobile ? 'max-h-[calc(86dvh-92px)] pb-[max(1rem,env(safe-area-inset-bottom))]' : 'max-h-[85vh]'}`}>
+          {sessionVerificationError && hasUnlockedGenerationAccess && !isCheckingGenerationAccess && (
+            <div className="rounded-xl border border-amber-400/25 bg-amber-500/10 p-3 text-xs text-amber-200">
+              <div>{sessionVerificationError}</div>
+              <button type="button" onClick={() => setAccessRetryVersion(version => version + 1)} className="mt-2 text-cyan-300 hover:text-cyan-100">重新验证</button>
+            </div>
+          )}
           {toolMode === ToolMode.INPAINT ? (
             <>
               {hasUnlockedGenerationAccess ? (
@@ -1910,11 +1927,16 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
                       <div className="text-sm font-semibold text-white">
                         {isCheckingGenerationAccess
                           ? '正在验证访问权限'
+                          : hasAccessVerificationError
+                            ? '权限验证暂未完成'
                           : '请先登录或验证 API Key'}
                       </div>
                       <div className="mt-1 text-xs leading-5 text-gray-400">
-                        {generationAccessMessage}
+                        {sessionVerificationError || generationAccessMessage}
                       </div>
+                      {hasAccessVerificationError && !isCheckingGenerationAccess && (
+                        <button type="button" onClick={() => setAccessRetryVersion(version => version + 1)} className="mt-2 text-xs text-cyan-300 hover:text-cyan-100">重新验证</button>
+                      )}
                     </div>
                   </div>
                   <div className="mt-3 rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-[11px] leading-5 text-gray-400">
@@ -2269,13 +2291,18 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
                     <div className="text-sm font-semibold text-white">
                       {isCheckingGenerationAccess
                         ? '正在验证访问权限'
+                        : hasAccessVerificationError
+                          ? '权限验证暂未完成'
                         : isVideoMode
                           ? '请先登录后使用视频生成'
                           : '请先登录或验证 API Key'}
                     </div>
                     <div className="mt-1 text-xs leading-5 text-gray-400">
-                      {generationAccessMessage}
+                      {sessionVerificationError || generationAccessMessage}
                     </div>
+                    {hasAccessVerificationError && !isCheckingGenerationAccess && (
+                      <button type="button" onClick={() => setAccessRetryVersion(version => version + 1)} className="mt-2 text-xs text-cyan-300 hover:text-cyan-100">重新验证</button>
+                    )}
                   </div>
                 </div>
                 <div className="mt-3 rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-[11px] leading-5 text-gray-400">
@@ -2312,7 +2339,7 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
               ) : isCheckingGenerationAccess ? (
                 <><Loader2 size={16} className="animate-spin" />正在验证访问权限...</>
               ) : !hasUnlockedGenerationAccess ? (
-                <><ShieldCheck size={16} />请先登录或验证 Key</>
+                <><ShieldCheck size={16} />{hasAccessVerificationError ? '权限验证未完成' : '请先登录或验证 Key'}</>
               ) : (
                 <>
                   {isInpaintMode ? <Zap size={16} /> : (isVideoMode ? <Film size={16} /> : <Wand2 size={16} />)}

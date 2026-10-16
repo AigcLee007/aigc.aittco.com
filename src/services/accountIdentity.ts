@@ -1,9 +1,13 @@
-﻿const API_BASE_URL =
+import { fetchWithTimeout } from '../utils/fetchWithTimeout';
+
+const API_BASE_URL =
   '/api';
 
 const cleanUrl = (url: string) => url.replace(/\/$/, '');
 const STORAGE_KEY = 'auth-session-v1';
 export const AUTH_SESSION_CHANGE_EVENT = 'auth-session-change';
+const AUTH_READ_TIMEOUT_MS = 12000;
+const pendingSessionReads = new Map<string, Promise<AuthSessionPayload | null>>();
 
 export type AuthUserRole = 'user' | 'admin' | 'super_admin';
 export type AuthUserStatus = 'active' | 'disabled';
@@ -98,34 +102,40 @@ export const getAuthorizedBillingHeaders = async (): Promise<Record<string, stri
 };
 
 export const fetchRegistrationStatus = async (): Promise<RegistrationStatusPayload> => {
-  const response = await fetch(`${cleanUrl(API_BASE_URL)}/auth/registration-status`, {
+  return fetchWithTimeout(`${cleanUrl(API_BASE_URL)}/auth/registration-status`, {
     method: 'GET',
     headers: {
       'Content-Type': 'application/json',
     },
-  });
-
-  return parseResponse<RegistrationStatusPayload>(response);
+  }, parseResponse<RegistrationStatusPayload>, AUTH_READ_TIMEOUT_MS, '注册信息读取超时，请稍后重试');
 };
 
-export const fetchCurrentAuthSession = async (): Promise<AuthSessionPayload | null> => {
+export const fetchCurrentAuthSession = (): Promise<AuthSessionPayload | null> => {
   const sessionToken = getStoredAuthSessionToken();
-  if (!sessionToken) return null;
+  if (!sessionToken) return Promise.resolve(null);
+  const pending = pendingSessionReads.get(sessionToken);
+  if (pending) return pending;
 
-  const response = await fetch(`${cleanUrl(API_BASE_URL)}/auth/session`, {
+  const request = fetchWithTimeout(`${cleanUrl(API_BASE_URL)}/auth/session`, {
     method: 'GET',
     headers: {
       'Content-Type': 'application/json',
       ...buildBillingIdentityHeaders(sessionToken),
     },
+  }, async response => {
+    if (sessionToken !== getStoredAuthSessionToken()) return null;
+    if (response.status === 401) {
+      clearStoredAuthSessionToken();
+      return null;
+    }
+    const current = await parseResponse<AuthSessionPayload>(response);
+    return sessionToken === getStoredAuthSessionToken() ? current : null;
+  }, AUTH_READ_TIMEOUT_MS, '登录状态验证超时，请重试').finally(() => {
+    // Share only in-flight work. Every later refresh rechecks server permissions.
+    if (pendingSessionReads.get(sessionToken) === request) pendingSessionReads.delete(sessionToken);
   });
-
-  if (response.status === 401) {
-    clearStoredAuthSessionToken();
-    return null;
-  }
-
-  return parseResponse<AuthSessionPayload>(response);
+  pendingSessionReads.set(sessionToken, request);
+  return request;
 };
 
 export const ensureBillingIdentity = async (): Promise<{

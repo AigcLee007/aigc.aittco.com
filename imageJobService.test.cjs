@@ -85,6 +85,73 @@ test('recovery list filters UI mode before limiting newer jobs from the other UI
   assert.deepEqual(jobs.map(job=>job.task_id),['job-canvas-old']);
 });
 
+test('public recovery list reads only projected metadata and preserves every visible result', async t => {
+  const root=await fs.mkdtemp(path.join(os.tmpdir(),'image-job-projection-'));
+  t.after(()=>fs.rm(root,{recursive:true,force:true}));
+  const job={taskId:'job-projection',requestId:'projection',userId:'owner-a',uiMode:'canvas',
+    status:'succeeded',progress:100,createdAt:'2026-10-16T01:00:00.000Z',completedAt:'2026-10-16T01:01:00.000Z',
+    resultUrls:['/original-one.png','/original-two.png'],previewUrl:'/preview-one.webp',storageStatus:'pending',
+    billing:{points:2},prompt:'a bird',model:'test',clientLiveTaskIds:['node-one','node-two'],
+    payload:{preview_urls:['/preview-one.webp','/preview-two.webp'],raw:'x'.repeat(2*1024*1024)},
+    images:['unused-large-value'],results:['unused-large-value']};
+  const statements=[];
+  const pool={execute:async(sql,params=[])=>{
+    statements.push({sql,params});
+    if(/CREATE TABLE/.test(sql))return[{}];
+    if(/SELECT job_json FROM/.test(sql))return[[{job_json:job}]];
+    if(/SELECT JSON_SET\(/.test(sql)){
+      const {payload,images,results,...metadata}=job;
+      return[[{job_json:{...metadata,payload:{preview_urls:payload.preview_urls}}}]];
+    }
+    throw new Error(`Unexpected SQL: ${sql}`);
+  }};
+  const store=createImageJobStore({root,useMySql:true,pool});
+  const service=createImageJobService({store});
+  const expected=await service.get(job.taskId,job.userId);
+  const jobs=await service.list(job.userId,{uiMode:'canvas'});
+  assert.deepEqual(jobs,[{...expected,ui_mode:'canvas',client_live_task_ids:job.clientLiveTaskIds}]);
+  const listing=statements.at(-1);
+  assert.match(listing.sql,/SELECT JSON_SET\(JSON_REMOVE\(job_json,/,'large JSON must be projected inside MySQL, before transfer');
+  assert.match(listing.sql,/'\$\.payload'/);
+  assert.match(listing.sql,/'\$\.images'/);
+  assert.match(listing.sql,/'\$\.results'/);
+  assert.match(listing.sql,/JSON_EXTRACT\(job_json, '\$\.payload\.preview_urls'\)/);
+  assert.match(listing.sql,/WHERE user_id = \?.*ORDER BY created_at_ms DESC LIMIT 100/);
+  assert.deepEqual(listing.params,['owner-a','canvas']);
+  const internal=await store.list({userId:job.userId});
+  assert.equal(internal[0].payload.raw.length,2*1024*1024,'internal recovery must retain the complete payload');
+  assert.match(statements.at(-1).sql,/^SELECT job_json FROM/);
+});
+
+test('concurrent recovery requests share one read per owner and retry after settlement', async () => {
+  const reads=[];
+  const store={list:options=>{const gate=deferred();reads.push({options,gate});return gate.promise;}};
+  const service=createImageJobService({store});
+  const first=service.list('owner-a',{uiMode:'canvas',limit:'100'});
+  const second=service.list('owner-a',{uiMode:'canvas',limit:100});
+  const otherOwner=service.list('owner-b',{uiMode:'canvas',limit:100});
+  const otherUi=service.list('owner-a',{uiMode:'classic',limit:100});
+  const pending=service.list('owner-a',{uiMode:'canvas',status:'pending',limit:100});
+  assert.equal(reads.length,4,'same owner/filter must share only the in-flight database read');
+  for(const {gate} of reads)gate.resolve([]);
+  await Promise.all([first,second,otherOwner,otherUi,pending]);
+  const fresh=service.list('owner-a',{uiMode:'canvas',limit:100});
+  assert.equal(reads.length,5,'a completed list must never become a stale recovery cache');
+  reads.at(-1).gate.resolve([]);await fresh;
+});
+
+test('a failed shared recovery read is released so the next request can recover', async () => {
+  let reads=0;const gate=deferred();
+  const service=createImageJobService({store:{list:()=>++reads===1?gate.promise:Promise.resolve([])}});
+  const first=service.list('owner-a');
+  const second=service.list('owner-a');
+  const results=Promise.allSettled([first,second]);
+  gate.resolve(Promise.reject(new Error('database temporarily unavailable')));
+  assert.deepEqual((await results).map(result=>result.status),['rejected','rejected']);
+  assert.deepEqual(await service.list('owner-a'),[]);
+  assert.equal(reads,2);
+});
+
 test('failed generation stores one compensation and rejects success with no image', async t => {
   let refunds=0;
   const {store,service}=await harness(t,{execute:async (job,body,context)=>{await context.persist({accountId:'acc',chargeId:'charge'});return {status:'succeeded'};},compensate:async()=>{refunds++;}});

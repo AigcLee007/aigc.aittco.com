@@ -3,6 +3,7 @@
 import { normalizeImageResultValue, unwrapMiswrappedImageUrl } from '../src/utils/mediaProxy';
 import { formatPoint } from '../src/utils/pointFormat';
 import { readTaskProgress } from '../src/utils/generationProgress';
+import { fetchWithTimeout } from '../src/utils/fetchWithTimeout';
 import type { GenerationProgressCallback } from '../types';
 
 // API configuration
@@ -303,21 +304,21 @@ export const checkBalance = async (apiKey: string): Promise<any> => {
     }
 
     try {
-        const response = await fetch(`${cleanUrl(API_BASE_URL)}/balance/info`, {
+        return await fetchWithTimeout(`${cleanUrl(API_BASE_URL)}/balance/info`, {
             method: 'GET',
             headers: authHeaders
-        });
+        }, async response => {
+            if (!response.ok) {
+                const errText = await response.text();
+                let errJson;
+                try { errJson = JSON.parse(errText); } catch (e) { }
 
-        if (!response.ok) {
-            const errText = await response.text();
-            let errJson;
-            try { errJson = JSON.parse(errText); } catch (e) { }
+                throw new Error((errJson && errJson.error) ? errJson.error : `HTTP ${response.status}: ${errText.substring(0, 50)}`);
+            }
 
-            throw new Error((errJson && errJson.error) ? errJson.error : `HTTP ${response.status}: ${errText.substring(0, 50)}`);
-        }
-
-        const data = await response.json();
-        return data;
+            const data = await response.json();
+            return data;
+        }, 12000, 'API Key 验证超时，请重试');
     } catch (e: any) {
         throw new Error(e.message || "Failed to fetch balance");
     }
