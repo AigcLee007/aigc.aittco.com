@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('./accountIdentity', () => ({
   getAuthorizedBillingHeaders: vi.fn(async () => ({
@@ -6,7 +6,7 @@ vi.mock('./accountIdentity', () => ({
   })),
 }));
 
-import { resetAdminUserPassword } from './userAdminService';
+import { fetchAdminUsers, resetAdminUserPassword } from './userAdminService';
 
 describe('resetAdminUserPassword', () => {
   beforeEach(() => {
@@ -49,5 +49,36 @@ describe('resetAdminUserPassword', () => {
         }),
       }),
     );
+  });
+});
+
+ afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
+
+describe('admin user list requests', () => {
+  it('times out a stalled response body so online polling can retry', async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: () => new Promise(() => {}) });
+    vi.stubGlobal('fetch', fetchMock);
+    const outcome = fetchAdminUsers().then(
+      () => ({ failed: false, message: '' }),
+      error => ({ failed: true, message: error.message }),
+    );
+    await vi.advanceTimersByTimeAsync(12_000);
+    const pending = Symbol('pending');
+    const result = await Promise.race([outcome, Promise.resolve(pending)]);
+    expect(result).not.toBe(pending);
+    expect(result).toEqual({ failed: true, message: '用户列表读取超时，请重试' });
+    expect(fetchMock.mock.calls[0][1].signal.aborted).toBe(true);
+  });
+
+  it('keeps authentication, search and pagination when refreshing the list', async () => {
+    const payload = { success: true, users: [], onlineUsers: [] };
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => payload });
+    vi.stubGlobal('fetch', fetchMock);
+    expect(await fetchAdminUsers({ search: 'user@example.com', page: 2, pageSize: 20 })).toEqual(payload);
+    const [url, options] = fetchMock.mock.calls[0];
+    expect(new URL(url).searchParams.get('search')).toBe('user@example.com');
+    expect(new URL(url).searchParams.get('page')).toBe('2');
+    expect(options.headers['X-Auth-Session']).toBe('session-token');
   });
 });
