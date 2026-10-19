@@ -276,7 +276,8 @@ test('incidents are sanitized, deduplicated and exposed through bounded reads', 
   assert.equal(result.items[0].sampleCount, 12); assert.ok(!JSON.stringify(result).includes('private'));
   assert.equal(pool.calls.length, beforeRead, 'incident reads must use the shared background cache');
   const read = pool.calls.find(call => /ops:incident-list/.test(call.sql));
-  assert.ok(read.sql.includes('LIMIT ?')); assert.equal(read.params.at(-1), 50);
+  assert.match(read.sql, /LIMIT 50\b/); assert.ok(!read.sql.includes('LIMIT ?'));
+  assert.equal(read.params.length, 1); assert.ok(read.params[0] instanceof Date);
 });
 
 test('initialization retries a transient database error and retains existing telemetry start', async () => {

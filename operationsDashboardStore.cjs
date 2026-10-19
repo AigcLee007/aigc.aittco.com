@@ -170,7 +170,7 @@ function createOperationsDashboardStore({ pool, enabled = Boolean(pool), now = (
   const mapIncident = row => ({ fingerprint: sanitizeSummary(row.fingerprint, 200), category: sanitizeSummary(row.category, 48), severity: sanitizeSummary(row.severity, 20), message: sanitizeSummary(row.message), routeId: sanitizeSummary(row.route_id, 160), sampleCount: count(row.sample_count), affectedUsers: count(row.affected_users), status: sanitizeSummary(row.status, 20),
     firstSeenAt: iso(row.first_seen_at), lastSeenAt: iso(row.last_seen_at), acknowledgedAt: iso(row.acknowledged_at), acknowledgedBy: sanitizeSummary(row.acknowledged_by, 100), recoveredAt: iso(row.recovered_at), closedAt: iso(row.closed_at), updatedAt: iso(row.updated_at) });
   const loadIncidents = async timestamp => {
-    const rows = await query('/* ops:incident-list */ SELECT fingerprint, category, severity, message, route_id, sample_count, affected_users, status, first_seen_at, last_seen_at, acknowledged_at, acknowledged_by, recovered_at, closed_at, updated_at FROM ops_incidents WHERE updated_at >= ? ORDER BY updated_at DESC, fingerprint DESC LIMIT ?', [new Date(timestamp.getTime() - 90 * DAY), 50]);
+    const rows = await query('/* ops:incident-list */ SELECT fingerprint, category, severity, message, route_id, sample_count, affected_users, status, first_seen_at, last_seen_at, acknowledged_at, acknowledged_by, recovered_at, closed_at, updated_at FROM ops_incidents WHERE updated_at >= ? ORDER BY updated_at DESC, fingerprint DESC LIMIT 50', [new Date(timestamp.getTime() - 90 * DAY)]);
     return rows.map(mapIncident);
   };
   const init = async () => {
