@@ -35,7 +35,10 @@ test('image routes durably acknowledge before provider work and settle without a
   const route={id:'local-test',label:'test',transport:'openai-image',mode:'async',baseUrl:`http://127.0.0.1:${upstream.address().port}`,generatePath:'/images',editPath:'/edits',taskPath:'/tasks/{taskId}',upstreamModel:'image-test',apiKey:'local-test-key',pointCost:2,isActive:true};
   const geminiKeyRoute={...route,id:'gemini-content',transport:'gemini-native',generatePath:'/native/{model}'};
   const nativeRoute={...route,id:'native-progress',taskPath:'/nondefault/tasks/{taskId}'};
-  routeModule.getImageRouteById=async id=>id==='gemini-content'?geminiKeyRoute:id==='native-progress'?nativeRoute:route;routeModule.getImageRouteCatalog=async()=>({defaultRouteId:route.id,routes:[route,nativeRoute]});
+  const editWithoutPath={...route,id:'edit-without-path',editPath:''};
+  const disabledRoute={...route,id:'disabled-route',isActive:false};
+  const testRoutes=[route,geminiKeyRoute,nativeRoute,editWithoutPath,disabledRoute];
+  routeModule.getImageRouteById=async id=>testRoutes.find(item=>item.id===id)||null;routeModule.getImageRouteCatalog=async()=>({defaultRouteId:route.id,routes:[route,nativeRoute]});
   // Records are isolated from the checkout by replacing only the persistence boundary.
   const recordModule=require('./generationRecordStore.cjs');const records=new Map();
   recordModule.createGenerationRecord=async value=>{const record={...value,id:`rec-${records.size}`};records.set(record.id,record);return record;};
@@ -54,6 +57,21 @@ test('image routes durably acknowledge before provider work and settle without a
   const session=await auth.loginWithPassword({email:reg.user.email,password:'async-pass-123'});
   const account=await billing.ensureAccountForUser(reg.user);await billing.rechargeAccount(account.accountId,20);
   const request=(url,options={})=>fetch(`http://127.0.0.1:${server.address().port}${url}`,{headers:{'content-type':'application/json','x-auth-session':session.sessionToken},...options});
+  delayed = false;
+  for (const endpoint of ['/api/generate', '/api/edit', '/api/gemini/generate']) {
+    const malformed = await request(endpoint, { method: 'POST', headers: { 'x-auth-session': session.sessionToken }, body: JSON.stringify({ prompt: 'wrong content type', routeId: route.id }) });
+    assert.equal(malformed.status, 415, 'unparsed JSON must be rejected before default routing or charging');
+    const empty = await request(endpoint, { method: 'POST', body: '{}' });
+    assert.equal(empty.status, 400, 'empty JSON must be rejected before default routing or charging');
+    for (const asyncTask of [false, true]) for (const routeId of ['missing-route', 'disabled-route']) {
+      const invalid = await request(endpoint, { method: 'POST', body: JSON.stringify({ prompt: 'keep the chosen route', routeId, asyncTask, image: 'data:image/png;base64,AAAA' }) });
+      assert.equal(invalid.status, 400, 'an explicit unavailable route must not call the default provider');
+    }
+  }
+  assert.equal((await billing.getAccountSummary(account.accountId)).points, 20);
+  assert.equal(upstreamCalls, 0);
+  assert.equal(records.size, 0);
+  delayed = true;
   const body={routeId:route.id,model:'image-test',prompt:'a tree',asyncTask:true,clientRequestId:'http-req-1',n:1};
   const before=Date.now();const response=await Promise.race([request('/api/generate',{method:'POST',body:JSON.stringify(body)}),new Promise(resolve=>setTimeout(()=>resolve({status:408}),2000))]);
   assert.equal(response.status,202);assert.ok(Date.now()-before<2000,'ack does not wait for delayed provider');
@@ -75,11 +93,12 @@ test('image routes durably acknowledge before provider work and settle without a
   const all=await request('/api/image-jobs?uiMode=canvas&status=all');assert.equal((await all.json()).jobs[0].task_id,ack.task_id);
   delayed=false;
   const pollUntilDone=async taskId=>{for(let i=0;i<150;i++){const state=await(await request(`/api/task/${taskId}`)).json();if(['succeeded','failed'].includes(state.status))return state;await new Promise(resolve=>setTimeout(resolve,20));}assert.fail('image task did not settle');};
-  const edit=await request('/api/edit',{method:'POST',body:JSON.stringify({...body,clientRequestId:'valid-edit',image:'data:image/png;base64,AAAA'})});assert.equal(edit.status,202);
+  const edit=await request('/api/edit',{method:'POST',body:JSON.stringify({...body,routeId:editWithoutPath.id,clientRequestId:'valid-edit',image:'data:image/png;base64,AAAA'})});assert.equal(edit.status,202);
   const editAck=await edit.json();assert.equal((await pollUntilDone(editAck.task_id)).status,'succeeded');
   assert.ok((await store.get(editAck.task_id)).generationRecordId,'edit task must bind a generation record');
   const editRecords=[...records.values()].filter(record=>record.action==='edit' || record.actionName==='edit');
   assert.equal(editRecords.length,1,'one durable edit creates exactly one generation record');
+  assert.equal(editRecords[0].routeId,editWithoutPath.id,'missing editPath uses the selected OpenAI-compatible provider, never the default provider');
   assert.equal(editRecords[0].status,'SUCCESS','no duplicate pending edit record remains');
   route.transport='gemini-native';route.generatePath='/native/{model}';route.mode='sync';
   providerResult={candidates:[{content:{parts:[{inlineData:{mimeType:'image/png',data:'AAAA'}}]}}]};

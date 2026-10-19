@@ -214,6 +214,8 @@ const resolveImageRoute = async (routeId, { includeInactive = false } = {}) => {
     if (exactRoute && (includeInactive || exactRoute.isActive !== false)) {
       return exactRoute;
     }
+    // A named provider is a user choice, not permission to try the default.
+    return null;
   }
 
   const catalog = await getImageRouteCatalog({ includeInactive });
@@ -4781,16 +4783,14 @@ const legacyImageEditHandler = async (req, res) => {
     delete requestBody.clientLiveTaskId;
     const requestedRoute = await resolveImageRoute(requestBody.routeId);
     const requestedImageModel = await resolveRequestedImageModel(requestBody);
-    const route = requestedRoute?.editPath
-      ? requestedRoute
-      : await resolveImageRoute(undefined);
+    const route = requestedRoute;
     const useUserProvidedApiKey = shouldUseUserProvidedApiKey(
       route,
       fallbackAuthorization,
     );
     const shouldUseBilling = !useUserProvidedApiKey;
 
-    if (!route) {
+    if (!route || (!route.editPath && route.transport !== 'openai-image')) {
       return sendUserFacingGenerationError(res, 400, new Error("图片编辑线路不存在或已停用，请联系管理员"));
     }
     if (requestedImageModel?.id === "seedream-5-pro") {
@@ -5909,8 +5909,9 @@ const validateImageJobRequest = async (req, endpoint) => {
   if (body.prompt.length > 32000) throw Object.assign(new Error("图片提示词过长"), { status: 400 });
   if (body.n !== undefined && (!Number.isInteger(Number(body.n)) || Number(body.n) < 1 || Number(body.n) > 12)) throw Object.assign(new Error("图片数量必须介于 1 和 12 之间"), { status: 400 });
   const requestedRoute = await resolveImageRoute(body.routeId);
-  const route = endpoint === "/api/edit" && !requestedRoute?.editPath ? await resolveImageRoute(undefined) : requestedRoute;
+  const route = requestedRoute;
   if (!route) throw Object.assign(new Error("图片线路不存在或已停用"), { status: 400 });
+  if (endpoint === '/api/edit' && !route.editPath && route.transport !== 'openai-image') throw Object.assign(new Error('所选线路不支持图片编辑'), { status: 400 });
   if (endpoint === "/api/gemini/generate" && !isGeminiNativeRoute(route)) throw Object.assign(new Error("Gemini 图片线路不支持当前请求"), { status: 400 });
   if (isGeminiNativeRoute(route)) {
     const countError = getGeminiSingleImageRequestError(body); if (countError) throw Object.assign(new Error(countError), { status: 400 });
@@ -5922,6 +5923,16 @@ const validateImageJobRequest = async (req, endpoint) => {
   return user;
 };
 const imageRouteAdapter = (endpoint, legacy) => async (req, res) => {
+  // Never let an unparsed body select the default route and reserve points.
+  if (!req.body || typeof req.body !== 'object' || Array.isArray(req.body)) {
+    return res.status(415).json({ error: '图片请求必须使用 application/json，并提供有效请求内容', code: 'IMAGE_JSON_REQUIRED' });
+  }
+  const hasPrompt = typeof req.body.prompt === 'string' && req.body.prompt.trim();
+  const hasNativePrompt = Array.isArray(req.body.contents?.[0]?.parts)
+    && req.body.contents[0].parts.some(part => typeof part?.text === 'string' && part.text.trim());
+  if (!hasPrompt && !hasNativePrompt) {
+    return res.status(400).json({ error: '请输入图片提示词', code: 'IMAGE_PROMPT_REQUIRED' });
+  }
   if (req.body?.asyncTask !== true) return legacy(req, res);
   try {
     // Preserve the legacy key-only route contract; durable recovery belongs to a logged-in owner.

@@ -114,7 +114,27 @@ describe('recoverable image job submission', () => {
     const result = await jobs.queryImageJob('request-reload-req', { 'X-Auth-Session': 'reload-session' }, '/api', 'usr-reload');
     expect(result.task_id).toBe('job-reload');
     expect(JSON.parse(String(fetcher.mock.calls[2][1]?.body))).toEqual(payload);
+    expect(new Headers(fetcher.mock.calls[2][1]?.headers).get('Content-Type')).toBe('application/json');
     expect(await readImageRequest('usr-reload', 'reload-req')).toBeUndefined();
+  });
+  it('does not resend from recovery while the original submission is preparing or awaiting admission', async () => {
+    localStorage.setItem('auth-session-v1', 'inflight-session');
+    const fetcher = vi.mocked(fetch);
+    fetcher.mockImplementation(async (url, init) => {
+      if (String(url).endsWith('/auth/session')) return new Response('{"user":{"userId":"usr-inflight"}}');
+      if (init?.method === 'POST') return new Response('{"task_id":"job-inflight"}', { status: 202 });
+      return new Response('{}', { status: 404 });
+    });
+    let release!: () => void;
+    vi.mocked(persistImageJobCredentials).mockImplementationOnce(() => new Promise<void>(resolve => { release = resolve; }));
+    const work = jobs.submitImageJob('/api/generate', { prompt: 'seedream', routeId: 'seedream-5-pro-default', clientRequestId: 'inflight', clientLiveTaskIds: ['inflight-node'] }, { 'X-Auth-Session': 'inflight-session', 'Content-Type': 'application/json' });
+    await vi.waitFor(() => expect(release).toBeDefined());
+    try {
+      const recovered = await jobs.queryImageJob('request-inflight', { 'X-Auth-Session': 'inflight-session' }, '/api', 'usr-inflight');
+      expect(fetcher.mock.calls.filter(call => call[1]?.method === 'POST')).toHaveLength(0);
+      expect(recovered.connection_status).toBe('unconfirmed');
+    } finally { release(); await work; }
+    expect(fetcher.mock.calls.filter(call => call[1]?.method === 'POST')).toHaveLength(1);
   });
   it('an old node cannot resend its stored upload under a different account', async () => {
     localStorage.setItem('auth-session-v1', 'new-owner-session');

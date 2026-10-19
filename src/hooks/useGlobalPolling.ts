@@ -112,7 +112,7 @@ export const useGlobalPolling = (
         if (!data) return;
         if (!active || session !== getStoredAuthSessionToken()) return;
         for (const job of data.jobs || []) {
-          const state = useCanvasStore.getState();
+          let state = useCanvasStore.getState();
           const requestId = job.clientRequestId || job.requestId || job.request_id;
           const taskId = job.task_id || job.taskId || job.id;
           if (!taskId) continue;
@@ -123,6 +123,9 @@ export const useGlobalPolling = (
           }
           try { await persistImageJobCredentials(); await removeImageRequest(owner, requestId); } catch { /* Keep receipt until nodes are durable. */ }
           if (!active || session !== getStoredAuthSessionToken()) return;
+          // Persistence yields to normal polling. Never reopen an image from a
+          // pre-await loading snapshot after its result has already been shown.
+          state = useCanvasStore.getState();
           const matches = state.nodes.filter(node => node.type === 'IMAGE' && (node.generationOwnerId === owner || (!node.generationOwnerId && node.loading && liveIds.includes(node.id))) && (node.clientRequestId === requestId || node.taskId === taskId || liveIds.includes(node.id)));
           for (const node of matches) {
             if (node.loading || node.generationConnectionStatus === 'recovering' || node.generationConnectionStatus === 'unconfirmed' || (node.generationConnectionStatus === 'result-unavailable' && job.images?.length)) state.updateNode(node.id, { taskId, loading: true, error: false }, true);

@@ -90,10 +90,11 @@ export class UpdateNodeCommand implements Command {
 }
 
 export class SetNodesCommand implements Command {
-    getAssetIds() { return [...this.oldNodes, ...this.newNodes].flatMap(assetIds); }
-    getAssetSources() { return [...this.oldNodes, ...this.newNodes].flatMap(assetSources); }
+    getAssetIds() { return [...this.oldNodes, ...this.newNodes, ...this.detachedNodes.values()].flatMap(assetIds); }
+    getAssetSources() { return [...this.oldNodes, ...this.newNodes, ...this.detachedNodes.values()].flatMap(assetSources); }
     private newNodes: NodeData[];
     private oldNodes: NodeData[];
+    private detachedNodes = new Map<string, NodeData>();
 
     constructor(newNodes: NodeData[]) {
         this.newNodes = newNodes;
@@ -101,10 +102,49 @@ export class SetNodesCommand implements Command {
     }
 
     execute() {
-        useCanvasStore.getState().setNodes(this.newNodes, true);
+        this.apply(this.oldNodes, this.newNodes);
     }
 
     undo() {
-        useCanvasStore.getState().setNodes(this.oldNodes, true);
+        this.apply(this.newNodes, this.oldNodes);
+    }
+
+    private apply(from: NodeData[], to: NodeData[]) {
+        const state = useCanvasStore.getState();
+        const before = new Map(from.map(node => [node.id, node]));
+        const after = new Map(to.map(node => [node.id, node]));
+        const live = new Map(state.nodes.map(node => [node.id, node]));
+
+        // Retain the latest result when undo removes a generated placeholder,
+        // so redo restores the finished image rather than its old loading state.
+        for (const node of from) {
+            if (!after.has(node.id) && live.has(node.id)) {
+                this.detachedNodes.set(node.id, live.get(node.id)!);
+            }
+        }
+
+        const next: NodeData[] = [];
+        for (const target of to) {
+            const previous = before.get(target.id);
+            const current = live.get(target.id);
+            if (!previous) {
+                next.push(current || this.detachedNodes.get(target.id) || target);
+                continue;
+            }
+            if (!current) continue;
+            const updated = { ...current };
+            // Undo only fields this command changed. Polling/cache completion
+            // is independent of layout history and must survive undo and redo.
+            for (const key of new Set([...Object.keys(previous), ...Object.keys(target)]) as Set<keyof NodeData>) {
+                if (Object.is(previous[key], target[key]) && Object.hasOwn(previous, key) === Object.hasOwn(target, key)) continue;
+                if (Object.hasOwn(target, key)) Object.assign(updated, { [key]: target[key] });
+                else delete updated[key];
+            }
+            next.push(updated);
+        }
+        // Background recovery can add nodes without creating an undo command.
+        // They are unrelated to this command and must not disappear with it.
+        next.push(...state.nodes.filter(node => !before.has(node.id) && !after.has(node.id)));
+        state.setNodes(next, true);
     }
 }

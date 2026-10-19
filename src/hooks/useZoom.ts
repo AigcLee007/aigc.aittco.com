@@ -9,9 +9,6 @@ import { useSelectionStore } from '../store/selectionStore';
  * - 当没有节点选中时，滚轮缩放画布
  */
 export const useZoom = () => {
-  const { nodes, setNodes, canvasState, setCanvasTransform, addToHistory } = useCanvasStore();
-  const { selectedIds } = useSelectionStore();
-  
   const lastWheelRef = useRef<number>(0);
 
   const handleWheel = useCallback((e: Konva.KonvaEventObject<WheelEvent>) => {
@@ -19,6 +16,10 @@ export const useZoom = () => {
     const stage = e.target.getStage();
     if (!stage) return;
 
+    // A result or restored node may arrive between render and this event.
+    // Resizing must never replace the live canvas with a render-time snapshot.
+    const { nodes, setNodes, canvasState, setCanvasTransform } = useCanvasStore.getState();
+    const { selectedIds } = useSelectionStore.getState();
     const selectedNodeIds = new Set(selectedIds);
 
     // 如果有节点选中，滚轮调整节点大小
@@ -74,7 +75,7 @@ export const useZoom = () => {
     const newOffsetY = pointer.y - canvasY * newScale;
 
     setCanvasTransform({ x: newOffsetX, y: newOffsetY }, newScale);
-  }, [nodes, selectedIds, canvasState, setNodes, setCanvasTransform, addToHistory]);
+  }, []);
 
   return { handleWheel };
 };

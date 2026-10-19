@@ -22,6 +22,7 @@ vi.mock('../services/imageResultStore', () => ({ imageResultStore: {
   getState: vi.fn().mockResolvedValue({ originalCached: false }),
 } }));
 import { useGlobalPolling } from './useGlobalPolling';
+import { persistImageJobCredentials } from '../store/canvasStore';
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 beforeEach(() => {
@@ -85,4 +86,17 @@ it('releases the recovery lock after a stalled JSON body so focus can recover ag
     expect(fetch).toHaveBeenCalledTimes(2);
     expect(mocks.nodes[0].src).toBe('/api/image-job-assets/recovered.jpg');
   } finally { vi.useRealTimers(); }
+});
+
+it('does not reopen a completed canvas image using a stale recovery snapshot', async () => {
+  mocks.nodes[0].loading = true;
+  let release!: () => void;
+  vi.mocked(persistImageJobCredentials).mockImplementationOnce(() => new Promise<void>(resolve => { release = resolve; }));
+  mount();
+  await waitFor(() => expect(release).toBeDefined());
+  // The normal task poll completes while recovery awaits IndexedDB persistence.
+  mocks.nodes = [{ ...mocks.nodes[0], loading: false, src: '/completed.png', generationResultSrc: '/completed.png' }];
+  await act(async () => { release(); await new Promise(resolve => setTimeout(resolve, 20)); });
+  expect(mocks.nodes[0].loading).toBe(false);
+  expect(mocks.nodes[0].src).toBe('/api/image-job-assets/recovered.jpg');
 });
