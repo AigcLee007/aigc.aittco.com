@@ -8,6 +8,7 @@ import {
   BillingLedgerPayload,
   BillingRoutePricing,
 } from './accountService';
+import { fetchWithTimeout } from '../utils/fetchWithTimeout';
 
 const API_BASE_URL =
   typeof window !== 'undefined' && window.location.hostname === 'localhost'
@@ -67,15 +68,13 @@ export const fetchAdminUsers = async ({
   params.set('page', String(page));
   params.set('pageSize', String(pageSize));
 
-  const response = await fetch(`${cleanUrl(API_BASE_URL)}/admin/users?${params.toString()}`, {
+  return fetchWithTimeout(`${cleanUrl(API_BASE_URL)}/admin/users?${params.toString()}`, {
     method: 'GET',
     headers: {
       'Content-Type': 'application/json',
       ...(await getAuthorizedBillingHeaders()),
     },
-  });
-
-  return parseResponse<AdminUserListPayload>(response);
+  }, parseResponse<AdminUserListPayload>, 12_000, '用户列表读取超时，请重试');
 };
 
 export const fetchAdminUserDetail = async ({

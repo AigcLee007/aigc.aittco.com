@@ -42,6 +42,7 @@ const positiveTypes = new Set([
   'admin_credit',
   'redeem_code',
 ]);
+const ONLINE_REFRESH_INTERVAL_MS = 30_000;
 
 const UserAdminPanel: React.FC<UserAdminPanelProps> = ({ session }) => {
   const toast = useToast();
@@ -56,6 +57,19 @@ const UserAdminPanel: React.FC<UserAdminPanelProps> = ({ session }) => {
   const [resettingPassword, setResettingPassword] = useState(false);
   const [adjusting, setAdjusting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [onlineUpdatedAt, setOnlineUpdatedAt] = useState<number | null>(null);
+  const [onlineRefreshFailed, setOnlineRefreshFailed] = useState(false);
+  const catalogRequestIdRef = React.useRef(0);
+  const catalogLoadingRef = React.useRef(false);
+  const mountedRef = React.useRef(false);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      catalogRequestIdRef.current += 1;
+    };
+  }, []);
 
   const [searchInput, setSearchInput] = useState('');
   const [searchKeyword, setSearchKeyword] = useState('');
@@ -123,13 +137,16 @@ const UserAdminPanel: React.FC<UserAdminPanelProps> = ({ session }) => {
       nextSearch?: string;
       preferredUserId?: string | null;
     } = {}) => {
+      const requestId = ++catalogRequestIdRef.current;
       if (!isAdmin) {
         setCatalog(null);
         setDetail(null);
         setLoading(false);
+        catalogLoadingRef.current = false;
         return;
       }
 
+      catalogLoadingRef.current = true;
       setLoading(true);
       setError(null);
       try {
@@ -138,7 +155,10 @@ const UserAdminPanel: React.FC<UserAdminPanelProps> = ({ session }) => {
           page: nextPage,
           pageSize: 20,
         });
+        if (!mountedRef.current || requestId !== catalogRequestIdRef.current) return;
         setCatalog(next);
+        setOnlineUpdatedAt(Date.now());
+        setOnlineRefreshFailed(false);
         setPage(next.page);
 
         const nextSelectedUserId =
@@ -150,9 +170,14 @@ const UserAdminPanel: React.FC<UserAdminPanelProps> = ({ session }) => {
           setSelectedUserId(null);
         }
       } catch (err) {
+        if (!mountedRef.current || requestId !== catalogRequestIdRef.current) return;
         setError((err as Error).message);
+        setOnlineRefreshFailed(true);
       } finally {
-        setLoading(false);
+        if (mountedRef.current && requestId === catalogRequestIdRef.current) {
+          catalogLoadingRef.current = false;
+          setLoading(false);
+        }
       }
     },
     [isAdmin, loadDetail, page, searchKeyword],
@@ -161,6 +186,39 @@ const UserAdminPanel: React.FC<UserAdminPanelProps> = ({ session }) => {
   useEffect(() => {
     void loadUsers();
   }, [loadUsers]);
+
+  useEffect(() => {
+    if (!isAdmin) return;
+    let active = true;
+    let pending = false;
+    const refreshOnlineUsers = async () => {
+      if (!active || pending || catalogLoadingRef.current || document.visibilityState !== 'visible') return;
+      pending = true;
+      const requestId = ++catalogRequestIdRef.current;
+      try {
+        const next = await fetchAdminUsers({ search: searchKeyword, page, pageSize: 20 });
+        if (!active || requestId !== catalogRequestIdRef.current) return;
+        // Refresh the catalog only: reloading details would erase unsaved edits.
+        setCatalog(next);
+        setOnlineUpdatedAt(Date.now());
+        setOnlineRefreshFailed(false);
+      } catch {
+        if (active && requestId === catalogRequestIdRef.current) setOnlineRefreshFailed(true);
+      } finally {
+        pending = false;
+      }
+    };
+    const timer = window.setInterval(() => void refreshOnlineUsers(), ONLINE_REFRESH_INTERVAL_MS);
+    const onVisible = () => { void refreshOnlineUsers(); };
+    document.addEventListener('visibilitychange', onVisible);
+    window.addEventListener('focus', onVisible);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('focus', onVisible);
+    };
+  }, [isAdmin, page, searchKeyword]);
 
   const selectedUserSummary = useMemo(
     () => catalog?.users.find((item) => item.userId === selectedUserId) || null,
@@ -321,7 +379,7 @@ const UserAdminPanel: React.FC<UserAdminPanelProps> = ({ session }) => {
             <span>余额 {formatPoint(user.account?.points ?? 0)}</span>
             <span>消费 {formatPoint(user.account?.totalSpent ?? 0)}</span>
             {user.lastSeenAt ? (
-              <span>活跃 {new Date(user.lastSeenAt).toLocaleTimeString()}</span>
+              <span>最近请求 {new Date(user.lastSeenAt).toLocaleString()}</span>
             ) : null}
           </div>
         </div>
@@ -408,6 +466,18 @@ const UserAdminPanel: React.FC<UserAdminPanelProps> = ({ session }) => {
               <div className="text-[11px] text-emerald-200/60">
                 {catalog?.onlineWindowMinutes || 5} 分钟内活跃</div>
             </div>
+            <p className="mt-2 text-[11px] leading-5 text-emerald-100/70">
+              在线表示近 {catalog?.onlineWindowMinutes || 5} 分钟有已登录账号的请求，含后台自动查询，不代表用户正在操作或生成。
+            </p>
+            <p className="text-[11px] leading-5 text-emerald-200/60">
+              页面可见时每 30 秒刷新
+              {onlineUpdatedAt !== null ? ` · 最近更新 ${new Date(onlineUpdatedAt).toLocaleTimeString()}` : ''}
+            </p>
+            {onlineRefreshFailed && (
+              <p role="status" className="mt-1 text-[11px] text-amber-200">
+                在线状态刷新失败，当前显示上次数据；连接恢复后会自动重试。
+              </p>
+            )}
             <div className="mt-3 max-h-56 space-y-2 overflow-y-auto pr-1">
               {onlineUsers.length ? (
                 onlineUsers.map((user) => renderUserCard(user, { compact: true }))
