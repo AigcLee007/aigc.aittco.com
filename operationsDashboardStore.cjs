@@ -142,11 +142,12 @@ function createOperationsDashboardStore({ pool, enabled = Boolean(pool), now = (
   const clock = () => asDate(typeof now === 'function' ? now() : now, new Date());
   const getCoverage = () => ({ available: Boolean(enabled && pool && initialized), startedAt, lastCollectedAt, aggregateUpdatedAt, error: collectionError,
     history: !enabled || !pool || !initialized ? 'unavailable' : collected ? 'collected' : 'not_collected' });
-  const markFailure = error => {
+  const markFailure = (error, operation) => {
     // Driver messages may echo SQL values. Retain only a constrained driver code.
     const rawCode = String(error?.code || 'COLLECTION_FAILED');
     const code = /^[A-Z0-9_]{1,64}$/.test(rawCode) ? rawCode : 'COLLECTION_FAILED';
-    collectionError = 'Operations telemetry collection failed (' + code + ')';
+    const safeOperation = /^[a-z0-9-]{1,64}$/.test(String(operation || '')) ? String(operation) : null;
+    collectionError = 'Operations telemetry collection failed' + (safeOperation ? ' at ' + safeOperation : '') + ' (' + code + ')';
     try { logger?.warn?.(collectionError); } catch {}
     const safeError = new Error(collectionError);
     safeError.code = code;
@@ -154,7 +155,10 @@ function createOperationsDashboardStore({ pool, enabled = Boolean(pool), now = (
   };
   const query = async (sql, params = []) => {
     try { const [rows] = await pool.execute(sql, params); return rows; }
-    catch (error) { throw markFailure(error); }
+    catch (error) {
+      const operation = String(sql).match(/\/\*\s*ops:([a-z0-9-]{1,64})\s*\*\//i)?.[1]?.toLowerCase();
+      throw markFailure(error, operation);
+    }
   };
   const markCollected = () => { collected = true; lastCollectedAt = clock().toISOString(); };
   const loadTrends = async timestamp => {
@@ -216,7 +220,7 @@ function createOperationsDashboardStore({ pool, enabled = Boolean(pool), now = (
     const updates = keys.filter(key => !['taskId', 'createdAt', 'updatedAt'].includes(key) && Object.hasOwn(safe, key))
       .map(key => { const column = FACT_FIELDS[key][0]; const value = ['completedAt', 'startedAt', 'upstreamStartedAt'].includes(key) ? 'COALESCE(' + column + ', VALUES(' + column + '))' : 'VALUES(' + column + ')'; return column + ' = IF(VALUES(updated_at) >= updated_at, ' + value + ', ' + column + ')'; });
     updates.push('updated_at = GREATEST(updated_at, VALUES(updated_at))');
-    await query('INSERT INTO ops_task_facts (' + columns.join(', ') + ') VALUES (' + keys.map(() => '?').join(', ') + ') ON DUPLICATE KEY UPDATE ' + updates.join(', '), keys.map(key => insert[key]));
+    await query('/* ops:task-fact-write */ INSERT INTO ops_task_facts (' + columns.join(', ') + ') VALUES (' + keys.map(() => '?').join(', ') + ') ON DUPLICATE KEY UPDATE ' + updates.join(', '), keys.map(key => insert[key]));
     // SQL preserves the first timestamps. Read that authoritative row by its
     // primary key so a later archive snapshot repairs the original buckets.
     // A stale no-op update must not enqueue unrelated retained-history buckets.
@@ -249,7 +253,7 @@ function createOperationsDashboardStore({ pool, enabled = Boolean(pool), now = (
       const digest = createHash('sha256').update(JSON.stringify([taskId, type, payload])).digest('hex').slice(0, 32);
       id = digest.slice(0, 8) + '-' + digest.slice(8, 12) + '-5' + digest.slice(13, 16) + '-a' + digest.slice(17, 20) + '-' + digest.slice(20);
     }
-    await query('INSERT IGNORE INTO ops_task_events (event_id, task_id, event_type, created_at, payload_json) VALUES (?, ?, ?, ?, ?)',
+    await query('/* ops:task-event-write */ INSERT IGNORE INTO ops_task_events (event_id, task_id, event_type, created_at, payload_json) VALUES (?, ?, ?, ?, ?)',
       [id, taskId, type, asDate(input.createdAt, clock()), JSON.stringify(payload)]);
     markCollected();
     return id;
@@ -436,7 +440,7 @@ function createOperationsDashboardStore({ pool, enabled = Boolean(pool), now = (
     const status = ['active', 'open', 'acknowledged', 'recovered', 'closed'].includes(input.status) ? input.status : 'active';
     const values = [fingerprint, sanitizeSummary(input.category, 48) || 'unknown', sanitizeSummary(input.severity, 20) || 'warning', sanitizeSummary(input.message), sanitizeSummary(input.routeId, 160), Math.floor(count(input.sampleCount)), Math.floor(count(input.affectedUsers)), status,
       asDate(input.firstSeenAt, timestamp), asDate(input.lastSeenAt, timestamp), status === 'recovered' ? asDate(input.recoveredAt, timestamp) : null, status === 'closed' ? asDate(input.closedAt, timestamp) : null, timestamp];
-    await query('INSERT INTO ops_incidents (fingerprint, category, severity, message, route_id, sample_count, affected_users, status, first_seen_at, last_seen_at, recovered_at, closed_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ' +
+    await query('/* ops:incident-write */ INSERT INTO ops_incidents (fingerprint, category, severity, message, route_id, sample_count, affected_users, status, first_seen_at, last_seen_at, recovered_at, closed_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ' +
       'ON DUPLICATE KEY UPDATE category = VALUES(category), severity = VALUES(severity), message = VALUES(message), route_id = VALUES(route_id), sample_count = VALUES(sample_count), affected_users = VALUES(affected_users), status = VALUES(status), last_seen_at = VALUES(last_seen_at), recovered_at = VALUES(recovered_at), closed_at = VALUES(closed_at), updated_at = VALUES(updated_at)',
     values);
     const columns = ['fingerprint', 'category', 'severity', 'message', 'route_id', 'sample_count', 'affected_users', 'status', 'first_seen_at', 'last_seen_at', 'recovered_at', 'closed_at', 'updated_at'];
@@ -461,7 +465,7 @@ function createOperationsDashboardStore({ pool, enabled = Boolean(pool), now = (
     for (const [table, column, days, type] of retention) {
       const params = [new Date(timestamp.getTime() - days * DAY)];
       if (type) params.push(type);
-      const result = await query('DELETE FROM ' + table + ' WHERE ' + column + ' < ?' + (type ? ' AND bucket_type = ?' : '') + ' ORDER BY ' + column + ' ASC LIMIT 500', params);
+      const result = await query('/* ops:retention-prune */ DELETE FROM ' + table + ' WHERE ' + column + ' < ?' + (type ? ' AND bucket_type = ?' : '') + ' ORDER BY ' + column + ' ASC LIMIT 500', params);
       deleted += count(result?.affectedRows);
     }
     return { deleted };

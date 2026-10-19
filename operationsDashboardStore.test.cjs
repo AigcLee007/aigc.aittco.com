@@ -8,7 +8,8 @@ const fakePool = (respond = () => []) => ({
   async execute(sql, params = []) {
     this.calls.push({ sql, params });
     const result = await respond(sql, params);
-    if (sql.startsWith('INSERT INTO ops_task_facts')) {
+    const statement = sql.replace(/^\/\*\s*ops:[^*]+\*\/\s*/, '');
+    if (statement.startsWith('INSERT INTO ops_task_facts')) {
       const columns = sql.slice(sql.indexOf('(') + 1, sql.indexOf(')')).split(', ');
       const row = Object.fromEntries(columns.map((column, index) => [column, params[index]]));
       const previous = this.timestamps.get(row.task_id);
@@ -111,7 +112,7 @@ test('event retries deduplicate on task state rather than collector invocation t
   const settled = await store.appendEvent({ ...base, settlementStatus: 'settled' });
   const newer = await store.appendEvent({ ...base, updatedAt: new Date(NOW.getTime() + 1) });
   assert.equal(new Set([first, saved, settled, newer]).size, 4);
-  for (const call of pool.calls) assert.ok(call.sql.startsWith('INSERT IGNORE INTO ops_task_events'));
+  for (const call of pool.calls) assert.ok(call.sql.includes('INSERT IGNORE INTO ops_task_events'));
   assert.match(first, /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/);
 });
 
@@ -156,6 +157,20 @@ test('enabled write failures mark a coverage gap and rethrow sanitized errors', 
   pool.execute = async () => { throw Object.assign(new Error('Authorization: Bearer private credential'), { code: 'ER_LOCK_WAIT_TIMEOUT' }); };
   await assert.rejects(() => store.upsertTaskFact('task-1', fact()), error => !error.message.includes('private') && /telemetry/i.test(error.message));
   assert.match(store.getCoverage().error, /ER_LOCK_WAIT_TIMEOUT/);
+});
+
+test('telemetry write failures expose a safe operation label without SQL values', async () => {
+  const { store, pool } = await setup();
+  pool.execute = async sql => {
+    if (sql.includes('ops:task-event-write')) throw Object.assign(new Error('Bearer private credential'), { code: 'ER_WRONG_ARGUMENTS' });
+    return [[], []];
+  };
+  await assert.rejects(
+    () => store.appendEvent({ taskId: 'task-1', type: 'terminal', status: 'failed', userId: 'private-user' }),
+    error => error.message.includes('task-event-write') && error.message.includes('ER_WRONG_ARGUMENTS') && !error.message.includes('private'),
+  );
+  assert.match(store.getCoverage().error, /task-event-write/);
+  assert.ok(!store.getCoverage().error.includes('private'));
 });
 
 test('background refresh fills shared cached terminal summaries and percentile distributions', async () => {
