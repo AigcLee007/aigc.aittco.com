@@ -201,7 +201,10 @@ describe('UserAdminPanel online status refresh', () => {
     fireEvent.change(screen.getByPlaceholderText('输入新密码'), { target: { value: 'draft-password' } });
     mocks.fetchAdminUsers.mockResolvedValue(offlineCatalog);
 
-    await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(299_999); });
+    expect(mocks.fetchAdminUsers).toHaveBeenCalledTimes(1);
+    await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+    expect(mocks.fetchAdminUsers).toHaveBeenCalledTimes(2);
 
     expect(screen.queryByText('在线')).toBeNull();
     expect(screen.getByText('当前没有在线用户')).toBeTruthy();
@@ -209,14 +212,15 @@ describe('UserAdminPanel online status refresh', () => {
     expect(mocks.fetchAdminUserDetail).toHaveBeenCalledTimes(1);
     expect(screen.getByText(/含后台自动查询/)).toBeTruthy();
     expect(screen.getByText(/最近更新/)).toBeTruthy();
+    expect(screen.getByText(/每 5 分钟刷新/)).toBeTruthy();
   });
 
-  it('pauses hidden polling and refreshes once on return while a request is pending', async () => {
+  it('pauses hidden polling and waits for the next five-minute tick after returning', async () => {
     render(<UserAdminPanel session={session} />);
     await flush();
     Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' });
     fireEvent(document, new Event('visibilitychange'));
-    await act(async () => { await vi.advanceTimersByTimeAsync(60_000); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(600_000); });
     expect(mocks.fetchAdminUsers).toHaveBeenCalledTimes(1);
 
     let finish!: (value: typeof offlineCatalog) => void;
@@ -224,6 +228,10 @@ describe('UserAdminPanel online status refresh', () => {
     Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' });
     fireEvent(document, new Event('visibilitychange'));
     fireEvent(window, new Event('focus'));
+    expect(mocks.fetchAdminUsers).toHaveBeenCalledTimes(1);
+    await act(async () => { await vi.advanceTimersByTimeAsync(300_000); });
+    fireEvent(window, new Event('focus'));
+    await act(async () => { await vi.advanceTimersByTimeAsync(300_000); });
     expect(mocks.fetchAdminUsers).toHaveBeenCalledTimes(2);
     await act(async () => { finish(offlineCatalog); });
     expect(screen.queryByText('在线')).toBeNull();
@@ -233,12 +241,12 @@ describe('UserAdminPanel online status refresh', () => {
     render(<UserAdminPanel session={session} />);
     await flush();
     mocks.fetchAdminUsers.mockRejectedValueOnce(new Error('offline'));
-    await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(300_000); });
     expect(screen.getByText(/在线状态刷新失败/)).toBeTruthy();
     expect(screen.getAllByText('在线')).toHaveLength(2);
 
     mocks.fetchAdminUsers.mockResolvedValue(offlineCatalog);
-    await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(300_000); });
     expect(screen.queryByText(/在线状态刷新失败/)).toBeNull();
     expect(screen.queryByText('在线')).toBeNull();
   });
@@ -248,7 +256,7 @@ describe('UserAdminPanel online status refresh', () => {
     await flush();
     let finish!: (value: typeof onlineCatalog) => void;
     mocks.fetchAdminUsers.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
-    await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(300_000); });
     expect(mocks.fetchAdminUsers).toHaveBeenCalledTimes(2);
     mocks.fetchAdminUsers.mockResolvedValue({ ...offlineCatalog, total: 0, users: [] });
     fireEvent.change(screen.getByPlaceholderText('搜索邮箱、显示名、用户 ID'), { target: { value: 'absent' } });
@@ -264,10 +272,10 @@ describe('UserAdminPanel online status refresh', () => {
     await flush();
     let finish!: (value: typeof offlineCatalog) => void;
     mocks.fetchAdminUsers.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
-    await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(300_000); });
     view.unmount();
     await act(async () => { finish(offlineCatalog); });
-    await act(async () => { await vi.advanceTimersByTimeAsync(60_000); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(600_000); });
     fireEvent(window, new Event('focus'));
     expect(mocks.fetchAdminUsers).toHaveBeenCalledTimes(2);
   });

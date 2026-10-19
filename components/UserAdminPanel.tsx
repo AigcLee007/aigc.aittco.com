@@ -42,7 +42,7 @@ const positiveTypes = new Set([
   'admin_credit',
   'redeem_code',
 ]);
-const ONLINE_REFRESH_INTERVAL_MS = 30_000;
+const ONLINE_REFRESH_INTERVAL_MS = 5 * 60_000;
 
 const UserAdminPanel: React.FC<UserAdminPanelProps> = ({ session }) => {
   const toast = useToast();
@@ -209,14 +209,9 @@ const UserAdminPanel: React.FC<UserAdminPanelProps> = ({ session }) => {
       }
     };
     const timer = window.setInterval(() => void refreshOnlineUsers(), ONLINE_REFRESH_INTERVAL_MS);
-    const onVisible = () => { void refreshOnlineUsers(); };
-    document.addEventListener('visibilitychange', onVisible);
-    window.addEventListener('focus', onVisible);
     return () => {
       active = false;
       window.clearInterval(timer);
-      document.removeEventListener('visibilitychange', onVisible);
-      window.removeEventListener('focus', onVisible);
     };
   }, [isAdmin, page, searchKeyword]);
 
@@ -470,7 +465,7 @@ const UserAdminPanel: React.FC<UserAdminPanelProps> = ({ session }) => {
               在线表示近 {catalog?.onlineWindowMinutes || 5} 分钟有已登录账号的请求，含后台自动查询，不代表用户正在操作或生成。
             </p>
             <p className="text-[11px] leading-5 text-emerald-200/60">
-              页面可见时每 30 秒刷新
+              页面可见时每 5 分钟刷新
               {onlineUpdatedAt !== null ? ` · 最近更新 ${new Date(onlineUpdatedAt).toLocaleTimeString()}` : ''}
             </p>
             {onlineRefreshFailed && (
