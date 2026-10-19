@@ -38,6 +38,31 @@ const smallPayload = (payload, urls) => ({
     .slice(0,12).map(url => typeof url === 'string' && url.length <= 8192 && /^(https?:\/\/|\/(?!\/))/i.test(url) && !/\[truncated\]/i.test(url) ? url : null),
 });
 
+// Telemetry is deliberately a projection, never a copy of a provider/request object.
+const operationsText = (value, max=1000) => String(value ?? '')
+  .replace(/(?:https?:\/\/|data:)[^\s<>"']+/gi,'[redacted URL]')
+  .replace(/\bBearer\s+[^\s,;]+/gi,'Bearer [redacted]')
+  .replace(/\b(?:authorization|api[_ -]?key|access[_ -]?token|refresh[_ -]?token|session[_ -]?(?:token|id|key)?|password|secret|token|prompt|request[_ -]?body|response[_ -]?body)\b\s*[=:]\s*(?:"[^"]*"|'[^']*'|[^\s,;]+)/gi,'[redacted]')
+  .replace(/\bsk-[A-Za-z0-9_-]{8,}\b/g,'[redacted]')
+  .replace(/\b[A-Za-z0-9+/=_-]{160,}\b/g,'[redacted]').slice(0,max);
+const operationsPhase = job => job.phase || (job.status==='queued'?'local_queued':job.status==='running'?(['QUEUED','IN_QUEUE'].includes(job.upstreamStatus)?'upstream_queued':'processing'):job.status);
+const operationsTask = job => {
+  const task={};
+  for(const key of ['taskId','requestId','userId','userLabel','uiMode','modelId','routeId','status','storageStatus','storageError','createdAt','startedAt','upstreamStartedAt','completedAt','updatedAt','error','failureCode']) {
+    if(job?.[key]!==undefined&&job[key]!==null)task[key]=operationsText(job[key],['error','storageError'].includes(key)?1000:255);
+  }
+  task.phase=operationsText(operationsPhase(job||{}),32);
+  if(typeof job?.settlementPending==='boolean')task.settlementPending=job.settlementPending;
+  if(job?.compensatedAt)task.compensatedAt=operationsText(job.compensatedAt,40);
+  const httpStatus=Number(job?.httpStatus);if(Number.isInteger(httpStatus)&&httpStatus>=100&&httpStatus<=599)task.httpStatus=httpStatus;
+  return task;
+};
+const operationsFailure = error => {
+  const httpStatus=Number(error?.httpStatus||error?.status||error?.response?.status);
+  const code=error?.failureCode||error?.code||error?.response?.data?.error?.code;
+  return {...(code?{failureCode:operationsText(code,100)}:{}),...(Number.isInteger(httpStatus)&&httpStatus>=100&&httpStatus<=599?{httpStatus}:{}),error:operationsText(error?.message||error||'Image generation failed')};
+};
+
 function createImageJobService(options = {}) {
   if (!options.store) throw new Error('Image job store is required');
   const store=options.store;
@@ -62,6 +87,89 @@ function createImageJobService(options = {}) {
   const assetPublications=new Map();
   const resumedAssetJobs=new Set();
   const pendingPublicLists=new Map();
+  const operationsJobs=new Map();
+  const operationsEventStates=new Map();
+  const operationsLabels=new Map();
+  const operationsBacklogs=new Map();
+  const operationsFinalizing=new Set();
+  const operationsSettlementErrors=new Map();
+  const operationsDirtyEvents=new Map();
+  const operationsCleanup=new Map();
+  const operationsStartedAt=new Date().toISOString();
+  const operationsMaxPendingEvents=Math.max(1,Math.min(1024,Math.floor(positive(options.operationsMaxPendingEvents,128))));
+  const operationsStateLimit=maxQueued+concurrency+200;
+  const operationsEventLimit=Math.min(4096,operationsStateLimit*7);
+  const operationsEventTimeoutMs=Math.max(10,Math.min(5000,Number(options.operationsEventTimeoutMs)||250));
+  let operationsEventSequence=0;
+  let operationsGeneratedAt=null,operationsPendingEvents=0,operationsDroppedEvents=0,operationsFailedEvents=0;
+  const deliverOperationsEvent = entry => {
+    if(entry.work)return entry.work;
+    if(operationsPendingEvents>=operationsMaxPendingEvents){if(!entry.deferred){operationsDroppedEvents++;entry.deferred=true;}return Promise.resolve(false);}
+    operationsPendingEvents++;
+    entry.work=Promise.resolve().then(()=>options.onOperationsEvent(entry.event)).then(()=>{operationsDirtyEvents.delete(entry.key);return true;}).catch(()=>{operationsFailedEvents++;return false;}).finally(()=>{operationsPendingEvents--;entry.work=null;});
+    return entry.work;
+  };
+  const operationsEvent = (type,job,error,key) => {
+    if(typeof options.onOperationsEvent!=='function')return Promise.resolve(true);
+    key=key||String(++operationsEventSequence);
+    let entry=operationsDirtyEvents.get(key);
+    if(!entry){
+      if(operationsDirtyEvents.size>=operationsEventLimit){operationsDroppedEvents++;return Promise.resolve(false);}
+      entry={key,event:{type,task:operationsTask(job),createdAt:new Date().toISOString(),...(error?{error:operationsFailure(error)}:{})}};
+      operationsDirtyEvents.set(key,entry);
+    }
+    return deliverOperationsEvent(entry);
+  };
+  const waitOperationsEvent = async work => {
+    let timer;try{return await Promise.race([work,new Promise(resolve=>{timer=setTimeout(()=>resolve(false),operationsEventTimeoutMs);})]);}finally{clearTimeout(timer);}
+  };
+  const removeArchivedJob = async (id,job) => {
+    if(!await waitOperationsEvent(operationsEvent('terminal',job,undefined,'archive:'+id)))return false;
+    await store.remove(id);resumedAssetJobs.delete(id);operationsBacklogs.delete(id);operationsEventStates.delete(id);operationsLabels.delete(id);operationsCleanup.delete(id);operationsSettlementErrors.delete(id);return true;
+  };
+  const reportSettlementError = (job,error) => {
+    const failure=operationsFailure(error),signature=JSON.stringify(failure);
+    if(operationsSettlementErrors.get(job.taskId)===signature)return;
+    operationsSettlementErrors.delete(job.taskId);operationsSettlementErrors.set(job.taskId,signature);
+    while(operationsSettlementErrors.size>operationsStateLimit)operationsSettlementErrors.delete(operationsSettlementErrors.keys().next().value);
+    operationsEvent('settlement',{...job,userLabel:job.userLabel||operationsLabels.get(job.taskId)},error);
+  };
+  const observeOperations = (job,{events=true}={}) => {
+    if(!job?.taskId)return;
+    if(operationsFinalizing.has(job.taskId)){if(!terminal(job))return;job={...job,phase:'finalizing'};}
+    const previous=operationsEventStates.get(job.taskId);
+    const projected=operationsTask({...job,userLabel:job.userLabel||operationsLabels.get(job.taskId)});
+    if(['queued','running'].includes(job.status)||active.has(job.taskId))operationsJobs.set(job.taskId,projected);else operationsJobs.delete(job.taskId);
+    if(terminal(job)&&(job.settlementPending||job.storageStatus==='pending')){
+      operationsBacklogs.delete(job.taskId);operationsBacklogs.set(job.taskId,projected);
+      while(operationsBacklogs.size>operationsStateLimit)operationsBacklogs.delete(operationsBacklogs.keys().next().value);
+    }else operationsBacklogs.delete(job.taskId);
+    if(events){
+      if(projected.startedAt&&!previous?.startedAt)operationsEvent('dispatch',projected);
+      if(job.upstreamStatus&&job.upstreamStatus!==previous?.upstreamStatus)operationsEvent('upstream_changed',projected);
+      if(terminal(job)&&job.status!==previous?.status)operationsEvent('terminal',projected);
+      if(job.storageStatus&&(job.storageStatus!==previous?.storageStatus||job.storageError!==previous?.storageError))operationsEvent('storage',projected);
+      if((typeof job.settlementPending==='boolean'&&previous&&job.settlementPending!==previous.settlementPending)||job.compensatedAt&&job.compensatedAt!==previous?.compensatedAt)operationsEvent('settlement',projected);
+    }
+    operationsEventStates.delete(job.taskId);
+    operationsEventStates.set(job.taskId,{status:job.status,startedAt:job.startedAt||previous?.startedAt,upstreamStatus:job.upstreamStatus||previous?.upstreamStatus,storageStatus:job.storageStatus,storageError:job.storageError,settlementPending:job.settlementPending,compensatedAt:job.compensatedAt});
+    while(operationsEventStates.size>operationsStateLimit){const id=operationsEventStates.keys().next().value;operationsEventStates.delete(id);if(!operationsJobs.has(id))operationsLabels.delete(id);}
+    operationsGeneratedAt=new Date().toISOString();
+  };
+  const getOperationsSnapshot = () => {
+    const tasks=[],perUser=new Map();let localQueued=0,upstreamQueued=0,oldestLocalWaitMs=0;
+    for(const [id,job] of operationsJobs){
+      const occupied=active.has(id);
+      if(!occupied&&job.status!=='queued')continue;
+      const task={...job};tasks.push(task);
+      const userId=String(job.userId||'');const user=perUser.get(userId)||{userId,active:0,queued:0};
+      if(occupied){user.active++;if(job.phase==='upstream_queued')upstreamQueued++;}
+      else {user.queued++;localQueued++;const createdAt=Date.parse(job.createdAt);if(Number.isFinite(createdAt))oldestLocalWaitMs=Math.max(oldestLocalWaitMs,Date.now()-createdAt);}
+      perUser.set(userId,user);
+    }
+    const backlogTasks=[...operationsBacklogs.values()].map(task=>({...task}));
+    return {generatedAt:operationsGeneratedAt,startedAt:operationsStartedAt,limits:{concurrency,userConcurrency,maxQueued,userMaxQueued},active:active.size,localQueued,upstreamQueued,activeUsers:[...new Set([...active.values()].map(controller=>controller.userId))].length,oldestLocalWaitMs:Math.max(0,oldestLocalWaitMs),perUser:[...perUser.values()].sort((a,b)=>a.userId.localeCompare(b.userId)),tasks,backlogs:{settlementPending:backlogTasks.filter(task=>task.settlementPending).length,storagePending:backlogTasks.filter(task=>task.storageStatus==='pending').length},backlogTasks,coverage:{source:'process_memory',events:{available:typeof options.onOperationsEvent==='function',pending:operationsPendingEvents,dirty:operationsDirtyEvents.size,dropped:operationsDroppedEvents,failed:operationsFailedEvents}}};
+  };
   const outcomePatch = job => Object.fromEntries(['status','progress','resultUrls','previewUrl','storageStatus','storageError','payload','billing','error','completedAt','settlementPending'].filter(key=>job[key]!==undefined).map(key=>[key,job[key]]));
   let started=false,stopped=false,pumping=false,reconciling=false,admission=Promise.resolve(),maintenance,lastCleanup=0,startPromise;
   const warn = error => options.logger?.warn?.({type:'Image job maintenance',message:error.message});
@@ -78,13 +186,18 @@ function createImageJobService(options = {}) {
     ...(job.storageError?{storage_error:job.storageError}:{}),
     ...(job.completedAt?{completed_at:job.completedAt}:{}),
   });
-  const persist = async (id,patch) => store.update(id,patch);
+  const persist = async (id,patch) => {
+    const job=await store.update(id,async current=>{const value=typeof patch==='function'?await patch(current):patch;return {...(operationsLabels.has(id)?{userLabel:operationsLabels.get(id)}:{}),...value};});
+    observeOperations(job);return job;
+  };
   const compensate = async job => {
     if(settlements.has(job.taskId))return settlements.get(job.taskId);
     const work=(async()=>{
       const current=await store.get(job.taskId);if(current?.compensatedAt)return;
-      if(options.compensate)await options.compensate(current||job);
+      try{if(options.compensate)await options.compensate(current||job);}
+      catch(error){reportSettlementError(current||job,error);throw error;}
       await persist(job.taskId,{compensatedAt:new Date().toISOString(),settlementPending:false});
+      operationsSettlementErrors.delete(job.taskId);
     })();
     settlements.set(job.taskId,work);
     try{await work;}finally{settlements.delete(job.taskId);}
@@ -92,14 +205,15 @@ function createImageJobService(options = {}) {
   const fail = async (id,error) => {
     if(outcomes.has(id)){warn(error instanceof Error?error:new Error(String(error)));return;}
     const job=await store.get(id); if(!job || job.status==='succeeded') return;
-    const failed=await persist(id,{status:'failed',progress:100,error:String(error?.message||error||'Image generation failed').slice(0,2000),completedAt:new Date().toISOString(),settlementPending:true});
+    const {error:safeError,...failureMetadata}=operationsFailure(error);
+    const failed=await persist(id,{status:'failed',progress:100,error:String(error?.message||error||'Image generation failed').slice(0,2000),...failureMetadata,completedAt:new Date().toISOString(),settlementPending:true});
     await compensate(failed).catch(warn);
     await store.removeRequest?.(id).catch(warn);
   };
   const settleSuccess = async job => {
     if (!options.settleSuccess) return persist(job.taskId,{settlementPending:false});
-    try { await options.settleSuccess(job); await persist(job.taskId,{settlementPending:false}); }
-    catch (error) { warn(error); await persist(job.taskId,{settlementPending:true}); }
+    try { await options.settleSuccess(job); await persist(job.taskId,{settlementPending:false});operationsSettlementErrors.delete(job.taskId); }
+    catch (error) { warn(error);const pending=await persist(job.taskId,{settlementPending:true});reportSettlementError(pending||job,error); }
   };
   const applyAssetUpdate = async (id,entry) => {
     if(entry.flushing)return;entry.flushing=true;
@@ -118,6 +232,7 @@ function createImageJobService(options = {}) {
     const urls=(update.resultUrls||fallbackUrls).filter(url=>!/^data:/i.test(url));
     const entry={version:crypto.randomBytes(12).toString('hex'),patch:{
       resultUrls:urls,previewUrl:update.previewUrl||null,storageStatus:update.storageStatus||'saved',
+      storageError:update.storageError||null,
       payload:smallPayload(update.payload,urls),settlementPending:true,
     }};
     assetUpdates.set(id,entry);
@@ -126,6 +241,7 @@ function createImageJobService(options = {}) {
   };
   const succeed = async (id,payload,urls,snapshot) => {
     resumedAssetJobs.add(id);
+    if(active.has(id))operationsFinalizing.add(id);
     const known=snapshot;
     // A confirmed upstream image can never be refunded because metadata or
     // image persistence was unavailable. Only compact outcomes enter this map.
@@ -138,6 +254,7 @@ function createImageJobService(options = {}) {
       storageStatus:usableUrls.length?'pending':'failed',
       storageError:usableUrls.length?null:'图片生成已成功，原图暂存尚未完成',
       completedAt:new Date().toISOString(),error:null,settlementPending:true};
+    observeOperations({...known,...operationsJobs.get(id),...confirmation,phase:'finalizing'});
     await store.saveOutcome?.(id,confirmation).catch(warn);
     let savedUpdate;
     const callback = async update => {
@@ -156,14 +273,14 @@ function createImageJobService(options = {}) {
     const result=savedUpdate||prepared;
     const completion={status:'succeeded',progress:100,error:null,completedAt:new Date().toISOString(),
         resultUrls:(result.resultUrls||[]).filter(url=>!/^data:/i.test(url)),previewUrl:result.previewUrl||null,
-        storageStatus:result.storageStatus||'external',storageError,payload:smallPayload(result.payload,result.resultUrls||[]),
+        storageStatus:result.storageStatus||'external',storageError:result.storageError||storageError,payload:smallPayload(result.payload,result.resultUrls||[]),
         billing:payload?.billing||known.billing||null,settlementPending:true};
     try {
       await store.saveOutcome?.(id,completion);
       const job=await persist(id,current => {
         if(current.status==='failed')return {};
         const latest=savedUpdate;
-        return latest?{...completion,resultUrls:latest.resultUrls,previewUrl:latest.previewUrl||null,storageStatus:latest.storageStatus,payload:smallPayload(latest.payload,latest.resultUrls)}:completion;
+        return latest?{...completion,resultUrls:latest.resultUrls,previewUrl:latest.previewUrl||null,storageStatus:latest.storageStatus,storageError:latest.storageError||null,payload:smallPayload(latest.payload,latest.resultUrls)}:completion;
       });
       await store.clearOutcome?.(id);
       outcomes.delete(id);
@@ -181,7 +298,7 @@ function createImageJobService(options = {}) {
       await succeed(id,payload,urls,known);return true;
     }
     const current=await store.get(id);if(!current||terminal(current)||outcomes.has(id))return true;
-    if(failureState(status)) { await fail(id,statusError(payload?.error?.message||payload?.error||payload?.failure_reason||'Image task failed'));return true; }
+    if(failureState(status)) { await fail(id,Object.assign(statusError(payload?.error?.message||payload?.error||payload?.failure_reason||'Image task failed'),{code:payload?.error?.code||payload?.failureCode||payload?.code,httpStatus:payload?.httpStatus||payload?.http_status||payload?.error?.httpStatus||payload?.error?.status}));return true; }
     if(successState(status)) { await fail(id,statusError('上游成功响应未返回图片 (no image result)'));return true; }
     const taskId=payload?.task_id||payload?.taskId||payload?.id||payload?.data?.task_id||payload?.data?.taskId;
     if(taskId || (current.innerTaskId && status)) {
@@ -192,6 +309,7 @@ function createImageJobService(options = {}) {
         innerTaskId:current.innerTaskId||String(taskId),
         billing:payload?.billing||current.billing||null,
         ...(status?{upstreamStatus:status}:{}),
+        ...(!current.upstreamStartedAt?{upstreamStartedAt:new Date().toISOString()}:{}),
         ...(progress!==undefined?{progress:Math.max(current.progress||0,progress)}:{}),
       });
       return false;
@@ -227,6 +345,7 @@ function createImageJobService(options = {}) {
         const request=await store.readRequest(id);
         const envelope=request?.body ? request : {body:request};
         context.identity=envelope.identity;context.headers=envelope.headers||{};
+        job=await persist(id,{upstreamStartedAt:new Date().toISOString()});
         const execution=imageJobContext.run(context,()=>options.execute(job,envelope.body,context));physical=execution;
         // Stopping a process must leave an uncertain running request for restart compensation.
         const result=await bounded(execution,remaining,signal);
@@ -255,7 +374,7 @@ function createImageJobService(options = {}) {
       // Keep the slot until its canceled transport actually stops. A timeout
       // cannot silently multiply physical upstream work beyond concurrency.
       if(physical)await physical.catch(()=>{});
-      active.delete(id);if(!stopped)void pump();
+      active.delete(id);operationsFinalizing.delete(id);if(!['queued','running'].includes(operationsJobs.get(id)?.status))operationsJobs.delete(id);operationsGeneratedAt=new Date().toISOString();if(!stopped)void pump();
     }
   };
   const pump = async () => {
@@ -263,6 +382,10 @@ function createImageJobService(options = {}) {
     try {
       const jobs=await store.list({statuses:['queued','running'],limit:maxQueued+concurrency});
       if(stopped)return;
+      const listed=new Set(jobs.map(job=>job.taskId));
+      for(const id of operationsJobs.keys())if(!active.has(id)&&!listed.has(id))operationsJobs.delete(id);
+      for(const job of jobs)observeOperations(job,{events:false});
+      operationsGeneratedAt=new Date().toISOString();
       const perUser=new Map();
       for(const {userId} of active.values())perUser.set(userId,(perUser.get(userId)||0)+1);
       for(const job of jobs) {
@@ -280,15 +403,19 @@ function createImageJobService(options = {}) {
   const reconcile = async () => {
     if(reconciling)return;reconciling=true;
     try{
+    for(const entry of operationsDirtyEvents.values())void deliverOperationsEvent(entry);
+    await Promise.allSettled([...operationsCleanup].map(([id,job])=>removeArchivedJob(id,job).catch(warn)));
     await store.recoverOutcomes?.({shouldRecover:id=>!active.has(id)&&!outcomes.has(id)});
     for(const [id,job]of outcomes){if(job.status!=='succeeded')continue;await persist(id,outcomePatch(job));outcomes.delete(id);}
     await store.recoverAssetUpdates?.({excludeTaskIds:[...assetUpdates.keys()]});
     for(const [id,entry]of assetUpdates)await applyAssetUpdate(id,entry);
     for(const job of await store.list({statuses:['succeeded','failed'],settlementPending:true,limit:100})) {
+      observeOperations(job,{events:false});
       if(job.status==='failed' && job.settlementPending)await compensate(job).catch(warn);
       if(job.status==='succeeded' && job.settlementPending)await settleSuccess(job).catch(warn);
     }
     if(assets)for(const job of await store.list({status:'succeeded',storageStatus:'pending',limit:100})) {
+      observeOperations(job,{events:false});
       if(resumedAssetJobs.has(job.taskId))continue;resumedAssetJobs.add(job.taskId);
       try {
         await assets.prepare({payload:job.payload,resultUrls:job.resultUrls,context:{userId:job.userId,taskId:job.taskId},onSaved:async update=>{
@@ -298,9 +425,12 @@ function createImageJobService(options = {}) {
     }
     if(Date.now()-lastCleanup>60*60*1000){
       lastCleanup=Date.now();
-      for(const job of await store.list({statuses:['succeeded','failed'],createdBefore:Date.now()-retentionMs,limit:1000}))if(!job.settlementPending){
-        try{await store.remove(job.taskId);resumedAssetJobs.delete(job.taskId);}catch(error){warn(error);}
-      }
+      await Promise.allSettled((await store.list({statuses:['succeeded','failed'],createdBefore:Date.now()-retentionMs,limit:1000})).filter(job=>!job.settlementPending).map(async job=>{
+        try{
+          if(typeof options.onOperationsEvent==='function'){if(operationsCleanup.size<1000)operationsCleanup.set(job.taskId,operationsTask(job));await removeArchivedJob(job.taskId,job);}
+          else {await store.remove(job.taskId);resumedAssetJobs.delete(job.taskId);operationsBacklogs.delete(job.taskId);operationsEventStates.delete(job.taskId);operationsLabels.delete(job.taskId);}
+        }catch(error){warn(error);}
+      }));
       await assets?.cleanup?.().catch(warn);
     }
     await pump();
@@ -335,9 +465,16 @@ function createImageJobService(options = {}) {
       // A definite refusal: clients must show it instead of retrying like a busy server.
       if(ownPending>=userMaxQueued)throw Object.assign(statusError(`您已有 ${ownPending} 张图片在生成或排队，请等待部分完成后再提交`,429),{code:'USER_QUEUE_FULL'});
       const queued=(await store.list({status:'queued',limit:maxQueued})).length;
-      if(queued>=maxQueued)throw statusError('图片任务队列繁忙，请稍后再试',429);
+      if(queued>=maxQueued)throw Object.assign(statusError('图片任务队列繁忙，请稍后再试',429),{code:'GLOBAL_QUEUE_FULL'});
       const now=Date.now();const {job}=await store.admit({taskId:`job-${crypto.randomBytes(16).toString('hex')}`,requestId,userId:String(userId),endpoint,fingerprint:fp,createdAt:new Date(now).toISOString(),deadlineAt:now+deadlineMs,uiMode:body.uiMode==='classic'?'classic':'canvas',clientLiveTaskIds:Array.isArray(body.clientLiveTaskIds)?body.clientLiveTaskIds:body.clientLiveTaskId?[body.clientLiveTaskId]:[],prompt:body.prompt,modelId:body.modelId,model:body.model,routeId:body.routeId,outputSize:body.image_size||body.size,aspectRatio:body.aspect_ratio||body.aspectRatio},{body:{body,identity,headers:{authorization:headers.authorization||''}}});
+      const label=identity?.username||identity?.email||identity?.user?.username||identity?.user?.email;
+      if(label)operationsLabels.set(job.taskId,operationsText(label,255));
+      observeOperations({...job,...(label?{userLabel:operationsLabels.get(job.taskId)}:{})},{events:false});
+      operationsEvent('admitted',{...job,...(label?{userLabel:operationsLabels.get(job.taskId)}:{})});
       setImmediate(()=>void pump());return ack(job);
+    }catch(error){
+      if(error?.status===429)operationsEvent('rejected',{taskId:`job-rejected-${crypto.randomBytes(16).toString('hex')}`,requestId,userId:String(userId),userLabel:identity?.username||identity?.email,uiMode:body.uiMode==='classic'?'classic':'canvas',modelId:body.modelId,routeId:body.routeId,status:'rejected',phase:'admission',createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),...operationsFailure(error)},error);
+      throw error;
     }finally{release();}
   };
   const listPublicJobs = (userId,{uiMode,status='all',limit=100}={}) => {
@@ -355,6 +492,6 @@ function createImageJobService(options = {}) {
   return {submit,get:async(id,userId)=>publicJob(owner(outcomes.get(id)||await store.get(id),userId)),
     lookupRequest:async(requestId,userId)=>{const job=owner(await store.findByRequest(requestId,userId),userId);return publicJob(outcomes.get(job.taskId)||job);},
     list:listPublicJobs,
-    start,stop,reconcile,persist,processPayload,store};
+    start,stop,reconcile,persist,processPayload,store,getOperationsSnapshot};
 }
 module.exports={createImageJobService,imageJobContext,collectImages};

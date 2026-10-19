@@ -9,6 +9,9 @@ const fs = require("fs");
 const { createImageJobStore } = require("./imageJobStore.cjs");
 const { createImageJobService, imageJobContext } = require("./imageJobService.cjs");
 const { createImageJobAssets, STORAGE_ROOT: IMAGE_JOB_STORAGE_ROOT } = require("./imageJobAssets.cjs");
+const { createOperationsDashboardStore } = require('./operationsDashboardStore.cjs');
+const { createOperationsRuntimeMetrics } = require('./operationsRuntimeMetrics.cjs');
+const { createOperationsDashboard, registerOperationsRoutes } = require('./operationsDashboard.cjs');
 axios.interceptors.request.use(config => {
   const context = imageJobContext.getStore();
   if (context) config.signal = context.signal;
@@ -177,7 +180,7 @@ const logger = winston.createLogger({
   ),
   transports: [
     new winston.transports.Console(),
-    new winston.transports.File({ filename: "debug_error.log" }),
+    new winston.transports.File({ filename: "debug_error.log", maxsize: 10 * 1024 * 1024, maxFiles: 3, tailable: true }),
   ],
 });
 
@@ -1227,7 +1230,7 @@ const buildGenerationRecordPayload = async ({
     errorMessage: errorMessage || null,
     meta: jobContext ? { ...(meta || {}), imageJobId: jobContext.taskId } : meta || null,
   });
-  if (jobContext && record?.id) await jobContext.persist({ generationRecordId: record.id, accountId: resolvedAccount?.accountId || null });
+  if (jobContext && record?.id) await jobContext.persist({ generationRecordId: record.id, accountId: resolvedAccount?.accountId || null, routeId: route?.id || null, modelId: modelId || null, upstreamStartedAt: new Date().toISOString() });
   return record;
 };
 const completeGenerationRecordSuccessSafe = async ({
@@ -2198,8 +2201,8 @@ const buildRateLimitHandler = (code, message) => (req, res) => {
     timestamp: new Date().toISOString(),
     type: "Rate Limit",
     code,
-    path: req.originalUrl,
-    key: getUserKey(req),
+    path: req.path,
+    userId: req.authUser?.userId || null,
     retryAfter: res.getHeader("Retry-After") || null,
   });
   res.status(429).json({
@@ -5826,6 +5829,15 @@ const legacyGeminiGenerateHandler = async (req, res) => {
 const imageJobRoot = path.resolve(process.env.IMAGE_JOB_STORAGE_ROOT || IMAGE_JOB_STORAGE_ROOT);
 const imageJobStore = createImageJobStore({ root: imageJobRoot });
 const imageJobAssets = createImageJobAssets({ root: imageJobRoot, logger });
+// A lazy pool facade avoids opening a second connection pool and keeps local file mode explicit.
+const operationsDb = require('./db.cjs');
+const operationsStore = createOperationsDashboardStore({
+  enabled: operationsDb.isMySqlConfigured(),
+  pool: { execute: async (...args) => (await operationsDb.getPool()).execute(...args), query: async (...args) => (await operationsDb.getPool()).query(...args) },
+  logger,
+});
+const operationsMetrics = createOperationsRuntimeMetrics({ storageRoot: imageJobRoot });
+let operationsDashboard;
 const makeWorkerRequest = (body, context) => ({
   body: (() => { const clean = { ...body }; delete clean.asyncTask; delete clean.clientRequestId; delete clean.client_request_id; return clean; })(),
   headers: { authorization: context.headers?.authorization || "" },
@@ -5843,7 +5855,7 @@ const executeLegacyImageHandler = async (job, body, context) => {
     setHeader() {}, end() { this.headersSent = true; },
   };
   await handlers[job.endpoint](req, capture);
-  if (statusCode >= 400) throw Object.assign(new Error(result?.error?.message || result?.error || "图片生成失败"), { status: statusCode });
+  if (statusCode >= 400) throw Object.assign(new Error(result?.error?.message || result?.error || "图片生成失败"), { status: statusCode, code: result?.code || result?.error?.code });
   if (!capture.headersSent) throw new Error("图片处理器未返回任务或图片结果");
   return result;
 };
@@ -5860,6 +5872,7 @@ const recoverJobCharge = async job => {
   return job;
 };
 const imageJobService = createImageJobService({
+  onOperationsEvent: event => operationsDashboard?.record(event),
   store: imageJobStore, assets: {
     ...imageJobAssets,
     cleanup: async () => {
@@ -5889,6 +5902,9 @@ const imageJobService = createImageJobService({
   },
 });
 app.imageJobService = imageJobService;
+operationsDashboard = createOperationsDashboard({ store: operationsStore, metrics: operationsMetrics, getRuntime: () => imageJobService.getOperationsSnapshot(), logger });
+app.operationsDashboard = operationsDashboard;
+registerOperationsRoutes(app, { dashboard: operationsDashboard, requireAdminAccess, adminKeys: EMERGENCY_ADMIN_API_KEYS, sendAuthError });
 let imageJobStartPromise;
 const ensureImageJobsStarted = () => imageJobStartPromise ||= imageJobService.start().catch(error => { imageJobStartPromise = null; throw error; });
 const recoverImageJobsInBackground = (attempt = 0) => {
@@ -6992,6 +7008,7 @@ app.get("/{*splat}", (req, res) => {
 });
 
 if (require.main === module) {
+  void operationsDashboard.start();
   recoverImageJobsInBackground();
   app.listen(PORT, () => {
     console.log(`Backend server running on http://localhost:${PORT}`);

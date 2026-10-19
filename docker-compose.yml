@@ -3,6 +3,11 @@ services:
     image: mysql:8.4
     container_name: image-pro-mysql
     restart: always
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     command:
       - --skip-log-bin
     environment:
@@ -22,6 +27,11 @@ services:
     build: .
     container_name: image-pro
     restart: always
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     depends_on:
       mysql:
         condition: service_healthy
@@ -33,6 +43,7 @@ services:
       - ./uploads:/app/uploads
       - ./storage/line4:/app/storage/generated/line4
       - ./storage/image-jobs:/app/storage/image-jobs
+      - ./storage/operations:/app/storage/operations:ro
     environment:
       PORT: ${PORT:-3365}
       NODE_ENV: ${NODE_ENV:-production}
@@ -47,6 +58,7 @@ services:
       MYSQL_DATABASE: ${MYSQL_DATABASE:-nano_banana_pro}
       MYSQL_CONNECTION_LIMIT: ${MYSQL_CONNECTION_LIMIT:-10}
       IMAGE_JOB_STORAGE_ROOT: /app/storage/image-jobs
+      OPERATIONS_HOST_SNAPSHOT_PATH: /app/storage/operations/host.json
       IMAGE_JOB_CONCURRENCY: ${IMAGE_JOB_CONCURRENCY:-48}
       IMAGE_JOB_USER_CONCURRENCY: ${IMAGE_JOB_USER_CONCURRENCY:-6}
       IMAGE_JOB_MAX_QUEUED: ${IMAGE_JOB_MAX_QUEUED:-200}

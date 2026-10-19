@@ -26,6 +26,161 @@ const harness = async (t, options = {}) => {
 const submission = (overrides = {}) => ({userId:'owner-a',endpoint:'/api/generate',body:{prompt:'a bird',clientRequestId:'req-1',asyncTask:true},...overrides});
 const remoteResult = {images:['https://images.example/a.png']};
 
+test('operations snapshot separates occupied workers, upstream queue, and local queue without persistence reads', async t => {
+  const gate=deferred();let polls=0;t.after(()=>gate.resolve());
+  const {service,store}=await harness(t,{concurrency:3,userConcurrency:2,maxQueued:9,userMaxQueued:7,
+    execute:async(job,body,context)=>{await context.persist({routeId:'actual-route'});return {task_id:job.taskId,status:'QUEUED'};},
+    poll:async()=>{polls++;await gate.promise;return remoteResult;}});
+  for(let i=0;i<4;i++)await service.submit(submission({identity:{username:'Visible user',token:'secret'},body:{prompt:'private prompt',clientRequestId:`ops-a-${i}`}}));
+  await service.submit(submission({userId:'owner-b',body:{clientRequestId:'ops-b-0'}}));
+  await waitFor(()=>polls===3);
+  assert.equal(typeof service.getOperationsSnapshot,'function');
+  await waitFor(()=>service.getOperationsSnapshot().localQueued===2);
+  const originalList=store.list,originalGet=store.get;let reads=0;
+  store.list=()=>{reads++;throw new Error('snapshot queried store');};
+  store.get=()=>{reads++;throw new Error('snapshot queried store');};
+  let snapshot;try { for(let i=0;i<20;i++)snapshot=service.getOperationsSnapshot(); } finally {store.list=originalList;store.get=originalGet;}
+  assert.equal(reads,0);assert.equal(snapshot.active,3);assert.equal(snapshot.upstreamQueued,3);assert.equal(snapshot.localQueued,2);assert.equal(snapshot.activeUsers,2);
+  assert.deepEqual(snapshot.limits,{concurrency:3,userConcurrency:2,maxQueued:9,userMaxQueued:7});
+  assert.deepEqual(snapshot.perUser,[{userId:'owner-a',active:2,queued:2},{userId:'owner-b',active:1,queued:0}]);
+  assert.equal(snapshot.tasks.length,5);assert.ok(snapshot.oldestLocalWaitMs>=0);
+  assert.equal(snapshot.tasks.find(task=>task.userId==='owner-a').userLabel,'Visible user');
+  assert.equal(snapshot.tasks.filter(task=>task.routeId==='actual-route').length,3);
+  assert.doesNotMatch(JSON.stringify(snapshot),/private prompt|secret|authorization|https?:|innerTaskId|resultUrls/);
+  snapshot.tasks[0].userId='tampered';assert.notEqual(service.getOperationsSnapshot().tasks[0].userId,'tampered');
+});
+
+test('operations active slots include confirmed successes still finalizing storage', async t => {
+  const gate=deferred();let preparing=false;t.after(()=>gate.resolve());
+  const {service}=await harness(t,{concurrency:1,execute:async()=>remoteResult,assets:{prepare:async()=>{preparing=true;await gate.promise;return {resultUrls:remoteResult.images,storageStatus:'saved'};}}});
+  await service.submit(submission());await waitFor(()=>preparing);
+  assert.equal(typeof service.getOperationsSnapshot,'function');
+  const snapshot=service.getOperationsSnapshot();assert.equal(snapshot.active,1);assert.equal(snapshot.localQueued,0);assert.equal(snapshot.upstreamQueued,0);
+  assert.ok(snapshot.tasks[0].upstreamStartedAt,'synchronous upstream execution records its start before completion');
+});
+
+test('scheduler pass cannot restore upstream queue after provider success is finalizing storage',async t=>{
+  const storage=deferred(),upstream=deferred();t.after(()=>{storage.resolve();upstream.resolve();});let preparing=false;
+  const {service}=await harness(t,{execute:async()=>({task_id:'provider-id',status:'QUEUED'}),poll:async()=>{await upstream.promise;return remoteResult;},assets:{prepare:async()=>{preparing=true;await storage.promise;return {resultUrls:remoteResult.images,storageStatus:'saved'};}}});
+  await service.submit(submission());await waitFor(()=>service.getOperationsSnapshot().upstreamQueued===1);upstream.resolve();await waitFor(()=>preparing);
+  assert.equal(service.getOperationsSnapshot().upstreamQueued,0);await service.reconcile();
+  assert.equal(service.getOperationsSnapshot().upstreamQueued,0);assert.equal(service.getOperationsSnapshot().active,1);assert.equal(service.getOperationsSnapshot().tasks[0].phase,'finalizing');
+});
+
+test('operations runtime errors redact credentials and quoted prompt values in free text', async t => {
+  const events=[];const {service}=await harness(t,{onOperationsEvent:event=>events.push(event),execute:async()=>{throw new Error('Provider: prompt="private prompt text" api key="private api key"');},compensate:async()=>{throw new Error('ledger unavailable');}});
+  await service.submit(submission());await waitFor(()=>events.some(event=>event.type==='terminal'));
+  assert.doesNotMatch(JSON.stringify(service.getOperationsSnapshot()),/private prompt text|private api key/);
+  assert.doesNotMatch(JSON.stringify(events),/private prompt text|private api key/);
+});
+
+test('operations events report state transitions once and callback errors cannot change successful generation', async t => {
+  const events=[];let refunds=0,settled=0;const gate=deferred();t.after(()=>gate.resolve());
+  const {service,store}=await harness(t,{execute:async(job,body,context)=>{await context.persist({routeId:'route-real'});await gate.promise;return {task_id:'private-provider-id',status:'QUEUED'};},poll:async()=>remoteResult,
+    onOperationsEvent:async event=>{if(!events.includes(event))events.push(event);throw new Error('telemetry offline');},compensate:async()=>{refunds++;},settleSuccess:async()=>{settled++;}});
+  const ack=await service.submit(submission({identity:{email:'person@example.com'}}));
+  await waitFor(async()=>(await store.get(ack.task_id)).status==='running');
+  await service.processPayload(ack.task_id,{task_id:'private-provider-id',status:'QUEUED',progress:12});
+  await service.processPayload(ack.task_id,{status:'QUEUED',progress:32});
+  await service.processPayload(ack.task_id,{status:'PROCESSING',progress:50});
+  await service.processPayload(ack.task_id,{status:'PROCESSING',progress:60});
+  await service.processPayload(ack.task_id,{status:'SUCCESS',images:remoteResult.images});
+  await waitFor(()=>events.some(event=>event.type==='settlement'));
+  assert.equal((await service.get(ack.task_id,'owner-a')).status,'succeeded');assert.equal(refunds,0);assert.equal(settled,1);
+  assert.equal(events.filter(event=>event.type==='admitted').length,1);assert.equal(events.filter(event=>event.type==='dispatch').length,1);
+  assert.equal(events.filter(event=>event.type==='upstream_changed').length,2);assert.equal(events.filter(event=>event.type==='terminal').length,1);
+  assert.equal(events.find(event=>event.type==='terminal').task.routeId,'route-real');
+  assert.ok(events.find(event=>event.type==='terminal').task.upstreamStartedAt);
+  assert.doesNotMatch(JSON.stringify(events),/private-provider-id|https?:|a bird|body|headers/);
+  gate.resolve();
+});
+
+test('operations terminal backlog remains bounded and exposes pending storage and settlement', async t => {
+  const events=[];
+  const {service,store}=await harness(t,{execute:async()=>remoteResult,onOperationsEvent:event=>events.push(event),assets:{prepare:async()=>({resultUrls:remoteResult.images,storageStatus:'pending'})},settleSuccess:async()=>{throw Object.assign(new Error('settlement offline'),{code:'LEDGER_UNAVAILABLE',status:503});}});
+  const ack=await service.submit(submission());
+  await waitFor(async()=>(await store.get(ack.task_id)).status==='succeeded');
+  await waitFor(()=>service.getOperationsSnapshot().active===0);
+  const snapshot=service.getOperationsSnapshot();
+  assert.deepEqual(snapshot.backlogs,{settlementPending:1,storagePending:1});assert.equal(snapshot.backlogTasks[0].taskId,ack.task_id);
+  const failure=events.find(event=>event.type==='settlement'&&event.error);assert.equal(failure.error.failureCode,'LEDGER_UNAVAILABLE');assert.equal(failure.error.httpStatus,503);assert.equal(failure.error.error,'settlement offline');
+});
+
+test('repeated failed settlement attempts emit one error transition then one recovery', async t => {
+  const events=[];let available=false;
+  const {service}=await harness(t,{execute:async()=>remoteResult,onOperationsEvent:event=>events.push(event),settleSuccess:async()=>{if(!available)throw new Error('ledger unavailable');}});
+  const ack=await service.submit(submission());await waitFor(()=>events.some(event=>event.type==='settlement'&&event.error));
+  await service.reconcile();await service.reconcile();
+  assert.equal(events.filter(event=>event.type==='settlement'&&event.error).length,1);
+  available=true;await service.reconcile();await waitFor(()=>events.some(event=>event.type==='settlement'&&!event.task.settlementPending));
+  assert.equal(service.getOperationsSnapshot().backlogs.settlementPending,0);assert.equal((await service.get(ack.task_id,'owner-a')).status,'succeeded');
+});
+
+test('operations upstream failures preserve provider code and HTTP status without copying raw details', async t => {
+  const events=[];
+  const {service,store}=await harness(t,{onOperationsEvent:event=>events.push(event),execute:async()=>({status:'FAILED',error:{message:'Provider overloaded https://private.example/path?token=secret Authorization=Bearer-secret',code:'PROVIDER_CAPACITY',status:503}})});
+  const ack=await service.submit(submission());await waitFor(()=>events.some(event=>event.type==='terminal'));
+  const event=events.find(event=>event.type==='terminal');assert.equal(event.task.failureCode,'PROVIDER_CAPACITY');assert.equal(event.task.httpStatus,503);
+  assert.match(event.task.error,/Provider overloaded/);assert.doesNotMatch(JSON.stringify(event),/private.example|token=secret|Bearer-secret/);
+  assert.equal((await store.get(ack.task_id)).httpStatus,503);
+});
+
+test('operations callback backlog is bounded and reports dropped coverage', async t => {
+  const callbacks=deferred();let calls=0;
+  const {service}=await harness(t,{execute:async()=>remoteResult,operationsMaxPendingEvents:2,onOperationsEvent:()=>{calls++;return callbacks.promise;}});
+  t.after(()=>callbacks.resolve());
+  const ack=await service.submit(submission());await waitFor(async()=>(await service.get(ack.task_id,'owner-a')).status==='succeeded');
+  assert.equal(typeof service.getOperationsSnapshot,'function');
+  const snapshot=service.getOperationsSnapshot();assert.equal(calls,2);assert.equal(snapshot.coverage.events.pending,2);assert.ok(snapshot.coverage.events.dropped>0);
+});
+
+test('operations event failures retry from cached safe state on reconciliation without restarting generation', async t => {
+  let available=false,executions=0;const events=[];
+  const {service}=await harness(t,{execute:async()=>{executions++;return remoteResult;},onOperationsEvent:async event=>{if(!available)throw new Error('telemetry unavailable');events.push(event);}});
+  const ack=await service.submit(submission());await waitFor(()=>service.getOperationsSnapshot().coverage.events.failed>0);
+  await waitFor(async()=>(await service.get(ack.task_id,'owner-a')).status==='succeeded');
+  assert.ok(service.getOperationsSnapshot().coverage.events.dirty>0);available=true;await service.reconcile();
+  await waitFor(()=>events.some(event=>event.type==='terminal'));
+  await waitFor(()=>service.getOperationsSnapshot().coverage.events.dirty===0);assert.equal(executions,1);
+});
+
+test('terminal cleanup retains its durable job until safe telemetry archival succeeds',async()=>{
+  let available=false,removals=0;
+  const old={taskId:'job-archive-old',requestId:'archive-old',userId:'owner',status:'succeeded',storageStatus:'saved',settlementPending:false,createdAt:new Date(Date.now()-20000).toISOString(),completedAt:new Date(Date.now()-10000).toISOString()};
+  const store={init:async()=>{},list:async filters=>filters.createdBefore?[old]:[],remove:async()=>{removals++;}};
+  const service=createImageJobService({store,retentionMs:1000,onOperationsEvent:async()=>{if(!available)throw new Error('archive unavailable');}});
+  await service.start();try{assert.equal(removals,0,'failed archival keeps original terminal metadata');available=true;await service.reconcile();assert.equal(removals,1);}finally{await service.stop();}
+});
+
+test('hanging operations callbacks never block queue reconciliation or terminal cleanup',async()=>{
+  const old={taskId:'job-archive-hanging',requestId:'archive-hanging',userId:'owner',status:'failed',settlementPending:false,createdAt:new Date(Date.now()-20000).toISOString()};let removals=0;
+  const store={init:async()=>{},list:async filters=>filters.createdBefore?[old]:[],remove:async()=>{removals++;}};
+  const service=createImageJobService({store,retentionMs:1000,operationsEventTimeoutMs:20,onOperationsEvent:()=>new Promise(()=>{})});
+  const before=Date.now();await service.start();try{assert.ok(Date.now()-before<1000);assert.equal(removals,0);assert.equal(service.getOperationsSnapshot().coverage.events.pending,1);}finally{await service.stop();}
+});
+
+test('one hanging archive does not delay other cleanup callbacks and shared cleanup time stays bounded',async()=>{
+  const jobs=Array.from({length:10},(_,index)=>({taskId:`job-archive-${index}`,requestId:`archive-${index}`,userId:'owner',status:'failed',settlementPending:false,createdAt:new Date(Date.now()-20000).toISOString()}));const removed=[];
+  const store={init:async()=>{},list:async filters=>filters.createdBefore?jobs:[],remove:async id=>removed.push(id)};
+  const service=createImageJobService({store,retentionMs:1000,operationsEventTimeoutMs:30,onOperationsEvent:event=>event.task.taskId==='job-archive-0'?new Promise(()=>{}):Promise.resolve()});
+  const before=Date.now();await service.start();try{assert.ok(Date.now()-before<150);assert.equal(removed.length,9);assert.ok(!removed.includes('job-archive-0'));}finally{await service.stop();}
+});
+
+test('many hanging archives share one cleanup deadline instead of multiplying scheduler delay',async()=>{
+  const jobs=Array.from({length:10},(_,index)=>({taskId:`job-hanging-${index}`,requestId:`hanging-${index}`,userId:'owner',status:'failed',settlementPending:false,createdAt:new Date(Date.now()-20000).toISOString()}));
+  const store={init:async()=>{},list:async filters=>filters.createdBefore?jobs:[],remove:async()=>assert.fail('unarchived job removed')};
+  const service=createImageJobService({store,retentionMs:1000,operationsEventTimeoutMs:30,onOperationsEvent:()=>new Promise(()=>{})});
+  const before=Date.now();await service.start();try{assert.ok(Date.now()-before<150);}finally{await service.stop();}
+});
+
+test('confirmed queue refusal emits safe metadata with failure code and HTTP status', async t => {
+  const events=[];const {service}=await harness(t,{maxQueued:1,userMaxQueued:1,onOperationsEvent:event=>events.push(event)});await service.stop();
+  await service.submit(submission());await assert.rejects(service.submit(submission({body:{clientRequestId:'queue-extra',prompt:'private rejected prompt'}})),error=>error.status===429);
+  await waitFor(()=>events.some(event=>event.type==='rejected'));
+  const event=events.find(event=>event.type==='rejected');assert.equal(event.task.requestId,'queue-extra');assert.equal(event.task.failureCode,'USER_QUEUE_FULL');assert.equal(event.task.httpStatus,429);
+  assert.doesNotMatch(JSON.stringify(event),/private rejected prompt|authorization|body/);
+});
+
 test('all permanent output previews survive job persistence and reach account record settlement', async t => {
   const previews = ['/permanent/one.preview.webp', '/permanent/two.preview.webp'];
   let settled;

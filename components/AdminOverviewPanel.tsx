@@ -93,7 +93,7 @@ const AdminOverviewPanel: React.FC<AdminOverviewPanelProps> = ({
               独立管理后台
             </h2>
             <p className="mt-3 max-w-2xl text-sm leading-7 text-gray-300">
-              查看全站用户、点数、线路、模型运行情况，并重点关注最近 30 分钟的实时波动。
+              查看全站用户、点数和账务扣款表现。这里的未退款扣款占比不是生成成功率；图片任务生成结果请查看运行看板。
             </p>
           </div>
 
@@ -127,25 +127,25 @@ const AdminOverviewPanel: React.FC<AdminOverviewPanelProps> = ({
         <MetricCard
           title="在线用户"
           value={data?.auth?.onlineUsers ?? 0}
-          hint={`过去 ${data?.windows?.onlineWindowMinutes ?? 5} 分钟活跃用户 ${data?.auth?.onlineUsers ?? 0}，当前活跃会话 ${data?.auth?.activeSessions ?? 0}。`}
+          hint={`在线按最近会话活动统计：过去 ${data?.windows?.onlineWindowMinutes ?? 5} 分钟活跃用户 ${data?.auth?.onlineUsers ?? 0}，当前有效会话 ${data?.auth?.activeSessions ?? 0}；不代表正在生成。`}
           icon={<Users size={20} />}
         />
         <MetricCard
-          title="近30分钟请求"
+          title="近30分钟扣款"
           value={data?.billing?.requestsLast30m ?? 0}
-          hint={`成功 ${data?.billing?.successfulLast30m ?? 0}，失败 ${data?.billing?.failedLast30m ?? 0}，成功率 ${formatRate(data?.billing?.successRateLast30m)}，净消耗 ${formatPoint(data?.billing?.netSpentPointsLast30m ?? 0)} 点。`}
+          hint={`未退款 ${data?.billing?.successfulLast30m ?? 0}，已退款 ${data?.billing?.failedLast30m ?? 0}，未退款扣款占比 ${formatRate(data?.billing?.successRateLast30m)}，净消耗 ${formatPoint(data?.billing?.netSpentPointsLast30m ?? 0)} 点。`}
           icon={<Activity size={20} />}
         />
         <MetricCard
-          title="24小时请求"
+          title="24小时扣款"
           value={data?.billing?.requestsLast24h ?? 0}
-          hint={`成功率 ${formatRate(data?.billing?.successRateLast24h)}，当前待处理任务 ${data?.billing?.pendingTasks ?? 0}。`}
+          hint={`未退款扣款占比 ${formatRate(data?.billing?.successRateLast24h)}，旧账务待处理 ${data?.billing?.pendingTasks ?? 0}。`}
           icon={<Clock3 size={20} />}
         />
         <MetricCard
-          title="总站成功率"
+          title="未退款扣款占比"
           value={formatRate(data?.billing?.successRate)}
-          hint={`累计请求 ${data?.billing?.totalCharges ?? 0} 次，成功 ${data?.billing?.successfulCharges ?? 0} 次，失败 ${data?.billing?.failedCharges ?? 0} 次。`}
+          hint={`累计扣款 ${data?.billing?.totalCharges ?? 0} 次，未退款 ${data?.billing?.successfulCharges ?? 0} 次，已退款 ${data?.billing?.failedCharges ?? 0} 次。`}
           icon={<CircleCheckBig size={20} />}
         />
         <MetricCard
@@ -164,8 +164,8 @@ const AdminOverviewPanel: React.FC<AdminOverviewPanelProps> = ({
 
       <div className="grid grid-cols-1 gap-6 2xl:grid-cols-[1.1fr_0.9fr]">
         <SectionTable
-          title="线路运行情况"
-          description="按线路查看最近 30 分钟、24 小时和累计表现。"
+          title="线路扣款情况"
+          description="按线路查看最近 30 分钟、24 小时和累计账务表现；占比按未退款扣款统计。"
         >
           <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-white/10 text-left text-sm">
@@ -174,8 +174,8 @@ const AdminOverviewPanel: React.FC<AdminOverviewPanelProps> = ({
                   <th className="px-4 py-3">线路</th>
                   <th className="px-4 py-3">近30分钟</th>
                   <th className="px-4 py-3">24h / 累计</th>
-                  <th className="px-4 py-3">成功率</th>
-                  <th className="px-4 py-3">待处理</th>
+                  <th className="px-4 py-3">未退款扣款占比</th>
+                  <th className="px-4 py-3">旧账务待处理</th>
                   <th className="px-4 py-3">净消费</th>
                   <th className="px-4 py-3">最近请求</th>
                 </tr>
@@ -207,7 +207,7 @@ const AdminOverviewPanel: React.FC<AdminOverviewPanelProps> = ({
                       <td className="px-4 py-3 text-gray-300">
                         <div>{route.requestsLast24h} / {route.totalCharges}</div>
                         <div className="mt-1 text-xs text-gray-500">
-                          失败 {route.failedLast24h} / {route.failedCharges}
+                          已退款 {route.failedLast24h} / {route.failedCharges}
                         </div>
                       </td>
                       <td className="px-4 py-3 text-gray-300">
@@ -234,8 +234,8 @@ const AdminOverviewPanel: React.FC<AdminOverviewPanelProps> = ({
         </SectionTable>
 
         <SectionTable
-          title="模型运行情况"
-          description="按模型查看最近 30 分钟、24 小时和累计表现。"
+          title="模型扣款情况"
+          description="按模型查看最近 30 分钟、24 小时和累计账务表现；占比按未退款扣款统计。"
         >
           <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-white/10 text-left text-sm">
@@ -244,7 +244,7 @@ const AdminOverviewPanel: React.FC<AdminOverviewPanelProps> = ({
                   <th className="px-4 py-3">模型</th>
                   <th className="px-4 py-3">近30分钟</th>
                   <th className="px-4 py-3">24h / 累计</th>
-                  <th className="px-4 py-3">成功率</th>
+                  <th className="px-4 py-3">未退款扣款占比</th>
                   <th className="px-4 py-3">净消费</th>
                   <th className="px-4 py-3">最近请求</th>
                 </tr>
@@ -277,7 +277,7 @@ const AdminOverviewPanel: React.FC<AdminOverviewPanelProps> = ({
                       <td className="px-4 py-3 text-gray-300">
                         <div>{model.requestsLast24h} / {model.totalCharges}</div>
                         <div className="mt-1 text-xs text-gray-500">
-                          失败 {model.failedLast24h} / {model.failedCharges}
+                          已退款 {model.failedLast24h} / {model.failedCharges}
                         </div>
                       </td>
                       <td className="px-4 py-3 text-gray-300">

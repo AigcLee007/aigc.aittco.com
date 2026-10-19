@@ -17,6 +17,11 @@ export default defineConfig({
       '.codex-chrome-profile*/**',
       '.playwright-cli/**',
       // These suites use node:test directly and run via npm run test:node.
+      'operationsDashboardStore.test.cjs',
+      'operationsRuntimeMetrics.test.cjs',
+      'operationsDashboard.test.cjs',
+      'server.admin-operations.test.cjs',
+      'operationsDeployment.test.cjs',
       'classicImageJobs.test.cjs',
       'imageHistoryRetention.test.cjs',
       'imageJobAssets.test.cjs',

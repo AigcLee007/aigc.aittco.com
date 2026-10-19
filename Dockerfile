@@ -54,6 +54,9 @@ COPY generatedAssetService.cjs ./
 COPY imageJobStore.cjs ./
 COPY imageJobService.cjs ./
 COPY imageJobAssets.cjs ./
+COPY operationsDashboard.cjs ./
+COPY operationsDashboardStore.cjs ./
+COPY operationsRuntimeMetrics.cjs ./
 COPY videoReferenceUpload.cjs ./
 COPY videoFrameUpload.cjs ./
 COPY videoRequestPolicy.cjs ./

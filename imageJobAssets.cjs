@@ -208,7 +208,8 @@ function createImageJobAssets(options = {}) {
         ? 'pending' : entries.some(entry => entry.state === 'failed' || entry.previewFailed) ? 'failed' : 'saved';
       const previewUrl = entries[0]?.preview || null;
       const previewUrls = entries.map(entry => entry.preview || null);
-      return { payload: { ...compact(info, urls, previewUrl, storageStatus), preview_urls: previewUrls }, resultUrls: urls, previewUrl, previewUrls, storageStatus };
+      const storageError=entries.find(entry=>entry.error)?.error||null;
+      return { payload: { ...compact(info, urls, previewUrl, storageStatus), preview_urls: previewUrls }, resultUrls: urls, previewUrl, previewUrls, storageStatus, storageError };
     };
     const notify = async () => {
       if (onSaved) await onSaved(snapshot());
@@ -222,6 +223,7 @@ function createImageJobAssets(options = {}) {
       }
       catch (error) {
         entry.previewFailed = true;
+        entry.error = String(error.message||'Image preview save failed').slice(0,1000);
         options.logger?.warn?.({ type: 'Image preview save failed', taskId: context.taskId, message: error.message });
         await notify().catch(() => {});
         return; // Original is already available; never refund a successful generation.
@@ -246,10 +248,10 @@ function createImageJobAssets(options = {}) {
         entry.url = entry.asset.url; entry.state = 'saved';
         // Publishing is metadata work; it cannot change a successfully saved original.
         await preview(entry); await notify().catch(() => {});
-      } catch {
-        entry.state = 'failed'; await notify().catch(() => {});
+      } catch (error) {
+        entry.state = 'failed'; entry.error=String(error.message||'Image save failed').slice(0,1000);await notify().catch(() => {});
       }
-    }).catch(async () => { entry.state = 'failed'; await notify().catch(() => {}); }));
+    }).catch(async error => { entry.state = 'failed';entry.error=String(error.message||'Image save failed').slice(0,1000);await notify().catch(() => {}); }));
     return initial;
   }
   async function resolveAsset({ userId, taskId, filename, token }) {

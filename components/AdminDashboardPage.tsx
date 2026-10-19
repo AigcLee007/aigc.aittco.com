@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowLeft,
+  Activity,
   Boxes,
   CreditCard,
   Loader2,
@@ -13,6 +14,7 @@ import AuthPanel from './AuthPanel';
 import BillingPanel from './BillingPanel';
 import UserAdminPanel from './UserAdminPanel';
 import AdminOverviewPanel from './AdminOverviewPanel';
+import AdminOperationsPanel from './AdminOperationsPanel';
 import MediaCatalogAdminPanel from './MediaCatalogAdminPanel';
 import AnnouncementAdminPanel from './AnnouncementAdminPanel';
 import {
@@ -24,7 +26,7 @@ import {
   fetchAdminDashboard,
 } from '../src/services/adminDashboardService';
 
-type AdminSection = 'overview' | 'users' | 'announcements' | 'catalog' | 'account';
+type AdminSection = 'overview' | 'operations' | 'users' | 'announcements' | 'catalog' | 'account';
 
 interface SectionItem {
   id: AdminSection;
@@ -84,18 +86,27 @@ const AdminDashboardPage: React.FC = () => {
 
   useEffect(() => {
     if (session?.user?.isAdmin !== true) return undefined;
-    void loadDashboard();
+    if (activeSection !== 'overview' && activeSection !== 'catalog') return undefined;
+    const refreshIfVisible = () => {
+      if (document.visibilityState !== 'hidden') void loadDashboard();
+    };
+    refreshIfVisible();
     const timer = window.setInterval(() => {
-      void loadDashboard();
+      refreshIfVisible();
     }, DASHBOARD_REFRESH_INTERVAL_MS);
-    return () => window.clearInterval(timer);
-  }, [loadDashboard, session?.user?.isAdmin]);
+    document.addEventListener('visibilitychange', refreshIfVisible);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', refreshIfVisible);
+    };
+  }, [activeSection, loadDashboard, session?.user?.isAdmin]);
 
   const isSuperAdmin = session?.user?.isSuperAdmin === true;
 
   const sections = useMemo<SectionItem[]>(() => {
     const base: SectionItem[] = [
       { id: 'overview', label: '运行总览', icon: ShieldCheck },
+      { id: 'operations', label: '运行看板', icon: Activity },
       { id: 'users', label: '用户管理', icon: Users },
       { id: 'announcements', label: '公告管理', icon: Megaphone },
     ];
@@ -128,6 +139,8 @@ const AdminDashboardPage: React.FC = () => {
 
   const renderContent = () => {
     switch (activeSection) {
+      case 'operations':
+        return <AdminOperationsPanel />;
       case 'users':
         return <UserAdminPanel session={session} />;
       case 'announcements':

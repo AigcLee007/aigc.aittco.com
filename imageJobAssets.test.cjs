@@ -118,6 +118,7 @@ test('preview write failure is observable and never advertises complete saving o
   });
   const result = await f.service.prepare({ resultUrls: [f.source], context });
   assert.equal(result.storageStatus, 'failed');
+  assert.equal(result.storageError, 'preview disk unavailable');
   assert.equal(result.previewUrl, null);
   assert.equal(warnings[0].type, 'Image preview save failed');
   assert.deepEqual(await fs.readFile(await f.service.resolveAsset(assetArgs(result.resultUrls[0]))), f.buffer);
@@ -178,6 +179,7 @@ test('failed remote save keeps successful result usable and retrying storage doe
   assert.equal(attempts, 2);
   assert.equal(saved.resultUrls[0], result.resultUrls[0]);
   assert.equal(saved.payload.status, 'succeeded');
+  assert.equal(saved.storageError, 'download interrupted');
 });
 
 test('download concurrency is bounded when many results are queued', async t => {

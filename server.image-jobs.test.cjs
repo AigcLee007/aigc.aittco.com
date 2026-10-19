@@ -82,6 +82,7 @@ test('image routes durably acknowledge before provider work and settle without a
   for(let i=0;!finish&&i<100;i++)await new Promise(resolve=>setTimeout(resolve,10));assert.ok(finish);
   const store=createImageJobStore({root,useMySql:false});const running=await store.get(ack.task_id);
   assert.ok(running.chargeId,'charge bound before provider completes');assert.equal(running.accountId,account.accountId);
+  assert.equal(running.routeId,route.id,'the actual resolved synchronous route is bound before provider work');
   finish();
   let result;
   for(let i=0;i<100;i++){result=await (await request(`/api/task/${ack.task_id}`)).json();if(result.status==='succeeded')break;await new Promise(resolve=>setTimeout(resolve,20));}
