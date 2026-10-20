@@ -28,6 +28,7 @@ const { normalizePixelHubVideoRequest } = require("./videoRequestPolicy.cjs");
 const { extractVideoTaskId, extractVideoTaskStatus } = require("./videoTaskUtils.cjs");
 const { getSeedreamSizeError } = require("./seedreamImagePolicy.cjs");
 const { isGptImageCompatibleModel } = require("./imageModelCompatibility.cjs");
+const { parseGeminiPromptOptions } = require("./promptToolResponse.cjs");
 
 const localEnvPath = path.join(__dirname, ".env");
 if (typeof process.loadEnvFile === "function" && fs.existsSync(localEnvPath)) {
@@ -6348,18 +6349,7 @@ app.post("/api/optimize-prompt", async (req, res) => {
       logTag: "Optimize",
     });
 
-    const rawText = response.data?.candidates?.[0]?.content?.parts?.[0]?.text;
-    if (!rawText) {
-      throw new Error("Optimize failed: empty response");
-    }
-
-    let options;
-    try {
-      options = parseGeminiJsonText(rawText);
-      if (!Array.isArray(options) || options.length === 0) throw new Error("Invalid options format");
-    } catch (parseError) {
-      options = [{ style: "优化结果", prompt: String(rawText).trim() }];
-    }
+    const options = parseGeminiPromptOptions(response.data);
 
     return res.json({
       success: true,
