@@ -277,8 +277,7 @@ function createOperationsDashboardStore({ pool, enabled = Boolean(pool), now = (
       params.push(date, date, cursor.taskId);
     }
     const limit = Math.min(50, Math.max(1, Number.parseInt(options.limit, 10) || 50));
-    params.push(limit + 1);
-    const rows = await query('/* ops:task-list */ SELECT ' + FACT_COLUMNS + ' FROM ops_task_facts WHERE ' + where.join(' AND ') + ' ORDER BY created_at DESC, task_id DESC LIMIT ?', params);
+    const rows = await query('/* ops:task-list */ SELECT ' + FACT_COLUMNS + ' FROM ops_task_facts WHERE ' + where.join(' AND ') + ' ORDER BY created_at DESC, task_id DESC LIMIT ' + (limit + 1), params);
     const items = rows.slice(0, limit).map(mapFact);
     const last = items.at(-1);
     return { items, nextCursor: rows.length > limit && last ? Buffer.from(JSON.stringify({ createdAt: last.createdAt, taskId: last.taskId })).toString('base64url') : null };

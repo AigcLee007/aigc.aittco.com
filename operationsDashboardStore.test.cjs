@@ -95,8 +95,11 @@ test('task filters are bound, limits clamped, and equal timestamps paginate by t
   const first = await store.listTaskFacts(filters);
   assert.equal(first.items.length, 50); assert.ok(first.nextCursor);
   const query = pool.calls.at(-1);
-  assert.ok(query.params.includes(filters.userId)); assert.ok(!query.sql.includes(filters.userId)); assert.match(query.sql, /ORDER BY created_at DESC, task_id DESC/); assert.equal(query.params.at(-1), 51);
+  assert.ok(query.params.includes(filters.userId)); assert.ok(!query.sql.includes(filters.userId)); assert.match(query.sql, /ORDER BY created_at DESC, task_id DESC/);
+  assert.match(query.sql, /LIMIT 51\b/); assert.ok(!query.sql.includes('LIMIT ?')); assert.ok(!query.params.includes(51));
   assert.ok(query.params.filter(value => value instanceof Date).length >= 2);
+  await store.listTaskFacts({ window: '1h', limit: 7 });
+  assert.match(pool.calls.at(-1).sql, /LIMIT 8\b/); assert.ok(!pool.calls.at(-1).params.includes(8));
   await store.listTaskFacts({ ...filters, cursor: first.nextCursor });
   assert.ok(pool.calls.at(-1).sql.includes('created_at < ? OR (created_at = ? AND task_id < ?)'));
   await assert.rejects(() => store.listTaskFacts({ cursor: 'bad cursor' }), /cursor/i);
