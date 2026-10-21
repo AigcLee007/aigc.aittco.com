@@ -28,7 +28,7 @@ const { normalizePixelHubVideoRequest } = require("./videoRequestPolicy.cjs");
 const { extractVideoTaskId, extractVideoTaskStatus } = require("./videoTaskUtils.cjs");
 const { getSeedreamSizeError } = require("./seedreamImagePolicy.cjs");
 const { isGptImageCompatibleModel } = require("./imageModelCompatibility.cjs");
-const { parseGeminiPromptOptions } = require("./promptToolResponse.cjs");
+const { parseGeminiPromptOptions, parseGeminiReversePrompt } = require("./promptToolResponse.cjs");
 
 const localEnvPath = path.join(__dirname, ".env");
 if (typeof process.loadEnvFile === "function" && fs.existsSync(localEnvPath)) {
@@ -6408,7 +6408,7 @@ app.post("/api/reverse-prompt", async (req, res) => {
       "You are a professional image prompt engineer for commercial AI image generation.",
       "Your task is not to casually describe the image. You must reverse-engineer it into a production-ready image generation prompt.",
       "Analyze the image through these layers: subject, identity/role, pose/action, expression, clothing, scene, era/location, foreground/background, composition, camera angle, lens/framing, lighting, color palette, texture/materials, artistic medium, rendering style, mood, quality modifiers, and negative prompt.",
-      "Return JSON only. Do not use markdown. Do not add explanations outside JSON.",
+      "Return JSON only. Do not use markdown. Do not add explanations outside JSON. Do not reveal your analysis or chain of thought; return only the final JSON object.",
       "The exact JSON shape must be:",
       "{\"plainPrompt\":\"...\",\"jsonPrompt\":{\"subject\":\"...\",\"coreDescription\":\"...\",\"scene\":\"...\",\"composition\":\"...\",\"camera\":\"...\",\"lighting\":\"...\",\"colorPalette\":\"...\",\"style\":\"...\",\"medium\":\"...\",\"textureAndDetails\":[\"...\"],\"qualityModifiers\":[\"...\"],\"negativePrompt\":\"...\",\"englishPrompt\":\"...\"}}",
       "Rules for plainPrompt:",
@@ -6455,39 +6455,7 @@ app.post("/api/reverse-prompt", async (req, res) => {
       },
     });
 
-    const resultPrompt = response.data?.candidates?.[0]?.content?.parts?.[0]?.text;
-    if (!resultPrompt) {
-      throw new Error("Reverse failed: empty response");
-    }
-
-    let plainPrompt = String(resultPrompt).trim();
-    let jsonPrompt = {
-      subject: "",
-      coreDescription: "",
-      scene: "",
-      composition: "",
-      camera: "",
-      lighting: "",
-      colorPalette: "",
-      style: "",
-      medium: "",
-      textureAndDetails: [],
-      qualityModifiers: [],
-      negativePrompt: "",
-      englishPrompt: "",
-    };
-    try {
-      const parsed = parseGeminiJsonText(resultPrompt);
-      plainPrompt = String(parsed?.plainPrompt || parsed?.prompt || plainPrompt).trim();
-      if (parsed?.jsonPrompt && typeof parsed.jsonPrompt === "object") {
-        jsonPrompt = parsed.jsonPrompt;
-      }
-    } catch (_) {
-      jsonPrompt = {
-        ...jsonPrompt,
-        subject: plainPrompt,
-      };
-    }
+    const { plainPrompt, jsonPrompt } = parseGeminiReversePrompt(response.data);
 
     return res.json({
       success: true,

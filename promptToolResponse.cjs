@@ -1,4 +1,4 @@
-function extractGeminiFinalText(response) {
+function extractGeminiFinalText(response, missingText = "模型未返回最终答案") {
   const candidates = Array.isArray(response?.candidates) ? response.candidates : [];
 
   for (const candidate of candidates) {
@@ -12,20 +12,22 @@ function extractGeminiFinalText(response) {
     if (text) return text;
   }
 
-  throw new Error("优化失败：模型未返回最终答案");
+  throw new Error(missingText);
+}
+
+function parseGeminiJsonText(rawText) {
+  let cleaned = String(rawText || "").trim();
+  if (cleaned.startsWith("```json")) cleaned = cleaned.slice(7);
+  else if (cleaned.startsWith("```")) cleaned = cleaned.slice(3);
+  if (cleaned.endsWith("```")) cleaned = cleaned.slice(0, -3);
+  return JSON.parse(cleaned.trim());
 }
 
 function parseGeminiPromptOptions(response) {
   const rawText = extractGeminiFinalText(response);
-  let cleaned = rawText;
-
-  if (cleaned.startsWith("```json")) cleaned = cleaned.slice(7);
-  else if (cleaned.startsWith("```")) cleaned = cleaned.slice(3);
-  if (cleaned.endsWith("```")) cleaned = cleaned.slice(0, -3);
-
   let options;
   try {
-    options = JSON.parse(cleaned.trim());
+    options = parseGeminiJsonText(rawText);
   } catch (_) {
     throw new Error("优化失败：模型未返回有效提示词方案");
   }
@@ -44,4 +46,26 @@ function parseGeminiPromptOptions(response) {
   }));
 }
 
-module.exports = { parseGeminiPromptOptions };
+function parseGeminiReversePrompt(response) {
+  let parsed;
+  try {
+    const rawText = extractGeminiFinalText(response, "图片逆推失败：模型未返回最终答案");
+    parsed = parseGeminiJsonText(rawText);
+  } catch (error) {
+    if (String(error?.message || "").includes("图片逆推失败")) throw error;
+    throw new Error("图片逆推失败：模型未返回有效提示词结果");
+  }
+
+  const plainPrompt = String(parsed?.plainPrompt || parsed?.prompt || "").trim();
+  if (!plainPrompt) {
+    throw new Error("图片逆推失败：模型未返回有效提示词结果");
+  }
+
+  const jsonPrompt = parsed?.jsonPrompt && typeof parsed.jsonPrompt === "object" && !Array.isArray(parsed.jsonPrompt)
+    ? parsed.jsonPrompt
+    : { subject: plainPrompt };
+
+  return { plainPrompt, jsonPrompt };
+}
+
+module.exports = { parseGeminiPromptOptions, parseGeminiReversePrompt };
