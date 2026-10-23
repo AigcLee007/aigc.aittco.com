@@ -35,6 +35,7 @@ test("table sync modes and task paths remain independent values", () => {
 test("production Docker image copies the route resolver required by server.cjs", () => {
   const dockerfile = fs.readFileSync(path.join(__dirname, "Dockerfile"), "utf8");
   assert.match(dockerfile, /^COPY imageRouteResolution\.cjs \.\/$/m);
+  assert.match(dockerfile, /^COPY visionaryImageApi\.cjs \.\/$/m);
 });
 
 test("Gemini route templates retain literal model placeholders", () => {
@@ -51,11 +52,12 @@ test("RollDek routes use its API hostname rather than the www website hostname",
   assert.ok(rollDekRoutes.every((route) => route.baseUrl === "https://rolldek.com"));
 });
 
-test("Visionary Nano Banana Pro backup route matches its documented endpoint and model id", () => {
+test("Visionary Nano Banana Pro backup route matches its documented async endpoint and model id", () => {
   const route = catalog.routes.find((item) => item.id === "nano-banana-pro-backup");
   assert.ok(route);
-  assert.equal(route.baseUrl, "https://visionary.beer");
-  assert.equal(route.generatePath, "/openapi/v1/images/generations");
-  assert.equal(route.upstreamModel, "Nano_Banana_Pro");
-  assert.equal(route.mode, "sync");
+  assert.equal(route.baseUrl, "https://api.visionary.beer");
+  assert.equal(route.generatePath, "/v1/images/generations");
+  assert.equal(route.taskPath, "/v1/tasks/{taskId}");
+  assert.equal(route.upstreamModel, "nano-banana-pro");
+  assert.equal(route.mode, "async");
 });

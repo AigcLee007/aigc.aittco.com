@@ -4,7 +4,7 @@ const {
 } = require('./imageRouteCompatibility.cjs');
 
 describe('normalizeImageRouteCompatibility', () => {
-  it('normalizes the production Visionary backup route to its documented API contract', () => {
+  it('normalizes the production Visionary backup route to its documented async API contract', () => {
     const route = normalizeImageRouteCompatibility({
       id: 'nano-banana-pro-backup',
       transport: 'openai-image',
@@ -15,9 +15,11 @@ describe('normalizeImageRouteCompatibility', () => {
     });
 
     assert.strictEqual(route.transport, 'openai-image');
-    assert.strictEqual(route.mode, 'sync');
-    assert.strictEqual(route.generatePath, '/openapi/v1/images/generations');
-    assert.strictEqual(route.upstreamModel, 'Nano_Banana_Pro');
+    assert.strictEqual(route.mode, 'async');
+    assert.strictEqual(route.baseUrl, 'https://api.visionary.beer');
+    assert.strictEqual(route.generatePath, '/v1/images/generations');
+    assert.strictEqual(route.taskPath, '/v1/tasks/{taskId}');
+    assert.strictEqual(route.upstreamModel, 'nano-banana-pro');
   });
 
   it('routes the production VISON line through Visionary OpenAPI parsing', () => {
@@ -30,8 +32,10 @@ describe('normalizeImageRouteCompatibility', () => {
     });
 
     assert.strictEqual(route.transport, 'openai-image');
-    assert.strictEqual(route.mode, 'sync');
-    assert.strictEqual(route.generatePath, '/openapi/v1/images/generations');
+    assert.strictEqual(route.mode, 'async');
+    assert.strictEqual(route.baseUrl, 'https://api.visionary.beer');
+    assert.strictEqual(route.generatePath, '/v1/images/generations');
+    assert.strictEqual(route.taskPath, '/v1/tasks/{taskId}');
   });
 
   it('does not change the Adobe Gemini route', () => {
@@ -87,9 +91,11 @@ describe('normalizeImageRouteCompatibility', () => {
 
     assert.deepStrictEqual(normalizeImageRouteCompatibility(route), {
       ...route,
+      baseUrl: 'https://api.visionary.beer',
       transport: 'openai-image',
-      mode: 'sync',
-      generatePath: '/openapi/v1/images/generations',
+      mode: 'async',
+      generatePath: '/v1/images/generations',
+      taskPath: '/v1/tasks/{taskId}',
     });
   });
 });

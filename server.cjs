@@ -26,6 +26,11 @@ const {
 const { materializeVideoReferenceMedia } = require("./videoReferenceMedia.cjs");
 const { normalizePixelHubVideoRequest } = require("./videoRequestPolicy.cjs");
 const { extractVideoTaskId, extractVideoTaskStatus } = require("./videoTaskUtils.cjs");
+const {
+  normalizeVisionaryImageRequest,
+  extractVisionarySubmission,
+  unwrapVisionaryTask,
+} = require("./visionaryImageApi.cjs");
 const { getSeedreamSizeError } = require("./seedreamImagePolicy.cjs");
 const { isGptImageCompatibleModel } = require("./imageModelCompatibility.cjs");
 const { parseGeminiPromptOptions, parseGeminiReversePrompt } = require("./promptToolResponse.cjs");
@@ -413,10 +418,10 @@ const fetchVisionaryRecordById = async ({
   authorization,
   upstreamTaskId,
 }) => {
-  const listPath = "/openapi/v1/images/generations?page=1&limit=50";
+  const taskPath = route.taskPath || "/v1/tasks/{taskId}";
   const response = await requestWithRetry(
     () =>
-      axios.get(buildRouteUrl(route, listPath), {
+      axios.get(buildRouteUrl(route, taskPath, { taskId: upstreamTaskId }), {
         headers: {
           Authorization: authorization,
           "Content-Type": "application/json",
@@ -424,15 +429,9 @@ const fetchVisionaryRecordById = async ({
         timeout: 15000,
         httpsAgent: SHARED_HTTPS_AGENT,
       }),
-    { retries: 1, delayMs: 250, label: `visionary-list-query-${route.id}` },
+    { retries: 1, delayMs: 250, label: `visionary-task-query-${route.id}` },
   );
-
-  const records = Array.isArray(response?.data?.data) ? response.data.data : [];
-  return (
-    records.find(
-      (item) => String(item?.id || "").trim() === String(upstreamTaskId || "").trim(),
-    ) || null
-  );
+  return unwrapVisionaryTask(response?.data || {});
 };
 const LOCAL_IMAGE_JOBS = new Map();
 const LOCAL_IMAGE_JOB_TTL_MS = 30 * 60 * 1000;
@@ -581,17 +580,10 @@ const applyVisionaryImageCompat = (requestBody = {}) => {
       : normalizeArray(requestBody.image);
   if (imageArray.length > 0) {
     requestBody.images = imageArray;
-    requestBody.image = imageArray;
   }
-
-  if (!requestBody.ratio && requestBody.aspect_ratio) {
-    requestBody.ratio = requestBody.aspect_ratio;
-  }
-  const resolvedImageSize =
-    requestBody.imageSize || requestBody.image_size || requestBody.size || "";
-  if (resolvedImageSize && !requestBody.imageSize) {
-    requestBody.imageSize = String(resolvedImageSize).trim().toUpperCase();
-  }
+  const normalized = normalizeVisionaryImageRequest(requestBody);
+  for (const key of Object.keys(requestBody)) delete requestBody[key];
+  Object.assign(requestBody, normalized);
 };
 const getRoutePointCost = (route, quantity = 1, requestBody = {}) => {
   const sizeOverride = getRouteSizeOverride(route, requestBody);
@@ -4102,17 +4094,16 @@ const legacyImageGenerateHandler = async (req, res) => {
           );
 
           let settledPayload = response.data;
-          let settledStatus = extractResultStatus(settledPayload);
+          const visionarySubmission = extractVisionarySubmission(settledPayload);
+          let settledStatus = visionarySubmission.status || extractResultStatus(settledPayload);
           let resultUrls = extractResultUrlsFromPayload(settledPayload);
           const upstreamTaskId =
-            settledPayload?.id ||
-            settledPayload?.task_id ||
-            settledPayload?.data?.task_id;
+            visionarySubmission.taskId || settledPayload?.id || settledPayload?.task_id || settledPayload?.data?.task_id;
 
           if (
             upstreamTaskId &&
             resultUrls.length === 0 &&
-            ["PROCESSING", "PENDING", "RUNNING", "QUEUED", "IN_PROGRESS", ""].includes(settledStatus)
+            ["SUBMITTED", "PROCESSING", "PENDING", "RUNNING", "QUEUED", "IN_PROGRESS", ""].includes(settledStatus)
           ) {
             const startedAt = Date.now();
             while (Date.now() - startedAt < 10 * 60 * 1000) {
