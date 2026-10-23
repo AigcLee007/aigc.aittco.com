@@ -171,6 +171,7 @@ const { toPointNumber } = require("./pointMath.cjs");
 const {
   getGeminiSingleImageRequestError,
 } = require("./imageRequestCount.cjs");
+const { selectDefaultImageRoute } = require("./imageRouteResolution.cjs");
 
 // Logger Configuration
 const logger = winston.createLogger({
@@ -208,7 +209,7 @@ const SHARED_HTTPS_AGENT = new https.Agent({
 });
 
 const trimTrailingSlash = (value = "") => String(value).replace(/\/+$/, "");
-const resolveImageRoute = async (routeId, { includeInactive = false } = {}) => {
+const resolveImageRoute = async (routeId, { includeInactive = false, routeFamily = "" } = {}) => {
   const routeIdValue = String(routeId || "").trim();
   if (routeIdValue) {
     const exactRoute = await getImageRouteById(routeIdValue, {
@@ -223,12 +224,16 @@ const resolveImageRoute = async (routeId, { includeInactive = false } = {}) => {
   }
 
   const catalog = await getImageRouteCatalog({ includeInactive });
-  const fallbackId = catalog.defaultRouteId || catalog.routes?.[0]?.id || "";
-  if (!fallbackId) {
+  const fallbackRoute = selectDefaultImageRoute({
+    routes: catalog.routes || [],
+    defaultRouteId: catalog.defaultRouteId,
+    routeFamily,
+  });
+  if (!fallbackRoute?.id) {
     return null;
   }
 
-  return getImageRouteById(fallbackId, {
+  return getImageRouteById(fallbackRoute.id, {
     includeInactive,
     includeSecrets: true,
   });
@@ -3493,8 +3498,10 @@ const legacyImageGenerateHandler = async (req, res) => {
     const clientLiveTaskIds = normalizeClientLiveTaskIds(
       requestBody.clientLiveTaskIds || requestBody.clientLiveTaskId,
     );
-    const route = await resolveImageRoute(requestBody.routeId);
     const requestedImageModel = await resolveRequestedImageModel(requestBody);
+    const route = await resolveImageRoute(requestBody.routeId, {
+      routeFamily: requestedImageModel?.routeFamily,
+    });
     const useUserProvidedApiKey = shouldUseUserProvidedApiKey(
       route,
       fallbackAuthorization,
@@ -4785,8 +4792,10 @@ const legacyImageEditHandler = async (req, res) => {
     delete requestBody.uiMode;
     delete requestBody.clientLiveTaskIds;
     delete requestBody.clientLiveTaskId;
-    const requestedRoute = await resolveImageRoute(requestBody.routeId);
     const requestedImageModel = await resolveRequestedImageModel(requestBody);
+    const requestedRoute = await resolveImageRoute(requestBody.routeId, {
+      routeFamily: requestedImageModel?.routeFamily,
+    });
     const route = requestedRoute;
     const useUserProvidedApiKey = shouldUseUserProvidedApiKey(
       route,
@@ -5696,8 +5705,10 @@ const legacyGeminiGenerateHandler = async (req, res) => {
     const clientLiveTaskIds = normalizeClientLiveTaskIds(
       requestBody.clientLiveTaskIds || requestBody.clientLiveTaskId,
     );
-    const route = await resolveImageRoute(requestBody.routeId);
     const requestedImageModel = await resolveRequestedImageModel(requestBody);
+    const route = await resolveImageRoute(requestBody.routeId, {
+      routeFamily: requestedImageModel?.routeFamily,
+    });
 
     if (!route || !isGeminiNativeRoute(route)) {
       return sendUserFacingGenerationError(res, 400, new Error("Gemini 图片线路不存在、已停用或不支持当前请求，请联系管理员"));
@@ -5925,7 +5936,10 @@ const validateImageJobRequest = async (req, endpoint) => {
   if (typeof body.prompt !== "string" || !body.prompt.trim()) throw Object.assign(new Error("请输入图片提示词"), { status: 400 });
   if (body.prompt.length > 32000) throw Object.assign(new Error("图片提示词过长"), { status: 400 });
   if (body.n !== undefined && (!Number.isInteger(Number(body.n)) || Number(body.n) < 1 || Number(body.n) > 12)) throw Object.assign(new Error("图片数量必须介于 1 和 12 之间"), { status: 400 });
-  const requestedRoute = await resolveImageRoute(body.routeId);
+  const model = await resolveRequestedImageModel(body);
+  const requestedRoute = await resolveImageRoute(body.routeId, {
+    routeFamily: model?.routeFamily,
+  });
   const route = requestedRoute;
   if (!route) throw Object.assign(new Error("图片线路不存在或已停用"), { status: 400 });
   if (endpoint === '/api/edit' && !route.editPath && route.transport !== 'openai-image') throw Object.assign(new Error('所选线路不支持图片编辑'), { status: 400 });
@@ -5933,7 +5947,6 @@ const validateImageJobRequest = async (req, endpoint) => {
   if (isGeminiNativeRoute(route)) {
     const countError = getGeminiSingleImageRequestError(body); if (countError) throw Object.assign(new Error(countError), { status: 400 });
   }
-  const model = await resolveRequestedImageModel(body);
   if (model?.id === "seedream-5-pro") { const error = getSeedreamSizeError(body); if (error) throw Object.assign(new Error(error), { status: 400 }); }
   if (endpoint === "/api/edit" && !(typeof body.image === "string" && body.image.trim()) && !(Array.isArray(body.images) && body.images.some(value => typeof value === "string" && value.trim()))) throw Object.assign(new Error("图片编辑需要参考图"), { status: 400 });
   if (!shouldUseUserProvidedApiKey(route, req.headers.authorization)) await requireBillingAccount(req);
@@ -5954,7 +5967,10 @@ const imageRouteAdapter = (endpoint, legacy) => async (req, res) => {
   try {
     // Preserve the legacy key-only route contract; durable recovery belongs to a logged-in owner.
     if (!req.authUser) {
-      const route = await resolveImageRoute(req.body?.routeId);
+      const requestedImageModel = await resolveRequestedImageModel(req.body);
+      const route = await resolveImageRoute(req.body?.routeId, {
+        routeFamily: requestedImageModel?.routeFamily,
+      });
       if (shouldUseUserProvidedApiKey(route, req.headers.authorization)) {
         const clean = { ...req.body }; delete clean.asyncTask; delete clean.clientRequestId; req.body = clean;
         return legacy(req, res);

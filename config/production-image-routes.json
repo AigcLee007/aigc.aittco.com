@@ -1,0 +1,681 @@
+{
+  "defaultRouteId": "nano-banana-pro-discount",
+  "routes": [
+    {
+      "id": "nano-banana-pro-official-t3",
+      "label": "官方T3",
+      "description": "",
+      "modelFamily": "nano-banana-pro",
+      "line": "官方T3",
+      "transport": "openai-image",
+      "mode": "async",
+      "baseUrl": "https://api.mouxihub.com",
+      "generatePath": "/v1/images/generations?async=true",
+      "taskPath": "/v1/images/tasks/{taskId}",
+      "editPath": "/v1/images/edits?async=true",
+      "upstreamModel": "nano-banana-pro",
+      "apiKeyEnv": "Nanobananapro_mouxihub_youzhi",
+      "pointCost": 8,
+      "sizeOverrides": {
+        "1k": {
+          "upstreamModel": "nano-banana-pro",
+          "pointCost": 8
+        },
+        "2k": {
+          "upstreamModel": "nano-banana-pro-2k",
+          "pointCost": 10
+        },
+        "4k": {
+          "upstreamModel": "nano-banana-pro-4k",
+          "pointCost": 12
+        }
+      },
+      "sortOrder": 0
+    },
+    {
+      "id": "nano-banana-pro-official-quality",
+      "label": "官方优质",
+      "description": "",
+      "modelFamily": "nano-banana-pro",
+      "line": "官方优质",
+      "transport": "openai-image",
+      "mode": "async",
+      "baseUrl": "https://api.mouxihub.com",
+      "generatePath": "/v1/images/generations?async=true",
+      "taskPath": "/v1/images/tasks/{taskId}",
+      "editPath": "/v1/images/edits?async=true",
+      "upstreamModel": "nano-banana-pro",
+      "apiKeyEnv": "Nanobananapro_mouxihub_putong",
+      "pointCost": 5,
+      "sizeOverrides": {
+        "1k": {
+          "upstreamModel": "nano-banana-pro",
+          "pointCost": 5
+        },
+        "2k": {
+          "upstreamModel": "nano-banana-pro-2k",
+          "pointCost": 6
+        },
+        "4k": {
+          "upstreamModel": "nano-banana-pro-4k",
+          "pointCost": 7
+        }
+      },
+      "sortOrder": 1
+    },
+    {
+      "id": "nano-banana-pro-banana-dedicated",
+      "label": "香蕉专线",
+      "description": "",
+      "modelFamily": "nano-banana-pro",
+      "line": "香蕉专线",
+      "transport": "gemini-native",
+      "mode": "sync",
+      "baseUrl": "https://api.pixellelabs.com",
+      "generatePath": "/v1beta/models/%7Bmodel%7D:generateContent",
+      "upstreamModel": "gemini-3-pro-image-preview",
+      "apiKeyEnv": "Nanobananapro_pixellelabs",
+      "pointCost": 5,
+      "sortOrder": 2
+    },
+    {
+      "id": "nano-banana-pro-discount",
+      "label": "特价线路",
+      "description": "",
+      "modelFamily": "nano-banana-pro",
+      "line": "特价线路",
+      "transport": "gemini-native",
+      "mode": "sync",
+      "baseUrl": "https://www.rolldek.com",
+      "generatePath": "/v1beta/models/%7Bmodel%7D:generateContent",
+      "upstreamModel": "gemini-3-pro-image-preview",
+      "apiKeyEnv": "Nanobananapro_rolldek",
+      "pointCost": 3,
+      "sizeOverrides": {
+        "1k": {
+          "pointCost": 3
+        },
+        "2k": {
+          "pointCost": 4
+        },
+        "4k": {
+          "pointCost": 5
+        }
+      },
+      "sortOrder": 3,
+      "isDefaultRoute": true
+    },
+    {
+      "id": "nano-banana-pro-backup",
+      "label": "备用线路",
+      "description": "",
+      "modelFamily": "nano-banana-pro",
+      "line": "备用线路",
+      "transport": "openai-image",
+      "mode": "sync",
+      "baseUrl": "https://visionary.beer",
+      "generatePath": "/v1/images/generations",
+      "upstreamModel": "nano-banana-pro",
+      "apiKeyEnv": "Nanobananapro_visionary",
+      "pointCost": 5,
+      "sortOrder": 4
+    },
+    {
+      "id": "nano-banana-pro-backup-v",
+      "label": "备用线路V",
+      "description": "",
+      "modelFamily": "nano-banana-pro",
+      "line": "备用线路V",
+      "transport": "gemini-native",
+      "mode": "sync",
+      "baseUrl": "https://vip.aittco.com",
+      "generatePath": "/v1beta/models/%7Bmodel%7D:generateContent",
+      "upstreamModel": "gemini-3-pro-image-preview",
+      "apiKeyEnv": "Image_vip",
+      "pointCost": 5,
+      "sortOrder": 5
+    },
+    {
+      "id": "gemini-nano-banana-2.1-official-t3",
+      "label": "官方T3",
+      "description": "",
+      "modelFamily": "gemini-nano-banana-2.1",
+      "line": "官方T3",
+      "transport": "openai-image",
+      "mode": "async",
+      "baseUrl": "https://api.mouxihub.com",
+      "generatePath": "/v1/images/generations?async=true",
+      "taskPath": "/v1/images/tasks/{taskId}",
+      "editPath": "/v1/images/edits?async=true",
+      "upstreamModel": "gemini-nano-banana-2.1",
+      "apiKeyEnv": "Nanobanana2.1_mouxihub_youzhi",
+      "pointCost": 5,
+      "sizeOverrides": {
+        "1k": {
+          "upstreamModel": "gemini-nano-banana-2.1",
+          "pointCost": 5
+        },
+        "2k": {
+          "upstreamModel": "gemini-nano-banana-2.1-2k",
+          "pointCost": 6
+        },
+        "4k": {
+          "upstreamModel": "gemini-nano-banana-2.1-4k",
+          "pointCost": 7
+        }
+      },
+      "sortOrder": 0
+    },
+    {
+      "id": "gemini-nano-banana-2.1-official-quality",
+      "label": "官方优质",
+      "description": "",
+      "modelFamily": "gemini-nano-banana-2.1",
+      "line": "官方优质",
+      "transport": "openai-image",
+      "mode": "async",
+      "baseUrl": "https://api.mouxihub.com",
+      "generatePath": "/v1/images/generations?async=true",
+      "taskPath": "/v1/images/tasks/{taskId}",
+      "editPath": "/v1/images/edits?async=true",
+      "upstreamModel": "gemini-nano-banana-2.1",
+      "apiKeyEnv": "Nanobanana2.1_mouxihub_putong",
+      "pointCost": 3,
+      "sizeOverrides": {
+        "1k": {
+          "upstreamModel": "gemini-nano-banana-2.1",
+          "pointCost": 3
+        },
+        "2k": {
+          "upstreamModel": "gemini-nano-banana-2.1-2k",
+          "pointCost": 4
+        },
+        "4k": {
+          "upstreamModel": "gemini-nano-banana-2.1-4k",
+          "pointCost": 5
+        }
+      },
+      "sortOrder": 1
+    },
+    {
+      "id": "gemini-nano-banana-2.1-discount",
+      "label": "特价线路",
+      "description": "",
+      "modelFamily": "gemini-nano-banana-2.1",
+      "line": "特价线路",
+      "transport": "gemini-native",
+      "mode": "sync",
+      "baseUrl": "https://www.rolldek.com",
+      "generatePath": "/v1beta/models/gemini-nano-banana-2.1:generateContent",
+      "upstreamModel": "gemini-nano-banana-2.1",
+      "apiKeyEnv": "Nanobanana2.1_rolldek",
+      "pointCost": 3,
+      "sizeOverrides": {
+        "1k": {
+          "pointCost": 3
+        },
+        "2k": {
+          "pointCost": 3.5
+        },
+        "4k": {
+          "pointCost": 4
+        }
+      },
+      "sortOrder": 2,
+      "isDefaultRoute": true
+    },
+    {
+      "id": "gpt-image-2.5-sunburst-official-relay-high-quality",
+      "label": "官转（支持高质量）",
+      "description": "",
+      "modelFamily": "gpt-image-2.5-sunburst",
+      "line": "官转（支持高质量）",
+      "transport": "openai-image",
+      "mode": "sync",
+      "baseUrl": "https://api.mouxihub.com",
+      "generatePath": "/v1/images/generations",
+      "taskPath": "/v1/images/tasks/{taskId}",
+      "editPath": "/v1/images/edits",
+      "upstreamModel": "gpt-image-2.5-sunburst",
+      "apiKeyEnv": "GPT-image-2.5-sunburst_mouxihub_guanzhuan",
+      "pointCost": 8,
+      "sizeOverrides": {
+        "1k": {
+          "upstreamModel": "gpt-image-2.5-sunburst",
+          "pointCost": 8
+        },
+        "2k": {
+          "upstreamModel": "gpt-image-2.5-sunburst-2k",
+          "pointCost": 10
+        },
+        "4k": {
+          "upstreamModel": "gpt-image-2.5-sunburst-4k",
+          "pointCost": 12
+        }
+      },
+      "supportedQualities": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
+      "sortOrder": 0
+    },
+    {
+      "id": "gpt-image-2.5-sunburst-official-key-discount",
+      "label": "官key特价",
+      "description": "",
+      "modelFamily": "gpt-image-2.5-sunburst",
+      "line": "官key特价",
+      "transport": "openai-image",
+      "mode": "sync",
+      "baseUrl": "https://api.mouxihub.com",
+      "generatePath": "/v1/images/generations",
+      "taskPath": "/v1/images/tasks/{taskId}",
+      "editPath": "/v1/images/edits",
+      "upstreamModel": "gpt-image-2.5-sunburst",
+      "apiKeyEnv": "GPT-image-2.5-sunburst_mouxihub_putong",
+      "pointCost": 4,
+      "sizeOverrides": {
+        "1k": {
+          "upstreamModel": "gpt-image-2.5-sunburst",
+          "pointCost": 4
+        },
+        "2k": {
+          "upstreamModel": "gpt-image-2.5-sunburst-2k",
+          "pointCost": 4.5
+        },
+        "4k": {
+          "upstreamModel": "gpt-image-2.5-sunburst-4k",
+          "pointCost": 5
+        }
+      },
+      "supportedQualities": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "sortOrder": 1
+    },
+    {
+      "id": "gpt-image-2.5-sunburst-oa-dedicated",
+      "label": "OA专线",
+      "description": "",
+      "modelFamily": "gpt-image-2.5-sunburst",
+      "line": "OA专线",
+      "transport": "openai-image",
+      "mode": "sync",
+      "baseUrl": "https://api.pixellelabs.com",
+      "generatePath": "/v1/images/generations",
+      "editPath": "/v1/images/edits",
+      "upstreamModel": "gpt-image-2.5-sunburst",
+      "apiKeyEnv": "GPT-image-2.5-sunburst_pixellelabs",
+      "pointCost": 3,
+      "sizeOverrides": {
+        "1k": {
+          "pointCost": 3
+        },
+        "2k": {
+          "pointCost": 3.5
+        },
+        "4k": {
+          "pointCost": 4
+        }
+      },
+      "supportedQualities": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "sortOrder": 2
+    },
+    {
+      "id": "gpt-image-2.5-sunburst-native-4k",
+      "label": "原生4K",
+      "description": "",
+      "modelFamily": "gpt-image-2.5-sunburst",
+      "line": "原生4K",
+      "transport": "openai-image",
+      "mode": "sync",
+      "baseUrl": "https://www.rolldek.com",
+      "generatePath": "/v1/images/generations",
+      "editPath": "/v1/images/edits",
+      "upstreamModel": "gpt-image-2.5-sunburst",
+      "apiKeyEnv": "GPT-image-2.5-sunburst_rolldek_yuansheng",
+      "pointCost": 3,
+      "sizeOverrides": {
+        "1k": {
+          "pointCost": 3
+        },
+        "2k": {
+          "pointCost": 3.5
+        },
+        "4k": {
+          "pointCost": 4
+        }
+      },
+      "supportedQualities": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "sortOrder": 3,
+      "isDefaultRoute": true
+    },
+    {
+      "id": "gpt-image-2.5-sunburst-official-relay-discount",
+      "label": "官转特价",
+      "description": "",
+      "modelFamily": "gpt-image-2.5-sunburst",
+      "line": "官转特价",
+      "transport": "openai-image",
+      "mode": "sync",
+      "baseUrl": "https://www.rolldek.com",
+      "generatePath": "/v1/images/generations",
+      "editPath": "/v1/images/edits",
+      "upstreamModel": "gpt-image-2.5-sunburst",
+      "apiKeyEnv": "GPT-image-2.5-sunburst_rolldek_guan",
+      "pointCost": 4,
+      "sizeOverrides": {
+        "1k": {
+          "pointCost": 4
+        },
+        "2k": {
+          "pointCost": 4.5
+        },
+        "4k": {
+          "pointCost": 5
+        }
+      },
+      "supportedQualities": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
+      "sortOrder": 4
+    },
+    {
+      "id": "gpt-image-2.5-sunburst-discount",
+      "label": "特价线路",
+      "description": "",
+      "modelFamily": "gpt-image-2.5-sunburst",
+      "line": "特价线路",
+      "transport": "openai-image",
+      "mode": "sync",
+      "baseUrl": "https://www.rolldek.com",
+      "generatePath": "/v1/images/generations",
+      "editPath": "/v1/images/edits",
+      "upstreamModel": "gpt-image-2.5-sunburst",
+      "apiKeyEnv": "GPT-image-2.5-sunburst_rolldek_low",
+      "pointCost": 2,
+      "sizeOverrides": {
+        "1k": {
+          "pointCost": 2
+        },
+        "2k": {
+          "pointCost": 2.5
+        },
+        "4k": {
+          "pointCost": 3
+        }
+      },
+      "supportedQualities": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "sortOrder": 5
+    },
+    {
+      "id": "gpt-image-2.5-sunburst-backup-v",
+      "label": "备用线路V",
+      "description": "",
+      "modelFamily": "gpt-image-2.5-sunburst",
+      "line": "备用线路V",
+      "transport": "openai-image",
+      "mode": "sync",
+      "baseUrl": "https://vip.aittco.com",
+      "generatePath": "/v1/images/generations",
+      "editPath": "/v1/images/edits",
+      "upstreamModel": "gpt-image-2.5-sunburst",
+      "apiKeyEnv": "Image_vip",
+      "pointCost": 3,
+      "sizeOverrides": {
+        "1k": {
+          "pointCost": 3
+        },
+        "2k": {
+          "pointCost": 3.5
+        },
+        "4k": {
+          "pointCost": 4
+        }
+      },
+      "supportedQualities": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "sortOrder": 6
+    },
+    {
+      "id": "gpt-image-2-official-relay-high-quality",
+      "label": "官转（支持高质量）",
+      "description": "",
+      "modelFamily": "gpt-image-2",
+      "line": "官转（支持高质量）",
+      "transport": "openai-image",
+      "mode": "sync",
+      "baseUrl": "https://api.mouxihub.com",
+      "generatePath": "/v1/images/generations",
+      "taskPath": "/v1/images/tasks/{taskId}",
+      "editPath": "/v1/images/edits",
+      "upstreamModel": "gpt-image-2",
+      "apiKeyEnv": "GPT-image-2_mouxihub_guanzhuan",
+      "pointCost": 8,
+      "sizeOverrides": {
+        "1k": {
+          "pointCost": 8
+        },
+        "2k": {
+          "pointCost": 10
+        },
+        "4k": {
+          "pointCost": 12
+        }
+      },
+      "supportedQualities": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
+      "sortOrder": 0
+    },
+    {
+      "id": "gpt-image-2-discount",
+      "label": "特价线路",
+      "description": "",
+      "modelFamily": "gpt-image-2",
+      "line": "特价线路",
+      "transport": "openai-image",
+      "mode": "sync",
+      "baseUrl": "https://api.mouxihub.com",
+      "generatePath": "/v1/images/generations",
+      "taskPath": "/v1/images/tasks/{taskId}",
+      "editPath": "/v1/images/edits",
+      "upstreamModel": "gpt-image-2",
+      "apiKeyEnv": "GPT-image-2_mouxihub_putong",
+      "pointCost": 2,
+      "sizeOverrides": {
+        "1k": {
+          "pointCost": 2
+        },
+        "2k": {
+          "pointCost": 2.5
+        },
+        "4k": {
+          "pointCost": 3
+        }
+      },
+      "supportedQualities": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "sortOrder": 1
+    },
+    {
+      "id": "gpt-image-2-oa-dedicated",
+      "label": "OA专线",
+      "description": "",
+      "modelFamily": "gpt-image-2",
+      "line": "OA专线",
+      "transport": "openai-image",
+      "mode": "sync",
+      "baseUrl": "https://api.pixellelabs.com",
+      "generatePath": "/v1/images/generations",
+      "editPath": "/v1/images/edits",
+      "upstreamModel": "gpt-image-2",
+      "apiKeyEnv": "GPT-image-2_pixellelabs",
+      "pointCost": 2.8,
+      "sizeOverrides": {
+        "1k": {
+          "pointCost": 2.8
+        },
+        "2k": {
+          "pointCost": 3.2
+        },
+        "4k": {
+          "pointCost": 3.5
+        }
+      },
+      "supportedQualities": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "sortOrder": 2
+    },
+    {
+      "id": "gpt-image-2-native-4k",
+      "label": "原生4K",
+      "description": "",
+      "modelFamily": "gpt-image-2",
+      "line": "原生4K",
+      "transport": "openai-image",
+      "mode": "sync",
+      "baseUrl": "https://www.rolldek.com",
+      "generatePath": "/v1/images/generations",
+      "editPath": "/v1/images/edits",
+      "upstreamModel": "gpt-image-2",
+      "apiKeyEnv": "GPT-image-2_rolldek",
+      "pointCost": 3,
+      "sizeOverrides": {
+        "1k": {
+          "pointCost": 3
+        },
+        "2k": {
+          "pointCost": 3.5
+        },
+        "4k": {
+          "pointCost": 4
+        }
+      },
+      "supportedQualities": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
+      "sortOrder": 3,
+      "isDefaultRoute": true
+    },
+    {
+      "id": "gpt-image-2-backup-v",
+      "label": "备用线路V",
+      "description": "",
+      "modelFamily": "gpt-image-2",
+      "line": "备用线路V",
+      "transport": "openai-image",
+      "mode": "sync",
+      "baseUrl": "https://vip.aittco.com",
+      "generatePath": "/v1/images/generations",
+      "editPath": "/v1/images/edits",
+      "upstreamModel": "gpt-image-2",
+      "apiKeyEnv": "Image_vip",
+      "pointCost": 3,
+      "sizeOverrides": {
+        "1k": {
+          "pointCost": 3
+        },
+        "2k": {
+          "pointCost": 3.5
+        },
+        "4k": {
+          "pointCost": 4
+        }
+      },
+      "supportedQualities": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "sortOrder": 4
+    },
+    {
+      "id": "seedream-5-pro-seedream-dedicated",
+      "label": "SD专线",
+      "description": "",
+      "modelFamily": "seedream-5-pro",
+      "line": "SD专线",
+      "transport": "openai-image",
+      "mode": "sync",
+      "baseUrl": "https://api.pixellelabs.com",
+      "generatePath": "/v1/images/generations",
+      "editPath": "/v1/images/edits",
+      "upstreamModel": "seedream-5-pro",
+      "apiKeyEnv": "seedream-5-pro_pixellelabs",
+      "pointCost": 3,
+      "sizeOverrides": {
+        "1k": {
+          "pointCost": 3
+        },
+        "2k": {
+          "pointCost": 3
+        }
+      },
+      "sortOrder": 0,
+      "isDefaultRoute": true
+    },
+    {
+      "id": "seedream-5-pro-backup",
+      "label": "备用线路",
+      "description": "",
+      "modelFamily": "seedream-5-pro",
+      "line": "备用线路",
+      "transport": "openai-image",
+      "mode": "sync",
+      "baseUrl": "https://www.rolldek.com",
+      "generatePath": "/v1/images/generations",
+      "editPath": "/v1/images/edits",
+      "upstreamModel": "seedream-5-pro",
+      "apiKeyEnv": "seedream-5-pro_rolldek",
+      "pointCost": 6,
+      "sizeOverrides": {
+        "1k": {
+          "pointCost": 6
+        },
+        "2k": {
+          "pointCost": 6
+        }
+      },
+      "sortOrder": 1
+    }
+  ]
+}
