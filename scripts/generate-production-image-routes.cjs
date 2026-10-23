@@ -27,8 +27,15 @@ const pathFromCell = (value) => {
   const text = trim(value);
   if (!text || /^无/.test(text)) return "";
   if (text.startsWith("/")) return text;
-  const url = new URL(text.startsWith("http") ? text : `https://${text}`);
-  return `${url.pathname}${url.search}`;
+  const withoutScheme = text.replace(/^https?:\/\//i, "");
+  const pathStart = withoutScheme.indexOf("/");
+  return pathStart < 0 ? "" : withoutScheme.slice(pathStart);
+};
+const baseUrlFromCell = (value) => {
+  const baseUrl = trim(value).replace(/\/+$/, "");
+  return /^https?:\/\/(?:www\.)?rolldek\.com$/i.test(baseUrl)
+    ? "https://rolldek.com"
+    : baseUrl;
 };
 const parts = (value) => trim(value).split("/").map(trim);
 const costValue = (value) => value === "" ? null : Number(value);
@@ -81,7 +88,7 @@ const routes = rows.map((row, index) => {
     line,
     transport: generatePath.includes(":generateContent") ? "gemini-native" : "openai-image",
     mode: trim(row["模式"]) === "异步" ? "async" : "sync",
-    baseUrl: trim(row["供应商"]).replace(/\/+$/, ""),
+    baseUrl: baseUrlFromCell(row["供应商"]),
     generatePath,
     ...(taskPath ? { taskPath } : {}),
     ...(editPath ? { editPath } : {}),

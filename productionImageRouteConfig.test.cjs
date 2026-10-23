@@ -36,3 +36,17 @@ test("production Docker image copies the route resolver required by server.cjs",
   const dockerfile = fs.readFileSync(path.join(__dirname, "Dockerfile"), "utf8");
   assert.match(dockerfile, /^COPY imageRouteResolution\.cjs \.\/$/m);
 });
+
+test("Gemini route templates retain literal model placeholders", () => {
+  const geminiRoutes = catalog.routes.filter((route) => route.transport === "gemini-native");
+  assert.ok(geminiRoutes.length > 0);
+  assert.ok(geminiRoutes.every((route) => !route.generatePath.includes("%7Bmodel%7D")));
+  assert.ok(geminiRoutes.some((route) => route.generatePath.includes("{model}")));
+  assert.ok(geminiRoutes.every((route) => route.generatePath.includes("{model}") || route.generatePath.includes(route.upstreamModel)));
+});
+
+test("RollDek routes use its API hostname rather than the www website hostname", () => {
+  const rollDekRoutes = catalog.routes.filter((route) => route.baseUrl.includes("rolldek"));
+  assert.ok(rollDekRoutes.length > 0);
+  assert.ok(rollDekRoutes.every((route) => route.baseUrl === "https://rolldek.com"));
+});
