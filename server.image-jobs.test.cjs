@@ -16,9 +16,14 @@ test('image routes durably acknowledge before provider work and settle without a
   let upstreamCalls=0,pollCalls=0;let finish;let providerResult={data:[{url:'https://images.example/a.png'}]};let delayed=true;
   let forceProviderFailure=false;
   let nativePhases=false,releaseProgress,releaseNative;
-  const polledPaths=[];
+  let visionaryPollCalls=0,visionaryRequestBody=null;
+  const polledPaths=[],visionaryPolledPaths=[];
   const upstream=http.createServer(async(req,res)=>{
     if(req.method==='GET'){
+      if(req.url.startsWith('/v1/tasks/')){
+        visionaryPollCalls++;visionaryPolledPaths.push(req.url);res.setHeader('Content-Type','application/json');
+        return res.end(JSON.stringify({code:200,data:{id:'visionary-task-1',status:'completed',result:{images:[{url:['https://images.example/visionary.png']}]}}}));
+      }
       pollCalls++;res.setHeader('Content-Type','application/json');
       polledPaths.push(req.url);
       if(nativePhases && pollCalls===1)return res.end(JSON.stringify({task_id:'upstream-native-1',state:'queued',progress:'25%'}));
@@ -26,7 +31,11 @@ test('image routes durably acknowledge before provider work and settle without a
       if(nativePhases && pollCalls===3)await new Promise(resolve=>{releaseNative=resolve;});
       return res.end(JSON.stringify({status:'succeeded',results:['https://images.example/native.png']}));
     }
-    upstreamCalls++;for await(const _ of req){}
+    upstreamCalls++;const chunks=[];for await(const chunk of req)chunks.push(chunk);
+    if(req.url==='/v1/images/generations'){
+      visionaryRequestBody=JSON.parse(Buffer.concat(chunks).toString());res.setHeader('Content-Type','application/json');
+      return res.end(JSON.stringify({code:200,data:[{task_id:'visionary-task-1',status:'submitted',retry_after:1}]}));
+    }
     if(delayed)await new Promise(resolve=>{finish=resolve;});
     if(forceProviderFailure){req.socket.destroy();return;}
     res.setHeader('Content-Type','application/json');res.end(JSON.stringify(providerResult));
@@ -37,7 +46,8 @@ test('image routes durably acknowledge before provider work and settle without a
   const nativeRoute={...route,id:'native-progress',taskPath:'/nondefault/tasks/{taskId}'};
   const editWithoutPath={...route,id:'edit-without-path',editPath:''};
   const disabledRoute={...route,id:'disabled-route',isActive:false};
-  const testRoutes=[route,geminiKeyRoute,nativeRoute,editWithoutPath,disabledRoute];
+  const visionaryRoute={...route,id:'nano-banana-pro-backup',baseUrl:`http://127.0.0.1:${upstream.address()?.port||0}`,generatePath:'/v1/images/generations',taskPath:'/v1/tasks/{taskId}',upstreamModel:'nano-banana-pro',pointCost:5};
+  const testRoutes=[route,geminiKeyRoute,nativeRoute,editWithoutPath,disabledRoute,visionaryRoute];
   routeModule.getImageRouteById=async id=>testRoutes.find(item=>item.id===id)||null;routeModule.getImageRouteCatalog=async()=>({defaultRouteId:route.id,routes:[route,nativeRoute]});
   // Records are isolated from the checkout by replacing only the persistence boundary.
   const recordModule=require('./generationRecordStore.cjs');const records=new Map();
@@ -94,6 +104,15 @@ test('image routes durably acknowledge before provider work and settle without a
   const all=await request('/api/image-jobs?uiMode=canvas&status=all');assert.equal((await all.json()).jobs[0].task_id,ack.task_id);
   delayed=false;
   const pollUntilDone=async taskId=>{for(let i=0;i<150;i++){const state=await(await request(`/api/task/${taskId}`)).json();if(['succeeded','failed'].includes(state.status))return state;await new Promise(resolve=>setTimeout(resolve,20));}assert.fail('image task did not settle');};
+  const visionary={...body,routeId:visionaryRoute.id,model:'Nano Banana Pro',size:'4k',image_size:'4K',aspect_ratio:'16:9',clientRequestId:'visionary-array-task'};
+  const visionaryResponse=await request('/api/generate',{method:'POST',body:JSON.stringify(visionary)});assert.equal(visionaryResponse.status,202);
+  const visionaryAck=await visionaryResponse.json();
+  const visionaryDone=await pollUntilDone(visionaryAck.task_id);
+  assert.equal(visionaryDone.status,'succeeded','Visionary array-shaped task submissions must be tracked through completion');
+  assert.deepEqual(visionaryRequestBody,{model:'nano-banana-pro',prompt:'a tree',size:'16:9',resolution:'4K',n:1});
+  assert.equal(visionaryPollCalls,1);
+  assert.deepEqual(visionaryPolledPaths,['/v1/tasks/visionary-task-1']);
+  assert.deepEqual(visionaryDone.results,['https://images.example/visionary.png']);
   const edit=await request('/api/edit',{method:'POST',body:JSON.stringify({...body,routeId:editWithoutPath.id,clientRequestId:'valid-edit',image:'data:image/png;base64,AAAA'})});assert.equal(edit.status,202);
   const editAck=await edit.json();assert.equal((await pollUntilDone(editAck.task_id)).status,'succeeded');
   assert.ok((await store.get(editAck.task_id)).generationRecordId,'edit task must bind a generation record');
@@ -109,7 +128,7 @@ test('image routes durably acknowledge before provider work and settle without a
   const empty=await request('/api/generate',{method:'POST',body:JSON.stringify({...body,clientRequestId:'empty-image'})});assert.equal(empty.status,202);
   const emptyAck=await empty.json();assert.equal((await pollUntilDone(emptyAck.task_id)).status,'failed');
   await app.imageJobService.reconcile();await app.imageJobService.reconcile();
-  const finalPoints=(await billing.getAccountSummary(account.accountId)).points;assert.equal(finalPoints,14);
+  const finalPoints=(await billing.getAccountSummary(account.accountId)).points;assert.equal(finalPoints,9);
   const ledger=await billing.getAccountLedger(account.accountId,{pageSize:100});assert.equal(ledger.entries.filter(entry=>entry.type==='refund').length,1);
   providerResult={task_id:'upstream-native-1',status:'processing'};
   nativePhases=true;
@@ -125,7 +144,7 @@ test('image routes durably acknowledge before provider work and settle without a
   assert.ok(polledPaths.every(url=>url.startsWith('/nondefault/tasks/')),'all polls retain the nondefault provider route');
   assert.match((await store.get(nativeAck.task_id)).innerTaskId,/^[A-Za-z0-9_-]+$/);
   const pending=await billing.listPendingTasks({limit:100});assert.equal(pending.length,0,'outer jobs are not handed to legacy billing maintenance');
-  assert.equal((await billing.getAccountSummary(account.accountId)).points,12);
+  assert.equal((await billing.getAccountSummary(account.accountId)).points,7);
   const other=await auth.registerWithPassword({email:'other-async-owner@example.com',password:'other-pass-123'});
   const otherSession=await auth.loginWithPassword({email:other.user.email,password:'other-pass-123'});
   const forbidden=await fetch(`http://127.0.0.1:${server.address().port}/api/task/${ack.task_id}`,{headers:{'x-auth-session':otherSession.sessionToken}});assert.equal(forbidden.status,404);
@@ -133,7 +152,7 @@ test('image routes durably acknowledge before provider work and settle without a
   const broken=await request('/api/generate',{method:'POST',body:JSON.stringify({...body,clientRequestId:'ambiguous-close'})});assert.equal(broken.status,202);
   assert.equal((await pollUntilDone((await broken.json()).task_id)).status,'failed');
   assert.equal(upstreamCalls,callsBeforeFailure+1,'ambiguous socket closure never retries generation');
-  assert.equal((await billing.getAccountSummary(account.accountId)).points,12);
+  assert.equal((await billing.getAccountSummary(account.accountId)).points,7);
   forceProviderFailure=false;providerResult={candidates:[{content:{parts:[{inlineData:{mimeType:'image/png',data:'AAAA'}}]}}]};
   const contentOnly={...body,prompt:undefined,routeId:geminiKeyRoute.id,clientRequestId:'content-only',contents:[{parts:[{text:'from native contents'}]}]};
   const contentResponse=await request('/api/gemini/generate',{method:'POST',body:JSON.stringify(contentOnly)});assert.equal(contentResponse.status,202);

@@ -31,6 +31,7 @@ const {
   extractVisionarySubmission,
   unwrapVisionaryTask,
 } = require("./visionaryImageApi.cjs");
+const { VISION_ROUTE_IDS } = require("./imageRouteCompatibility.cjs");
 const { getSeedreamSizeError } = require("./seedreamImagePolicy.cjs");
 const { isGptImageCompatibleModel } = require("./imageModelCompatibility.cjs");
 const { parseGeminiPromptOptions, parseGeminiReversePrompt } = require("./promptToolResponse.cjs");
@@ -515,9 +516,14 @@ const isGeminiNativeStylePath = (route) => {
   return generatePath.includes("{model}") || /generatecontent/i.test(generatePath);
 };
 const isVisionaryImageRoute = (route) => {
+  const routeId = String(route?.id || "").trim();
   const baseUrl = String(route?.baseUrl || "").trim().toLowerCase();
   const generatePath = String(route?.generatePath || "").trim().toLowerCase();
-  return baseUrl.includes("visionary.beer") || generatePath.includes("/openapi/v1/images/generations");
+  return (
+    VISION_ROUTE_IDS.has(routeId) ||
+    baseUrl.includes("visionary.beer") ||
+    generatePath.includes("/openapi/v1/images/generations")
+  );
 };
 const isGeminiNativeRoute = (route) =>
   route?.transport === "gemini-native" || isGeminiNativeStylePath(route);
@@ -4663,7 +4669,11 @@ const legacyImageGenerateHandler = async (req, res) => {
       );
     }
 
+    const visionarySubmission = isVisionaryImageRoute(route)
+      ? extractVisionarySubmission(response.data)
+      : null;
     const upstreamTaskId =
+      visionarySubmission?.taskId ||
       response.data?.id ||
       response.data?.task_id ||
       response.data?.data?.task_id;
@@ -4687,6 +4697,7 @@ const legacyImageGenerateHandler = async (req, res) => {
             ...response.data,
             id: localTaskId,
             task_id: localTaskId,
+            ...(visionarySubmission?.status ? { status: visionarySubmission.status.toLowerCase() } : {}),
             billing: {
               deductedPoints: pointCost,
               remainingPoints: billingCharge?.account?.points,
@@ -4696,9 +4707,14 @@ const legacyImageGenerateHandler = async (req, res) => {
             ...response.data,
             id: localTaskId,
             task_id: localTaskId,
+            ...(visionarySubmission?.status ? { status: visionarySubmission.status.toLowerCase() } : {}),
           };
 
-      if (normalizedResponse.data && typeof normalizedResponse.data === "object") {
+      if (Array.isArray(normalizedResponse.data)) {
+        normalizedResponse.data = normalizedResponse.data.map((item, index) =>
+          index === 0 ? { ...item, task_id: localTaskId } : item,
+        );
+      } else if (normalizedResponse.data && typeof normalizedResponse.data === "object") {
         normalizedResponse.data = {
           ...normalizedResponse.data,
           task_id: localTaskId,
