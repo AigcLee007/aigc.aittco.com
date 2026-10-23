@@ -50,3 +50,12 @@ test("RollDek routes use its API hostname rather than the www website hostname",
   assert.ok(rollDekRoutes.length > 0);
   assert.ok(rollDekRoutes.every((route) => route.baseUrl === "https://rolldek.com"));
 });
+
+test("Visionary Nano Banana Pro backup route matches its documented endpoint and model id", () => {
+  const route = catalog.routes.find((item) => item.id === "nano-banana-pro-backup");
+  assert.ok(route);
+  assert.equal(route.baseUrl, "https://visionary.beer");
+  assert.equal(route.generatePath, "/openapi/v1/images/generations");
+  assert.equal(route.upstreamModel, "Nano_Banana_Pro");
+  assert.equal(route.mode, "sync");
+});

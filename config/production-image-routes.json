@@ -114,8 +114,8 @@
       "transport": "openai-image",
       "mode": "sync",
       "baseUrl": "https://visionary.beer",
-      "generatePath": "/v1/images/generations",
-      "upstreamModel": "nano-banana-pro",
+      "generatePath": "/openapi/v1/images/generations",
+      "upstreamModel": "Nano_Banana_Pro",
       "apiKeyEnv": "Nanobananapro_visionary",
       "pointCost": 5,
       "sortOrder": 4

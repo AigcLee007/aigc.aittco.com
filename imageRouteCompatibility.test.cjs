@@ -4,6 +4,22 @@ const {
 } = require('./imageRouteCompatibility.cjs');
 
 describe('normalizeImageRouteCompatibility', () => {
+  it('normalizes the production Visionary backup route to its documented API contract', () => {
+    const route = normalizeImageRouteCompatibility({
+      id: 'nano-banana-pro-backup',
+      transport: 'openai-image',
+      mode: 'sync',
+      baseUrl: 'https://visionary.beer',
+      generatePath: '/v1/images/generations',
+      upstreamModel: 'nano-banana-pro',
+    });
+
+    assert.strictEqual(route.transport, 'openai-image');
+    assert.strictEqual(route.mode, 'sync');
+    assert.strictEqual(route.generatePath, '/openapi/v1/images/generations');
+    assert.strictEqual(route.upstreamModel, 'Nano_Banana_Pro');
+  });
+
   it('routes the production VISON line through Visionary OpenAPI parsing', () => {
     const route = normalizeImageRouteCompatibility({
       id: 'nano-banana-pro-line4',
