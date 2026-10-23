@@ -1,4 +1,6 @@
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
 const { test } = require("node:test");
 const catalog = require("./config/production-image-routes.json");
 const { validateRouteConfig } = require("./scripts/replace-production-image-routes.cjs");
@@ -28,4 +30,9 @@ test("table sync modes and task paths remain independent values", () => {
   assert.equal(gptRelay.mode, "sync");
   assert.equal(gptRelay.taskPath, "/v1/images/tasks/{taskId}");
   assert.equal(gptRelay.generatePath, "/v1/images/generations");
+});
+
+test("production Docker image copies the route resolver required by server.cjs", () => {
+  const dockerfile = fs.readFileSync(path.join(__dirname, "Dockerfile"), "utf8");
+  assert.match(dockerfile, /^COPY imageRouteResolution\.cjs \.\/$/m);
 });
