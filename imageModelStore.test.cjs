@@ -3,21 +3,21 @@ const fs = require("fs");
 const path = require("path");
 
 describe("image model store schema seeding", () => {
-  it("seeds missing static models even when the image model table already has rows", () => {
+  it("seeds static models only through the one-time catalog initializer", () => {
     const source = fs.readFileSync(path.join(__dirname, "imageModelStore.cjs"), "utf8");
 
     assert.ok(
-      source.includes("SELECT model_id FROM image_models"),
-      "schema seeding should read existing model IDs before importing static models",
+      source.includes('catalogName: "image-models"'),
+      "image models need their own persistent initialization marker",
     );
     assert.ok(
-      source.includes("existingModelIds"),
-      "schema seeding should track existing model IDs",
+      source.includes('countSql: "SELECT COUNT(*) AS total FROM image_models"'),
+      "only an empty, uninitialized model catalog may import static defaults",
     );
     assert.ok(
-      !source.includes("if (Number(countRows?.[0]?.total || 0) > 0) {\r\n          return;\r\n        }") &&
-        !source.includes("if (Number(countRows?.[0]?.total || 0) > 0) {\n          return;\n        }"),
-      "schema seeding must not skip all static models just because the table is non-empty",
+      source.includes("initializeCatalogOnce(connection") &&
+        source.includes("for (const row of buildStaticRows())"),
+      "static model inserts must be guarded by the persistent initialization marker",
     );
   });
 });

@@ -1,4 +1,8 @@
 const staticCatalog = require("./config/imageModels.json");
+const {
+  ensureCatalogInitializationSchema,
+  initializeCatalogOnce,
+} = require("./imageCatalogInitialization.cjs");
 const { toNonNegativePoint } = require("./pointMath.cjs");
 const {
   fromDbDateTime,
@@ -188,6 +192,7 @@ const ensureImageModelSchema = async () => {
           INDEX idx_image_models_request_model (request_model)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
       `);
+      await ensureCatalogInitializationSchema(pool);
       const [selectorCostColumns] = await pool.execute(
         "SHOW COLUMNS FROM image_models LIKE 'selector_cost'",
       );
@@ -200,51 +205,48 @@ const ensureImageModelSchema = async () => {
       }
 
       await withTransaction(async (connection) => {
-        const [existingRows] = await connection.execute(
-          "SELECT model_id FROM image_models",
-        );
-        const existingModelIds = new Set(
-          (Array.isArray(existingRows) ? existingRows : []).map((row) =>
-            trimToString(row.model_id),
-          ),
-        );
         const nowDb = toDbDateTime();
-        const rows = buildStaticRows().filter((row) => !existingModelIds.has(row.model_id));
-        for (const row of rows) {
-          await connection.execute(
-            `
-              INSERT INTO image_models (
-                model_id, label, description, model_family, route_family,
-                request_model, selector_cost, icon_kind, panel_layout, size_behavior,
-                default_size, size_options_json, extra_aspect_ratios_json,
-                show_size_selector, supports_custom_ratio, is_active,
-                is_default_model, sort_order, created_at, updated_at
-              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            `,
-            [
-              row.model_id,
-              row.label,
-              row.description,
-              row.model_family,
-              row.route_family,
-              row.request_model,
-              row.selector_cost,
-              row.icon_kind,
-              row.panel_layout,
-              row.size_behavior,
-              row.default_size,
-              row.size_options_json,
-              row.extra_aspect_ratios_json,
-              row.show_size_selector ? 1 : 0,
-              row.supports_custom_ratio ? 1 : 0,
-              row.is_active ? 1 : 0,
-              row.is_default_model ? 1 : 0,
-              row.sort_order,
-              nowDb,
-              nowDb,
-            ],
-          );
-        }
+        await initializeCatalogOnce(connection, {
+          catalogName: "image-models",
+          countSql: "SELECT COUNT(*) AS total FROM image_models",
+          seed: async () => {
+            for (const row of buildStaticRows()) {
+              await connection.execute(
+                `
+                  INSERT INTO image_models (
+                    model_id, label, description, model_family, route_family,
+                    request_model, selector_cost, icon_kind, panel_layout, size_behavior,
+                    default_size, size_options_json, extra_aspect_ratios_json,
+                    show_size_selector, supports_custom_ratio, is_active,
+                    is_default_model, sort_order, created_at, updated_at
+                  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                `,
+                [
+                  row.model_id,
+                  row.label,
+                  row.description,
+                  row.model_family,
+                  row.route_family,
+                  row.request_model,
+                  row.selector_cost,
+                  row.icon_kind,
+                  row.panel_layout,
+                  row.size_behavior,
+                  row.default_size,
+                  row.size_options_json,
+                  row.extra_aspect_ratios_json,
+                  row.show_size_selector ? 1 : 0,
+                  row.supports_custom_ratio ? 1 : 0,
+                  row.is_active ? 1 : 0,
+                  row.is_default_model ? 1 : 0,
+                  row.sort_order,
+                  nowDb,
+                  nowDb,
+                ],
+              );
+            }
+          },
+        });
       });
     })();
   }

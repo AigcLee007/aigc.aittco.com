@@ -12,7 +12,7 @@
     "migrate:mysql": "node scripts/migrate-json-to-mysql.cjs",
     "migrate:pixelhub-video": "node scripts/activate-pixelhub-video-models.cjs",
     "test": "vitest --run",
-    "test:node": "node --test --test-concurrency=1 classicImageJobs.test.cjs imageHistoryRetention.test.cjs imageJobAssets.test.cjs imageJobService.test.cjs server.image-jobs.test.cjs server.native-image-results.test.cjs scripts/repair-inline-image-result.test.cjs public/classic-app/gallery-stability.test.cjs public/classic-app/result-assets.test.cjs operationsDashboardStore.test.cjs operationsRuntimeMetrics.test.cjs operationsDashboard.test.cjs server.admin-operations.test.cjs operationsDeployment.test.cjs promptToolResponse.node.cjs",
+    "test:node": "node --test --test-concurrency=1 imageCatalogInitialization.test.cjs classicImageJobs.test.cjs imageHistoryRetention.test.cjs imageJobAssets.test.cjs imageJobService.test.cjs server.image-jobs.test.cjs server.native-image-results.test.cjs scripts/repair-inline-image-result.test.cjs public/classic-app/gallery-stability.test.cjs public/classic-app/result-assets.test.cjs operationsDashboardStore.test.cjs operationsRuntimeMetrics.test.cjs operationsDashboard.test.cjs server.admin-operations.test.cjs operationsDeployment.test.cjs promptToolResponse.node.cjs",
     "test:watch": "vitest"
   },
   "dependencies": {

@@ -2,6 +2,10 @@ const staticCatalog = require("./config/imageRoutes.json");
 const {
   normalizeImageRouteCompatibility,
 } = require("./imageRouteCompatibility.cjs");
+const {
+  ensureCatalogInitializationSchema,
+  initializeCatalogOnce,
+} = require("./imageCatalogInitialization.cjs");
 const { toNonNegativePoint } = require("./pointMath.cjs");
 const {
   fromDbDateTime,
@@ -290,6 +294,7 @@ const ensureImageRouteSchema = async () => {
           INDEX idx_image_routes_family_line (model_family, line_value)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
       `);
+      await ensureCatalogInitializationSchema(pool);
 
       const [allowUserKeyColumns] = await pool.execute(
         "SHOW COLUMNS FROM image_routes LIKE 'allow_user_api_key_without_login'",
@@ -332,86 +337,56 @@ const ensureImageRouteSchema = async () => {
         `);
       }
       await withTransaction(async (connection) => {
-        const [countRows] = await connection.execute(
-          "SELECT COUNT(*) AS total FROM image_routes",
-        );
-        const hasExistingRoutes = Number(countRows?.[0]?.total || 0) > 0;
-        const [existingRows] = hasExistingRoutes
-          ? await connection.execute(
-              "SELECT route_id, model_family, line_value FROM image_routes",
-            )
-          : [[]];
-        const existingRouteIds = new Set(
-          (Array.isArray(existingRows) ? existingRows : []).map((row) =>
-            trimToString(row.route_id),
-          ),
-        );
-        const existingFamilyLines = new Set(
-          (Array.isArray(existingRows) ? existingRows : []).map(
-            (row) => `${trimToString(row.model_family)}\u0000${trimToString(row.line_value)}`,
-          ),
-        );
-
-        const rows = buildStaticRows().filter(
-          (row) => {
-            if (!hasExistingRoutes) return true;
-            const routeId = trimToString(row.route_id);
-            if (existingRouteIds.has(routeId)) return false;
-            if (
-              row.model_family === "gpt-image-2" &&
-              ["gpt-image-2-default", "gpt-image-2-line2"].includes(routeId)
-            ) {
-              return true;
-            }
-            return !existingFamilyLines.has(
-              `${trimToString(row.model_family)}\u0000${trimToString(row.line_value)}`,
-            );
-          },
-        );
         const nowDb = toDbDateTime();
-        for (const row of rows) {
-          await connection.execute(
-            `
-              INSERT INTO image_routes (
-                route_id, label, description, model_family, line_value,
-                transport, mode, base_url, generate_path, task_path,
-                edit_path, chat_path, upstream_model, use_request_model,
-                allow_user_api_key_without_login,
-                api_key, api_key_env, point_cost, size_overrides, supported_qualities,
-                sort_order, is_active,
-                is_default_route, is_default_nano_banana_line, created_at, updated_at
-              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            `,
-            [
-              row.route_id,
-              row.label,
-              row.description,
-              row.model_family,
-              row.line_value,
-              row.transport,
-              row.mode,
-              row.base_url,
-              row.generate_path,
-              row.task_path,
-              row.edit_path,
-              row.chat_path,
-              row.upstream_model,
-              row.use_request_model ? 1 : 0,
-              row.allow_user_api_key_without_login ? 1 : 0,
-              row.api_key,
-              row.api_key_env,
-              row.point_cost,
-              row.size_overrides,
-              row.supported_qualities,
-              row.sort_order,
-              row.is_active ? 1 : 0,
-              row.is_default_route ? 1 : 0,
-              row.is_default_nano_banana_line ? 1 : 0,
-              nowDb,
-              nowDb,
-            ],
-          );
-        }
+        await initializeCatalogOnce(connection, {
+          catalogName: "image-routes",
+          countSql: "SELECT COUNT(*) AS total FROM image_routes",
+          seed: async () => {
+            for (const row of buildStaticRows()) {
+              await connection.execute(
+                `
+                  INSERT INTO image_routes (
+                    route_id, label, description, model_family, line_value,
+                    transport, mode, base_url, generate_path, task_path,
+                    edit_path, chat_path, upstream_model, use_request_model,
+                    allow_user_api_key_without_login,
+                    api_key, api_key_env, point_cost, size_overrides, supported_qualities,
+                    sort_order, is_active,
+                    is_default_route, is_default_nano_banana_line, created_at, updated_at
+                  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                `,
+                [
+                  row.route_id,
+                  row.label,
+                  row.description,
+                  row.model_family,
+                  row.line_value,
+                  row.transport,
+                  row.mode,
+                  row.base_url,
+                  row.generate_path,
+                  row.task_path,
+                  row.edit_path,
+                  row.chat_path,
+                  row.upstream_model,
+                  row.use_request_model ? 1 : 0,
+                  row.allow_user_api_key_without_login ? 1 : 0,
+                  row.api_key,
+                  row.api_key_env,
+                  row.point_cost,
+                  row.size_overrides,
+                  row.supported_qualities,
+                  row.sort_order,
+                  row.is_active ? 1 : 0,
+                  row.is_default_route ? 1 : 0,
+                  row.is_default_nano_banana_line ? 1 : 0,
+                  nowDb,
+                  nowDb,
+                ],
+              );
+            }
+          },
+        });
 
         const rollDekRouteIds = [
           "gpt-image-2.5-sunburst-native",

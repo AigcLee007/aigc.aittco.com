@@ -3,18 +3,14 @@ const fs = require("fs");
 const path = require("path");
 
 describe("image route store schema seeding", () => {
-  it("defines the database timestamp before inserting static routes", () => {
+  it("seeds static routes only through the one-time catalog initializer", () => {
     const source = fs.readFileSync(path.join(__dirname, "imageRouteStore.cjs"), "utf8");
-    const seedStart = source.indexOf("const rows = buildStaticRows().filter(");
-    const firstInsertTimestamp = source.indexOf("nowDb,", seedStart);
-    const timestampDeclaration = source.lastIndexOf("const nowDb = toDbDateTime();", firstInsertTimestamp);
 
-    assert.notStrictEqual(seedStart, -1);
-    assert.notStrictEqual(firstInsertTimestamp, -1);
-    assert.ok(
-      timestampDeclaration > seedStart,
-      "static route seeding must define nowDb before using it for created_at/updated_at",
-    );
+    assert.ok(source.includes('catalogName: "image-routes"'));
+    assert.ok(source.includes('countSql: "SELECT COUNT(*) AS total FROM image_routes"'));
+    assert.ok(source.includes("seed: async () => {"));
+    assert.ok(source.includes("for (const row of buildStaticRows())"));
+    assert.ok(source.includes("initializeCatalogOnce(connection"));
   });
 
   it("normalizes mapped VISON routes through the compatibility layer", () => {
