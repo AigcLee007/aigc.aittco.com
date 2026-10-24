@@ -40,6 +40,7 @@ COPY visionaryImageApi.cjs ./
 COPY imageRouteResolution.cjs ./
 COPY db.cjs ./
 COPY imageRouteStore.cjs ./
+COPY imageCatalogInitialization.cjs ./
 COPY imageModelStore.cjs ./
 COPY videoRouteStore.cjs ./
 COPY videoModelStore.cjs ./
