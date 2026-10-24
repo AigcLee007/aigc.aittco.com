@@ -425,7 +425,9 @@ function createImageJobService(options = {}) {
     }
     if(Date.now()-lastCleanup>60*60*1000){
       lastCleanup=Date.now();
-      await Promise.allSettled((await store.list({statuses:['succeeded','failed'],createdBefore:Date.now()-retentionMs,limit:1000})).filter(job=>!job.settlementPending).map(async job=>{
+      // Expired files must be removed even when the job-row sweep fails.
+      const expiredJobs=await store.list({statuses:['succeeded','failed'],createdBefore:Date.now()-retentionMs,limit:1000}).catch(error=>{warn(error);return [];});
+      await Promise.allSettled(expiredJobs.filter(job=>!job.settlementPending).map(async job=>{
         try{
           if(typeof options.onOperationsEvent==='function'){if(operationsCleanup.size<1000)operationsCleanup.set(job.taskId,operationsTask(job));await removeArchivedJob(job.taskId,job);}
           else {await store.remove(job.taskId);resumedAssetJobs.delete(job.taskId);operationsBacklogs.delete(job.taskId);operationsEventStates.delete(job.taskId);operationsLabels.delete(job.taskId);}

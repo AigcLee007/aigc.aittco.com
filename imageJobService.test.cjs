@@ -152,6 +152,13 @@ test('terminal cleanup retains its durable job until safe telemetry archival suc
   await service.start();try{assert.equal(removals,0,'failed archival keeps original terminal metadata');available=true;await service.reconcile();assert.equal(removals,1);}finally{await service.stop();}
 });
 
+test('expired asset files are cleaned even when the expired-job query fails',async()=>{
+  let cleanups=0;
+  const store={init:async()=>{},list:async filters=>{if(filters.createdBefore)throw new Error('Out of sort memory');return [];},remove:async()=>{}};
+  const service=createImageJobService({store,retentionMs:1000,assets:{cleanup:async()=>{cleanups++;},prepare:async()=>({})}});
+  await service.start();try{assert.equal(cleanups,1,'a failed job sweep must not block physical file cleanup');}finally{await service.stop();}
+});
+
 test('hanging operations callbacks never block queue reconciliation or terminal cleanup',async()=>{
   const old={taskId:'job-archive-hanging',requestId:'archive-hanging',userId:'owner',status:'failed',settlementPending:false,createdAt:new Date(Date.now()-20000).toISOString()};let removals=0;
   const store={init:async()=>{},list:async filters=>filters.createdBefore?[old]:[],remove:async()=>{removals++;}};
@@ -253,10 +260,11 @@ test('public recovery list reads only projected metadata and preserves every vis
   const pool={execute:async(sql,params=[])=>{
     statements.push({sql,params});
     if(/CREATE TABLE/.test(sql))return[{}];
-    if(/SELECT job_json FROM/.test(sql))return[[{job_json:job}]];
-    if(/SELECT JSON_SET\(/.test(sql)){
+    if(/^SELECT task_id FROM/.test(sql))return[[{task_id:job.taskId}]];
+    if(/SELECT (task_id, )?job_json FROM/.test(sql))return[[{task_id:job.taskId,job_json:job}]];
+    if(/SELECT task_id, JSON_SET\(/.test(sql)){
       const {payload,images,results,...metadata}=job;
-      return[[{job_json:{...metadata,payload:{preview_urls:payload.preview_urls}}}]];
+      return[[{task_id:job.taskId,job_json:{...metadata,payload:{preview_urls:payload.preview_urls}}}]];
     }
     throw new Error(`Unexpected SQL: ${sql}`);
   }};
@@ -265,17 +273,18 @@ test('public recovery list reads only projected metadata and preserves every vis
   const expected=await service.get(job.taskId,job.userId);
   const jobs=await service.list(job.userId,{uiMode:'canvas'});
   assert.deepEqual(jobs,[{...expected,ui_mode:'canvas',client_live_task_ids:job.clientLiveTaskIds}]);
-  const listing=statements.at(-1);
-  assert.match(listing.sql,/SELECT JSON_SET\(JSON_REMOVE\(job_json,/,'large JSON must be projected inside MySQL, before transfer');
+  const ordering=statements.at(-2),listing=statements.at(-1);
+  assert.match(ordering.sql,/^SELECT task_id FROM image_jobs WHERE user_id = \?.*ORDER BY created_at_ms DESC LIMIT 100/);
+  assert.deepEqual(ordering.params,['owner-a','canvas']);
+  assert.deepEqual(listing.params,[job.taskId]);
+  assert.match(listing.sql,/SELECT task_id, JSON_SET\(JSON_REMOVE\(job_json,/,'large JSON must be projected inside MySQL, before transfer');
   assert.match(listing.sql,/'\$\.payload'/);
   assert.match(listing.sql,/'\$\.images'/);
   assert.match(listing.sql,/'\$\.results'/);
   assert.match(listing.sql,/JSON_EXTRACT\(job_json, '\$\.payload\.preview_urls'\)/);
-  assert.match(listing.sql,/WHERE user_id = \?.*ORDER BY created_at_ms DESC LIMIT 100/);
-  assert.deepEqual(listing.params,['owner-a','canvas']);
   const internal=await store.list({userId:job.userId});
   assert.equal(internal[0].payload.raw.length,2*1024*1024,'internal recovery must retain the complete payload');
-  assert.match(statements.at(-1).sql,/^SELECT job_json FROM/);
+  assert.match(statements.at(-1).sql,/^SELECT task_id, job_json FROM/);
 });
 
 test('concurrent recovery requests share one read per owner and retry after settlement', async () => {
@@ -453,7 +462,8 @@ test('production configured metadata uses database uniqueness and never stores r
     }
     if(/SELECT job_json FROM image_jobs WHERE task_id/.test(sql))return[[...(jobs.has(params[0])?[{job_json:JSON.stringify(jobs.get(params[0]))}]:[])]];
     if(/SELECT job_json FROM image_jobs WHERE user_id/.test(sql))return[[...[...jobs.values()].filter(j=>j.userId===params[0]&&j.requestId===params[1]).map(j=>({job_json:JSON.stringify(j)}))]];
-    if(/SELECT job_json FROM image_jobs/.test(sql))return[[...[...jobs.values()].map(j=>({job_json:JSON.stringify(j)}))]];
+    if(/^SELECT task_id FROM image_jobs/.test(sql))return[[...[...jobs.values()].map(j=>({task_id:j.taskId}))]];
+    if(/^SELECT task_id, job_json FROM image_jobs WHERE task_id IN/.test(sql))return[[...params.filter(id=>jobs.has(id)).map(id=>({task_id:id,job_json:JSON.stringify(jobs.get(id))}))]];
     if(/UPDATE image_jobs/.test(sql)){jobs.set(params[3],JSON.parse(params[2]));return[{}];}
     return[{}];
   }};
@@ -466,7 +476,10 @@ test('production configured metadata uses database uniqueness and never stores r
   assert.equal(statements.some(item=>/CREATE TABLE/.test(item.sql)),true);
   assert.equal(JSON.stringify(statements).includes('PRIVATE'),false);
   await store.list({userId:'owner',uiMode:'classic',limit:100,descending:true});
-  const query=statements.at(-1);
+  const query=statements.at(-2);
+  assert.match(query.sql,/^SELECT task_id FROM image_jobs/,'sorting must read narrow ids, not full job JSON');
+  assert.match(statements.at(-1).sql,/^SELECT task_id, job_json FROM image_jobs WHERE task_id IN \(\?\)$/);
+  assert.doesNotMatch(statements.at(-1).sql,/ORDER BY/);
   assert.match(query.sql,/JSON_UNQUOTE\(JSON_EXTRACT\(job_json, '\$\.uiMode'\)\) = \?.*LIMIT 100/);
   assert.deepEqual(query.params,['owner','classic']);
 });

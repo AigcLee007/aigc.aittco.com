@@ -169,7 +169,14 @@ function createImageJobStore(options = {}) {
       const projection=publicListProjection
         ? "JSON_SET(JSON_REMOVE(job_json, '$.payload', '$.images', '$.results'), '$.payload', JSON_OBJECT('preview_urls', JSON_EXTRACT(job_json, '$.payload.preview_urls'))) AS job_json"
         : 'job_json';
-      const [rows]=await pool.execute(`SELECT ${projection} FROM image_jobs${predicates.length?` WHERE ${predicates.join(' AND ')}`:''} ORDER BY created_at_ms ${descending?'DESC':'ASC'} LIMIT ${safeLimit}`,params);
+      // Sort only narrow ids: ordering full job_json rows overflows MySQL's
+      // sort buffer once payloads grow, which silently stopped maintenance.
+      const [idRows]=await pool.execute(`SELECT task_id FROM image_jobs${predicates.length?` WHERE ${predicates.join(' AND ')}`:''} ORDER BY created_at_ms ${descending?'DESC':'ASC'} LIMIT ${safeLimit}`,params);
+      const ids=idRows.map(row=>row.task_id);
+      if(!ids.length)return [];
+      const [jobRows]=await pool.execute(`SELECT task_id, ${projection} FROM image_jobs WHERE task_id IN (${ids.map(()=>'?').join(',')})`,ids);
+      const byId=new Map(jobRows.map(row=>[row.task_id,row]));
+      const rows=ids.map(id=>byId.get(id)).filter(Boolean);
       return rows.map(parseRow).filter(job=>(!status||job.status===status)&&(!statuses?.length||statuses.includes(job.status))&&(!userId||job.userId===userId)&&(!uiMode||job.uiMode===uiMode)&&(!settlementPending||job.settlementPending)&&(!storageStatus||job.storageStatus===storageStatus));
     }
     const indexDir=storageStatus==='pending'?storagePendingDir:settlementPending?settlementDir:statuses?.every(value=>['queued','running'].includes(value))?pendingDir:status&&['queued','running'].includes(status)?pendingDir:jobsDir;
