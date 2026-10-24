@@ -1583,6 +1583,7 @@
 
     renderCatalogUi();
   };
+  window.refreshClassicCatalogs = loadClassicCatalogs;
   const loadRegistrationStatus = async () => {
     try {
       bridgeAuthState.registrationStatus = await fetchJson("/auth/registration-status", {
@@ -3435,6 +3436,41 @@
       loadClassicPromptToolConfig(),
       refreshClassicSession(false),
     ]);
+
+    let lastCatalogVersion = "";
+    let versionNotice = null;
+    const checkAppVersion = async () => {
+      if (document.visibilityState !== "visible" || !navigator.onLine) return;
+      try {
+        const response = await fetch(`${cleanUrl(API_BASE_URL)}/version`, { cache: "no-store" });
+        if (!response.ok) return;
+        const version = await response.json();
+        if (version.buildId && version.buildId !== window.appBuildId && !versionNotice) {
+          versionNotice = document.createElement("div");
+          versionNotice.className = "app-version-notice";
+          versionNotice.innerHTML = '<span>发现新版本，刷新后生效</span><button type="button">立即更新</button>';
+          versionNotice.querySelector("button").addEventListener("click", () => window.location.reload());
+          document.body.appendChild(versionNotice);
+        }
+        if (lastCatalogVersion && version.catalogVersion !== lastCatalogVersion) {
+          await loadClassicCatalogs();
+        }
+        lastCatalogVersion = version.catalogVersion || lastCatalogVersion;
+      } catch (error) {
+        console.warn("[Classic Bridge] version check failed:", error);
+      }
+    };
+    const scheduleVersionCheck = () => {
+      clearInterval(versionTimer);
+      versionTimer = setInterval(() => void checkAppVersion(), 60000);
+      void checkAppVersion();
+    };
+    let versionTimer;
+    scheduleVersionCheck();
+    window.addEventListener("focus", scheduleVersionCheck);
+    window.addEventListener("online", scheduleVersionCheck);
+    document.addEventListener("visibilitychange", scheduleVersionCheck);
+
     renderAuthState();
     renderCatalogUi();
     updateApiGuidePrompt();

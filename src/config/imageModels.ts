@@ -125,6 +125,7 @@ const normalizeCatalog = (
 
 const staticCatalogState = normalizeCatalog(imageModelCatalog as ImageModelCatalogShape);
 let catalogState = staticCatalogState;
+let hasReceivedServerCatalog = false;
 let pendingLoad: Promise<ImageModelCatalogShape> | null = null;
 const listeners = new Set<() => void>();
 
@@ -134,7 +135,8 @@ const emitCatalogChange = () => {
 
 const setCatalogState = (nextCatalog: Partial<ImageModelCatalogShape>) => {
   const normalized = normalizeCatalog(nextCatalog);
-  catalogState = normalized.models.length > 0 ? normalized : staticCatalogState;
+  catalogState = normalized;
+  hasReceivedServerCatalog = true;
   emitCatalogChange();
   return catalogState;
 };
@@ -153,6 +155,7 @@ export const refreshImageModelCatalog = async (): Promise<ImageModelCatalogShape
 
   const response = await fetch(`${cleanUrl(API_BASE_URL)}/image-models/catalog`, {
     method: 'GET',
+    cache: 'no-store',
     headers: {
       'Content-Type': 'application/json',
     },
@@ -187,6 +190,9 @@ export const IMAGE_MODELS = (): ImageModelConfig[] => catalogState.models;
 export const DEFAULT_IMAGE_MODEL_ID = () => catalogState.defaultModelId;
 
 export const getImageModelById = (modelId?: string): ImageModelConfig => {
+  if (hasReceivedServerCatalog && IMAGE_MODELS().length === 0) {
+    return normalizeModel({ id: '', label: '暂无可用模型', modelFamily: 'unavailable', routeFamily: 'unavailable' });
+  }
   return (
     IMAGE_MODELS().find((model) => model.id === modelId) ||
     IMAGE_MODELS().find((model) => model.id === DEFAULT_IMAGE_MODEL_ID()) ||

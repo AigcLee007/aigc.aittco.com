@@ -13,7 +13,7 @@ RUN npm ci
 COPY . .
 
 # Build frontend
-RUN npm run build
+RUN node -e "require('fs').writeFileSync('public/build-id.txt', process.env.APP_BUILD_ID || new Date().toISOString() + '-' + require('crypto').randomUUID())" && npm run build
 
 # Production Stage
 FROM node:18-alpine

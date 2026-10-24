@@ -213,6 +213,7 @@ export const refreshImageRouteCatalog = async (): Promise<ImageRouteCatalogShape
 
   const response = await fetch(`${cleanUrl(API_BASE_URL)}/image-routes/catalog`, {
     method: 'GET',
+    cache: 'no-store',
     headers: {
       'Content-Type': 'application/json',
     },

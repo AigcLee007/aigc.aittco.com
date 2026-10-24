@@ -37,6 +37,7 @@ import { getProxiedImageUrl } from "./src/utils/mediaProxy";
 import { revokeDownloadObjectUrlLater } from "./src/utils/downloadObjectUrl";
 import { originalBlobFromSource } from './src/services/imageAssetActions';
 import { localReadsSafe, subscribeLocalReadSafety } from './src/services/localHydrationSafety';
+import { AppVersionNotice } from './src/components/AppVersionNotice';
 import { retryFailedLocalReads } from './src/services/localPersistenceRecovery';
 
 const App: React.FC = () => {
@@ -423,6 +424,7 @@ const App: React.FC = () => {
              onDragOver={handleDragOver}
              onDrop={handleDrop}
            >
+           <AppVersionNotice />
              <div className="fixed bottom-16 left-1/2 z-30 w-max max-w-[calc(100vw-24px)] -translate-x-1/2 pointer-events-none">
                <ImageRetentionNotice />
              </div>
@@ -486,6 +488,7 @@ const App: React.FC = () => {
 
     return (
       <div className="fixed inset-0 w-full h-full bg-neutral-900 overflow-hidden text-white">
+        <AppVersionNotice />
         {localReadNotice}
         <MobileView
           onOpenHistory={() => openModal("history")}
@@ -566,6 +569,7 @@ const App: React.FC = () => {
         onDragOver={handleDragOver}
         onDrop={handleDrop}
       >
+        <AppVersionNotice />
         <div className="fixed bottom-[76px] left-1/2 z-30 w-max max-w-[calc(100vw-24px)] -translate-x-1/2 pointer-events-none">
           <ImageRetentionNotice />
         </div>

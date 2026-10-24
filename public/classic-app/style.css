@@ -5601,3 +5601,30 @@ html.classic-vip-mode .classic-live-empty {
     justify-content: flex-start !important;
   }
 }
+.app-version-notice {
+  position: fixed;
+  z-index: 1200;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: calc(100vw - 24px);
+  padding: 10px 14px;
+  border: 1px solid rgba(110, 231, 183, 0.35);
+  background: #101312;
+  color: #fff;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.4);
+  font-size: 14px;
+}
+
+.app-version-notice button {
+  flex: 0 0 auto;
+  border: 0;
+  padding: 7px 10px;
+  background: #6ee7b7;
+  color: #101312;
+  font-weight: 700;
+  cursor: pointer;
+}

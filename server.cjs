@@ -6,6 +6,7 @@ const helmet = require("helmet");
 const rateLimit = require("express-rate-limit");
 const winston = require("winston");
 const fs = require("fs");
+const crypto = require("crypto");
 const { createImageJobStore } = require("./imageJobStore.cjs");
 const { createImageJobService, imageJobContext } = require("./imageJobService.cjs");
 const { createImageJobAssets, STORAGE_ROOT: IMAGE_JOB_STORAGE_ROOT } = require("./imageJobAssets.cjs");
@@ -2871,6 +2872,7 @@ app.get("/api/admin/change-logs", async (req, res) => {
 
 app.get("/api/image-routes/catalog", async (_req, res) => {
   try {
+    res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
     const catalog = await getImageRouteCatalog();
     res.json({
       success: true,
@@ -2883,6 +2885,7 @@ app.get("/api/image-routes/catalog", async (_req, res) => {
 
 app.get("/api/image-models/catalog", async (_req, res) => {
   try {
+    res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
     const catalog = await getImageModelCatalog();
     res.json({
       success: true,
@@ -6963,17 +6966,27 @@ app.use(
   }),
 );
 app.use('/uploads', express.static(ANNOUNCEMENT_UPLOAD_ROOT));
-app.use(express.static(path.join(__dirname, 'dist')));
+app.use(express.static(path.join(__dirname, 'dist'), {
+  setHeaders(res, filePath) {
+    if (filePath.endsWith('.html') || !/-[A-Za-z0-9_-]{8,}\./.test(path.basename(filePath))) {
+      res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    } else {
+      res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    }
+  },
+}));
 
 app.get(['/create/classic', '/create/classic/'], (_req, res) => {
   res.redirect(302, '/vip');
 });
 
 app.get(['/vip', '/vip/'], (_req, res) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
   res.sendFile(path.join(__dirname, 'dist', 'classic-app', 'index.html'));
 });
 
 app.get(['/create/canvas', '/create/canvas/'], (_req, res) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
   res.sendFile(path.join(__dirname, 'dist', 'index.html'));
 });
 
@@ -6982,9 +6995,31 @@ app.get("/api/health", (req, res) => {
   res.json({ status: "ok", timestamp: new Date().toISOString() });
 });
 
+app.get("/api/version", async (_req, res) => {
+  res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+  try {
+    const [modelCatalog, routeCatalog] = await Promise.all([
+      getImageModelCatalog(),
+      getImageRouteCatalog(),
+    ]);
+    const catalogVersion = crypto
+      .createHash("sha256")
+      .update(JSON.stringify({ models: modelCatalog, routes: toPublicImageRouteCatalog(routeCatalog) }))
+      .digest("hex");
+    let buildId = "development";
+    try {
+      buildId = fs.readFileSync(path.join(__dirname, "dist", "build-id.txt"), "utf8").trim() || buildId;
+    } catch (_) {}
+    res.json({ buildId, catalogVersion });
+  } catch (error) {
+    res.status(500).json({ error: error.message || "Failed to read application version" });
+  }
+});
+
 // Handle React routing, return all requests to React app
 // MUST be the last route
 app.get("/{*splat}", (req, res) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
   res.sendFile(path.join(__dirname, "dist", "index.html"));
 });
 
