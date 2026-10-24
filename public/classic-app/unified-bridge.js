@@ -2505,6 +2505,7 @@
         prompt: job.prompt || options.prompt || "", size: job.outputSize || options.size || "1K", modelLabel: job.model || options.modelLabel || "", routeLabel: job.routeId || options.routeLabel || "",
         createdAt, completedAt, storageStatus: job.storage_status || job.storageStatus || "",
         previewUrl: job.preview_urls?.[outputIndex] || (outputIndex === 0 ? job.preview_url || job.previewUrl : "") || "",
+        fastUrl: job.fast_urls?.[outputIndex] || "",
         cloudExpiresAt: completedAt ? completedAt + 4 * 60 * 60 * 1000 : 0, connectionMessage: "", autoDownloadEligible: eligible,
       };
       window.completeClassicLiveTask?.(liveId, url, meta);

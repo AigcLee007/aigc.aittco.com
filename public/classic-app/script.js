@@ -351,6 +351,18 @@ async function getClassicImageCacheState(id) {
   } finally { db.close(); }
 }
 
+// Speed mode reads upstream links straight from their CDN; the proxy is the fallback.
+async function fetchClassicDirectBlob(src, signal) {
+  if (!/^https?:\/\//i.test(src) || window.ImageResultStore?.getStorageModePreference?.() !== "speed") return null;
+  try {
+    const response = await window.ClassicImageRuntime.withTimeout(
+      () => fetch(src, { signal, mode: "cors", credentials: "omit", referrerPolicy: "no-referrer" }), 8000);
+    if (!response.ok) return null;
+    const blob = await response.blob();
+    return blob.size && blob.type.startsWith("image/") ? blob : null;
+  } catch (_) { return null; }
+}
+
 async function fetchClassicImageBlob(src, signal) {
   const controller = new AbortController();
   const abort = () => controller.abort();
@@ -360,6 +372,8 @@ async function fetchClassicImageBlob(src, signal) {
     ? `/api/proxy/image?url=${encodeURIComponent(src)}`
     : src;
   try {
+    const direct = await fetchClassicDirectBlob(src, controller.signal);
+    if (direct) return direct;
     return await window.ClassicImageRuntime.withTimeout(async () => {
       const response = await fetch(fetchUrl, { signal: controller.signal });
       if (!response.ok) throw new Error(`图片读取失败 (${response.status})`);
@@ -541,6 +555,7 @@ function normalizeClassicLiveTask(task = {}) {
     referenceCount: Number(task.referenceCount || 0),
     originalUrl: String(task.originalUrl || task.fullUrl || task.resultUrl || task.url || ""),
     previewUrl: String(task.previewUrl || task.thumbnailUrl || ""),
+    fastUrl: String(task.fastUrl || ""),
     errorMessage: String(task.errorMessage || ""),
     createdAt,
     completedAt: task.completedAt ? Number(task.completedAt) : 0,
@@ -1002,12 +1017,19 @@ function patchClassicLiveCard(card, task, primary) {
     card = document.createElement("div");
     card.innerHTML = '<div class="classic-live-media"><div class="classic-live-meta"><span class="classic-live-chip"></span><span class="classic-live-time"></span></div><div class="history-cache-badge cloud"></div></div><div class="classic-live-info"><div><div class="classic-live-prompt"></div><div class="classic-live-config"></div></div><div class="classic-live-actions"></div></div>';
     const actions = card.querySelector(".classic-live-actions");
-    for (const [action, label] of [["zoom", "放大"], ["download", "下载原图"], ["regen", "重生"], ["ref", "参考"], ["copy", "链接"], ["recover", "从本地恢复"], ["delete", "删除"]]) {
+    for (const [action, label] of [["zoom", "放大"], ["download", "下载原图"], ["fast", "快速下载"], ["regen", "重生"], ["ref", "参考"], ["copy", "链接"], ["recover", "从本地恢复"], ["delete", "删除"]]) {
       const button = document.createElement("button"); button.type = "button"; button.className = "classic-live-action-btn"; button.dataset.action = action; button.textContent = label;
+      if (action === "fast") button.title = "高质量 JPEG，体积更小，适合网络较慢时下载";
       button.onclick = event => {
         event.stopPropagation(); const src = card.dataset.fullUrl;
         if (action === "zoom") openLightbox(src);
         if (action === "download") downloadSingleImg(src);
+        if (action === "fast" && card.dataset.fastUrl) {
+          const link = document.createElement("a");
+          link.href = card.dataset.fastUrl + (card.dataset.fastUrl.includes("?") ? "&" : "?") + "download=1";
+          link.download = "";
+          document.body.appendChild(link); link.click(); link.remove();
+        }
         if (action === "regen") regenerateFromHistory(encodeURIComponent(card.dataset.prompt || ""));
         if (action === "ref") useAsRef(src, button);
         if (action === "copy") copyImgUrl(src);
@@ -1025,7 +1047,10 @@ function patchClassicLiveCard(card, task, primary) {
   card.querySelector(".classic-live-time").textContent = formatClassicLiveClock(task.completedAt || task.createdAt);
   card.querySelector(".classic-live-prompt").textContent = task.prompt || "未记录提示词";
   card.querySelector(".classic-live-config").textContent = [task.modelLabel, task.routeLabel, task.size, task.ratio].filter(Boolean).join(" / ");
-  card.querySelectorAll("[data-action]").forEach(button => { button.hidden = button.dataset.action !== "delete" && task.status !== "success"; });
+  card.dataset.fastUrl = task.fastUrl || "";
+  card.querySelectorAll("[data-action]").forEach(button => {
+    button.hidden = (button.dataset.action !== "delete" && task.status !== "success") || (button.dataset.action === "fast" && !task.fastUrl);
+  });
   window.refreshClassicCacheBadge?.(card, task.assetId || task.id);
   return card;
 }

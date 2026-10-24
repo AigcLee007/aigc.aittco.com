@@ -41,13 +41,28 @@ export const imageAssetKey = (ref:ImageAssetRef,variant:AssetVariant='preview') 
   ? `${variant}:asset:${ref.assetId}`
   : `${variant}:source:${ref.src || ''}|${ref.thumbnailSrc || ''}`;
 
+// Speed mode leaves upstream links as results. Reading them straight from the
+// upstream CDN skips our server; the proxy remains the fallback when the
+// upstream blocks cross-origin reads or is unreachable from this network.
+async function fetchDirect(src:string,signal:AbortSignal,timeoutMs:number):Promise<Blob|null> {
+  if(!/^https?:\/\//i.test(src) || imageResultStore.getStorageModePreference()!=='speed')return null;
+  try {
+    const response=await bounded(fetch(src,{signal,mode:'cors',credentials:'omit',referrerPolicy:'no-referrer'}),Math.min(timeoutMs,8000));
+    if(!response.ok)return null;
+    const blob=await bounded(response.blob(),timeoutMs);
+    return isValidAssetBlob(blob) ? blob : null;
+  } catch { return null; }
+}
+
 async function fetchImage(src:string,timeoutMs:number):Promise<Blob> {
   const deadline=Date.now()+timeoutMs;
   const releaseSlot=await takeFetchSlot();
   const controller=new AbortController();
   try {
     if(Date.now()>=deadline)throw new ImageAssetError('TIMEOUT','图片读取超时');
-    const response=await bounded(fetch(getProxiedImageUrl(src),{signal:controller.signal}),timeoutMs);
+    const direct=await fetchDirect(src,controller.signal,timeoutMs);
+    if(direct)return direct;
+    const response=await bounded(fetch(getProxiedImageUrl(src),{signal:controller.signal}),Math.max(1,deadline-Date.now()));
     if (!response.ok) throw new ImageAssetError(response.status===404 || response.status===410?'NOT_FOUND':'NETWORK',`图片读取失败 (${response.status})`);
     const blob=await bounded(response.blob(),timeoutMs);
     if (!isValidAssetBlob(blob)) throw new ImageAssetError('DECODE','图片内容无效');

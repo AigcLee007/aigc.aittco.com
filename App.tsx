@@ -246,6 +246,7 @@ const App: React.FC = () => {
     handleDuplicate,
     handleRemoveBackground,
     handleDownloadNode,
+    handleFastDownloadNode,
     handleClearAll,
     confirmClearAll,
     showClearConfirm,
@@ -653,6 +654,7 @@ const App: React.FC = () => {
           onDuplicate={handleDuplicate}
           onRemoveBackground={handleRemoveBackground}
           onDownloadNode={handleDownloadNode}
+          onFastDownloadNode={handleFastDownloadNode}
           onCopyLink={async () => {
             if (!contextMenu) return;
             const node = nodes.find((n) => n.id === contextMenu.nodeId);

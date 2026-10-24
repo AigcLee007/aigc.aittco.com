@@ -125,6 +125,18 @@ export const useCanvasOperations = () => {
     closeContextMenu();
   }, [contextMenu, nodes, closeContextMenu]);
 
+  // The fast copy is a server link with its own download disposition.
+  const handleFastDownloadNode = useCallback(() => {
+    const node = contextMenu ? nodes.find(n => n.id === contextMenu.nodeId) : undefined;
+    if (node?.fastDownloadSrc) {
+      const link = document.createElement('a');
+      link.href = `${node.fastDownloadSrc}${node.fastDownloadSrc.includes('?') ? '&' : '?'}download=1`;
+      link.download = (node.prompt ? node.prompt.slice(0, 20).replace(/[^a-z0-9]/gi, '_').trim() : 'image') + `_${node.id}.jpg`;
+      document.body.appendChild(link); link.click(); document.body.removeChild(link);
+    }
+    closeContextMenu();
+  }, [contextMenu, nodes, closeContextMenu]);
+
   // Clear all
   const handleClearAll = useCallback(() => {
     setShowClearConfirm(true);
@@ -291,6 +303,7 @@ export const useCanvasOperations = () => {
     handleDuplicate,
     handleRemoveBackground,
     handleDownloadNode,
+    handleFastDownloadNode,
     handleClearAll,
     confirmClearAll,
     showClearConfirm,

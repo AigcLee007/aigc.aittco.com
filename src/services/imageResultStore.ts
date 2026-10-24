@@ -1,6 +1,7 @@
 // The same browser module is loaded by classic HTML and bundled into canvas.
 import '../../public/shared/image-result-store.js';
 
+export type ImageStorageMode = 'auto' | 'stable' | 'speed';
 export interface ImageResultIdentity { ownerId: string; jobId: string; outputIndex?: number }
 export interface ImageResultInput extends ImageResultIdentity {
   originalUrl?: string; previewUrl?: string; createdAt?: number;
@@ -29,6 +30,8 @@ export interface ImageResultStore {
   pin(id: string): () => void;
   getAutoDownloadPreference(fallback?: boolean): boolean;
   setAutoDownloadPreference(enabled: boolean): void;
+  getStorageModePreference(): ImageStorageMode;
+  setStorageModePreference(mode: ImageStorageMode): void;
   close(): void;
 }
 type ResultStoreFactory = ImageResultStore & { createStore(options?: { budgetBytes?: number; previewBudgetBytes?: number; timeoutMs?: number; indexedDB?: IDBFactory }): ImageResultStore };

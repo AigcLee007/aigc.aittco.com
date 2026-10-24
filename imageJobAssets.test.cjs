@@ -208,6 +208,56 @@ test('remote URL displays without waiting for original download then switches to
   assert.ok(saved.resultUrls[0].startsWith('/api/image-job-assets/'));
 });
 
+test('speed mode keeps the upstream link and a preview but no server original', async t => {
+  const f = await fixture(t, { download: async () => f.buffer });
+  let saved;
+  const source = 'https://images.example/speed.png';
+  await f.service.prepare({ resultUrls: [source], context, storageMode: 'speed', onSaved: value => { saved = value; } });
+  await settleUntil(() => saved?.storageStatus === 'saved');
+  assert.equal(saved.resultUrls[0], source, 'speed mode never replaces the upstream link');
+  assert.equal(saved.directUrls[0], source);
+  assert.equal(saved.storageMode, 'speed');
+  assert.ok(saved.previewUrl, 'history keeps a preview');
+  await fs.access(await f.service.resolveAsset(assetArgs(saved.previewUrl)));
+  const files = await fs.readdir(path.join(f.root, 'assets', context.userId, context.taskId));
+  assert.deepEqual(files.filter(name => !name.endsWith('.preview.webp')), [], 'no original stays on the server');
+});
+
+test('auto mode stores the original and still offers the upstream link', async t => {
+  const f = await fixture(t, { download: async () => f.buffer });
+  let saved;
+  const source = 'https://images.example/auto.png';
+  await f.service.prepare({ resultUrls: [source], context, onSaved: value => { saved = value; } });
+  await settleUntil(() => saved?.storageStatus === 'saved');
+  assert.ok(saved.resultUrls[0].startsWith('/api/image-job-assets/'));
+  assert.equal(saved.directUrls[0], source);
+  assert.equal(saved.storageMode, 'auto');
+});
+
+test('speed mode delivers inline bytes through a short-lived copy', async t => {
+  let now = Date.now();
+  const f = await fixture(t, { now: () => now });
+  const result = await f.service.prepare({ resultUrls: [f.source], context, storageMode: 'speed' });
+  const token = assetArgs(result.resultUrls[0]).token;
+  const expires = Number(token.split('.')[0]);
+  assert.ok(expires - now <= 30 * 60000, 'inline originals in speed mode expire within 30 minutes');
+  assert.equal(result.directUrls[0], null, 'inline bytes have no upstream link');
+  now = expires + 1;
+  await assert.rejects(f.service.resolveAsset(assetArgs(result.resultUrls[0])), error => error.status === 410);
+});
+
+test('a PNG original gets a smaller fast-download JPEG with its own expiry', async t => {
+  const noisy = await sharp({ create: { width: 256, height: 256, channels: 3, noise: { type: 'gaussian', mean: 128, sigma: 60 } } }).png().toBuffer();
+  const f = await fixture(t);
+  let saved;
+  await f.service.prepare({ resultUrls: [`data:image/png;base64,${noisy.toString('base64')}`], context, onSaved: value => { saved = value; } });
+  await settleUntil(() => saved?.storageStatus === 'saved');
+  assert.ok(saved.fastUrls[0], 'fast copy is published');
+  const fast = await f.service.resolveAsset(assetArgs(saved.fastUrls[0]));
+  assert.equal((await sharp(fast).metadata()).format, 'jpeg');
+  assert.ok((await fs.stat(fast)).size < noisy.length);
+});
+
 test('failed remote save keeps successful result usable and retrying storage does not generate', async t => {
   let attempts = 0;
   const f = await fixture(t, { retries: 1, download: async () => { attempts++; throw new Error('download interrupted'); } });

@@ -11,6 +11,7 @@ const sharp = require('sharp');
 const STORAGE_ROOT = path.join(__dirname, 'storage', 'image-jobs');
 const TTL_MS = 5 * 60 * 60 * 1000;
 const PREVIEW_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+const DELIVERY_TTL_MS = 30 * 60 * 1000;
 const MIME = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', avif: 'image/avif', gif: 'image/gif' };
 const statusError = (message, status = 404) => Object.assign(new Error(message), { status });
 function publicAddress(address) {
@@ -119,6 +120,15 @@ function createImageJobAssets(options = {}) {
     await atomicWrite(absolute, buffer);
     return { absolute, directory, hash, url: await makeUrl(context, filename, expires), expires };
   }
+  // A high-quality JPEG is far smaller than a PNG original for slow connections.
+  async function saveFastCopy(asset, context, expires) {
+    if (/\.jpe?g$/i.test(asset.absolute)) return null;
+    const filename = `${asset.hash}.fast.jpg`;
+    const buffer = await sharp(asset.absolute, { limitInputPixels: 80_000_000 }).rotate().flatten({ background: '#ffffff' }).jpeg({ quality: 92, mozjpeg: true }).toBuffer();
+    if (buffer.length >= (await fs.stat(asset.absolute)).size * 0.8) return null;
+    await atomicWrite(path.join(asset.directory, filename), buffer);
+    return makeUrl(context, filename, expires);
+  }
   async function savePreview(asset, context) {
     const filename = `${asset.hash}.preview.webp`;
     const buffer = await sharp(asset.absolute, { limitInputPixels: 80_000_000 }).rotate().resize({ width: 720, height: 720, fit: 'inside', withoutEnlargement: true }).webp({ quality: 80 }).toBuffer();
@@ -176,11 +186,16 @@ function createImageJobAssets(options = {}) {
       preview_url: previewUrl || null, thumbnail_url: previewUrl || null, storage_status: storageStatus,
     };
   }
-  async function prepare({ payload = null, resultUrls = [], context, onSaved } = {}) {
+  // storageMode: 'auto' | 'stable' keep a server original; 'speed' keeps only a
+  // preview and leaves upstream links (or a short delivery copy for inline
+  // bytes). Severe disk pressure applies speed handling to every request.
+  async function prepare({ payload = null, resultUrls = [], context, onSaved, storageMode = 'auto' } = {}) {
     safeSegment(context?.userId); safeSegment(context?.taskId);
     const sources = [...new Set(resultUrls.filter(value => typeof value === 'string' && value.trim()).map(value => value.trim()))];
     if (!sources.length || sources.length > 12) throw new Error('Invalid generated image count');
-    const expires = now() + ttl;
+    const speed = storageMode === 'speed' || Boolean(health.disk && health.disk.usedRatio >= 0.92);
+    // Inline bytes have no upstream link, so speed mode still needs a brief copy to deliver them.
+    const expires = now() + (speed ? Math.min(ttl, DELIVERY_TTL_MS) : ttl);
     const info = { model: payload?.model, text: payload?.text };
     const entries = [];
     const remote = [];
@@ -201,7 +216,8 @@ function createImageJobAssets(options = {}) {
         const absolute = await resolveAsset({ userId: parts[3], taskId: parts[4], filename: parts[5], token: url.searchParams.get('token') });
         entries.push({ url: source, state: 'saved', asset: { absolute, directory: path.dirname(absolute), hash: parts[5].split('.')[0] } });
       } else if (isPublicImageUrl(source)) {
-        const entry = { url: source, state: 'pending' };
+        // The upstream link is offered for direct download in every mode.
+        const entry = { url: source, state: 'pending', direct: source };
         entries.push(entry); remote.push({ source, entry });
       } else throw new Error('Unsupported generated image source');
     }
@@ -211,8 +227,11 @@ function createImageJobAssets(options = {}) {
         ? 'pending' : entries.some(entry => entry.state === 'failed' || entry.previewFailed) ? 'failed' : 'saved';
       const previewUrl = entries[0]?.preview || null;
       const previewUrls = entries.map(entry => entry.preview || null);
+      // Fast copies and direct links are optional alternatives per output.
+      const fastUrls = entries.map(entry => entry.fast || null);
+      const directUrls = entries.map(entry => entry.direct || null);
       const storageError=entries.find(entry=>entry.error)?.error||null;
-      return { payload: { ...compact(info, urls, previewUrl, storageStatus), preview_urls: previewUrls }, resultUrls: urls, previewUrl, previewUrls, storageStatus, storageError };
+      return { payload: { ...compact(info, urls, previewUrl, storageStatus), preview_urls: previewUrls, fast_urls: fastUrls, direct_urls: directUrls, storage_mode: speed ? 'speed' : storageMode }, resultUrls: urls, previewUrl, previewUrls, fastUrls, directUrls, storageMode: speed ? 'speed' : storageMode, storageStatus, storageError };
     };
     const notify = async () => {
       if (onSaved) await onSaved(snapshot());
@@ -223,6 +242,10 @@ function createImageJobAssets(options = {}) {
           try { entry.preview = await previewSlot(() => savePreview(entry.asset, context)); break; }
           catch (error) { if (attempt >= 1) throw error; }
         }
+        // The fast copy only helps downloads; its failure never affects the result.
+        if (!entry.direct || !speed) entry.fast = await previewSlot(() => saveFastCopy(entry.asset, context, entry.asset.expires || expires)).catch(error => {
+          options.logger?.warn?.({ type: 'Image fast copy failed', taskId: context.taskId, message: error.message }); return null;
+        });
       }
       catch (error) {
         entry.previewFailed = true;
@@ -236,6 +259,14 @@ function createImageJobAssets(options = {}) {
     // Commit previews before returning saved inline/local originals. A process
     // restart after success must not lose the only long-term representation.
     for (const entry of entries) if (entry.asset) await preview(entry);
+    // Speed-mode delivery copies of inline bytes go once their short link expires;
+    // the regular sweep removes them later if the process restarts first.
+    if (speed) for (const entry of entries) if (entry.asset && !entry.direct) {
+      const timer = setTimeout(() => {
+        for (const file of [entry.asset.absolute, path.join(entry.asset.directory, `${entry.asset.hash}.fast.jpg`)]) fs.unlink(file).catch(() => {});
+      }, Math.max(0, expires - now()));
+      timer.unref?.();
+    }
     const initial = snapshot();
     for (const { source, entry } of remote) track(slot(async () => {
       try {
@@ -248,9 +279,13 @@ function createImageJobAssets(options = {}) {
           }
         }
         entry.asset = await saveOriginal(Buffer.from(buffer), context, expires);
-        entry.url = entry.asset.url; entry.state = 'saved';
+        // Speed mode keeps the upstream link as the result; the copy only feeds the preview.
+        if (!speed) entry.url = entry.asset.url;
+        entry.state = 'saved';
         // Publishing is metadata work; it cannot change a successfully saved original.
-        await preview(entry); await notify().catch(() => {});
+        await preview(entry);
+        if (speed) { await fs.unlink(entry.asset.absolute).catch(() => {}); entry.asset.removed = true; }
+        await notify().catch(() => {});
       } catch (error) {
         entry.state = 'failed'; entry.error=String(error.message||'Image save failed').slice(0,1000);await notify().catch(() => {});
       }
@@ -259,7 +294,7 @@ function createImageJobAssets(options = {}) {
   }
   async function resolveAsset({ userId, taskId, filename, token }) {
     const user = safeSegment(userId), task = safeSegment(taskId);
-    if (!/^[a-f0-9]{64}(\.preview)?\.(png|jpg|webp|avif|gif)$/.test(String(filename))) throw statusError('Asset not found');
+    if (!/^[a-f0-9]{64}(\.preview|\.fast)?\.(png|jpg|webp|avif|gif)$/.test(String(filename))) throw statusError('Asset not found');
     const permanent = String(token || '').match(/^preview\.([a-f0-9]{64})$/);
     const isPreview = /^[a-f0-9]{64}\.preview\.webp$/.test(filename);
     const match = String(token || '').match(/^(\d+)\.([a-f0-9]{64})$/);

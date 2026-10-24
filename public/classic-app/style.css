@@ -3253,6 +3253,16 @@ html.classic-vip-mode .classic-live-empty {
   font-size: 12px;
 }
 .classic-download-settings label { display: flex; align-items: center; gap: 6px; cursor: pointer; }
+.classic-storage-mode select {
+  max-width: 100%;
+  padding: 4px 6px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-main, #fff);
+  font-size: 12px;
+}
+.classic-storage-mode select option { color: #111; }
 .classic-live-action-btn[hidden] { display: none !important; }
 .classic-live-media > .history-cache-badge { top: 42px; left: 10px; max-width: calc(100% - 20px); white-space: normal; }
 .history-cache-badge { max-width: calc(100% - 12px); white-space: normal; pointer-events: none; }

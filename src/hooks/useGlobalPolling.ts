@@ -146,6 +146,7 @@ export const useGlobalPolling = (
                 ...(typeof url === 'string' ? { src: url, generationResultSrc: url } : {}),
                 ...(typeof url === 'string' ? { generationResultIndex:slot } : {}),
                 ...((job.preview_urls?.[slot] || (slot === 0 && job.preview_url)) ? { thumbnailSrc: job.preview_urls?.[slot] || job.preview_url } : {}),
+                ...(job.fast_urls?.[slot] ? { fastDownloadSrc: job.fast_urls[slot] } : {}),
                 generationStorageStatus: job.storage_status,
               }, true);
               if(typeof url==='string'){

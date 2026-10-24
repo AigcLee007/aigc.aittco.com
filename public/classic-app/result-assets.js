@@ -334,6 +334,8 @@
   function syncPreference() {
     const checkbox = root.document.getElementById('classicAutoDownload');
     if (checkbox) checkbox.checked = store.getAutoDownloadPreference();
+    const mode = store.getStorageModePreference?.() || 'auto';
+    root.document.querySelectorAll('.classicStorageMode').forEach(select => { select.value = mode; });
   }
   root.downloadClassicUnprocessed = async () => {
     const records = await root.readHistoryRecordsFromDB?.() || [];
@@ -350,8 +352,11 @@
   root.document.addEventListener('DOMContentLoaded', () => {
     syncPreference();
     root.document.getElementById('classicAutoDownload')?.addEventListener('change', event => store.setAutoDownloadPreference(event.target.checked));
+    // Both classic layouts carry a selector; they share the canvas preference.
+    root.document.querySelectorAll('.classicStorageMode').forEach(select => select.addEventListener('change', event => store.setStorageModePreference?.(event.target.value)));
   });
   root.addEventListener('storage', syncPreference);
   root.addEventListener('image-auto-download-change', syncPreference);
+  root.addEventListener('image-storage-mode-change', syncPreference);
   root.addEventListener('auth-session-change', () => { reader = null; readerOwner = undefined; });
 })(window);

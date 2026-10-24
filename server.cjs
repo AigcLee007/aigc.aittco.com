@@ -6011,7 +6011,17 @@ app.get("/api/image-jobs", pollingLimiter, async (req, res) => {
 app.get("/api/image-job-assets/:userId/:taskId/:filename", async (req, res) => {
   try {
     const file = await imageJobAssets.resolveAsset({ ...req.params, token: req.query.token });
-    res.setHeader("Cache-Control", "private, max-age=3600"); return res.sendFile(file);
+    res.setHeader("Cache-Control", "private, max-age=3600");
+    if (req.query.download === "1") res.attachment(req.params.filename.replace(/\.(fast|preview)\./, "."));
+    // With IMAGE_ASSET_ACCEL_PREFIX set, nginx streams the already-authorized file
+    // (sendfile, HTTP/2, no Node buffering); the prefix maps to the asset volume.
+    const accelPrefix = String(process.env.IMAGE_ASSET_ACCEL_PREFIX || "").replace(/\/+$/, "");
+    if (accelPrefix) {
+      const relative = path.relative(path.join(imageJobRoot, "assets"), file).split(path.sep).map(encodeURIComponent).join("/");
+      res.setHeader("X-Accel-Redirect", `${accelPrefix}/${relative}`);
+      return res.end();
+    }
+    return res.sendFile(file);
   } catch (error) { return res.status(error.status || 404).json({ error: error.status === 410 ? error.message : "Image asset not found" }); }
 });
 

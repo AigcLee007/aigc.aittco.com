@@ -3,6 +3,7 @@ import { saveImageRequest, removeImageRequest, readImageRequest, markImageReques
 import { getStoredAuthSessionToken } from './accountIdentity';
 import { fetchWithTimeout } from '../utils/fetchWithTimeout';
 import { getImageRouteById } from '../config/imageRoutes';
+import { imageResultStore } from './imageResultStore';
 
 export const REQUEST_TASK_PREFIX = 'request-';
 const ownerCache = new Map<string, Promise<string>>();
@@ -93,7 +94,7 @@ export async function submitImageJob(endpoint: string, payload: any, headers: Re
   }
   const session = headers['X-Auth-Session'];
   if (getStoredAuthSessionToken() && session !== getStoredAuthSessionToken()) throw new AppError('登录账号已切换，请重新提交', { status: 401 });
-  const body = { uiMode: 'canvas', ...payload, asyncTask: true, clientRequestId };
+  const body = { uiMode: 'canvas', storageMode: imageResultStore.getStorageModePreference(), ...payload, asyncTask: true, clientRequestId };
   const key = submissionKey(owner, clientRequestId);
   activeSubmissions.add(key);
   try {

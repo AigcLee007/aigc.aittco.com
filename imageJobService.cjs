@@ -31,11 +31,17 @@ const collectImages = value => {
   };
   visit(value);return [...new Set(found)];
 };
+const safeUrlList = (payload,key) => (Array.isArray(payload?.[key]) ? payload[key] : Array.isArray(payload?.payload?.[key]) ? payload.payload[key] : [])
+  .slice(0,12).map(url => typeof url === 'string' && url.length <= 8192 && /^(https?:\/\/|\/(?!\/))/i.test(url) && !/\[truncated\]/i.test(url) ? url : null);
+const STORAGE_MODES = ['auto','stable','speed'];
+const normalizeStorageMode = value => STORAGE_MODES.includes(value) ? value : 'auto';
 const smallPayload = (payload, urls) => ({
   ...(payload?.billing ? {billing:payload.billing} : {}),
   images:urls,results:urls,data:urls.map(url=>({url})),
-  preview_urls: (Array.isArray(payload?.preview_urls) ? payload.preview_urls : Array.isArray(payload?.payload?.preview_urls) ? payload.payload.preview_urls : [])
-    .slice(0,12).map(url => typeof url === 'string' && url.length <= 8192 && /^(https?:\/\/|\/(?!\/))/i.test(url) && !/\[truncated\]/i.test(url) ? url : null),
+  preview_urls: safeUrlList(payload,'preview_urls'),
+  fast_urls: safeUrlList(payload,'fast_urls'),
+  direct_urls: safeUrlList(payload,'direct_urls'),
+  ...(payload?.storage_mode||payload?.payload?.storage_mode?{storage_mode:payload.storage_mode||payload.payload.storage_mode}:{}),
 });
 
 // Telemetry is deliberately a projection, never a copy of a provider/request object.
@@ -182,7 +188,7 @@ function createImageJobService(options = {}) {
     prompt:job.prompt||'',model:job.model||null,modelId:job.modelId||null,routeId:job.routeId||null,
     outputSize:job.outputSize||null,aspectRatio:job.aspectRatio||null,uiMode:job.uiMode||'canvas',
     status:publicStatus(job),
-    preview_url:job.previewUrl||null,thumbnail_url:job.previewUrl||null,storage_status:job.storageStatus||null,
+    preview_url:job.previewUrl||null,thumbnail_url:job.previewUrl||null,storage_status:job.storageStatus||null,storage_mode:job.storageMode||'auto',
     ...(job.error?{error:job.error,failure_reason:job.error}:{}),
     ...(job.storageError?{storage_error:job.storageError}:{}),
     ...(job.completedAt?{completed_at:job.completedAt}:{}),
@@ -270,7 +276,7 @@ function createImageJobService(options = {}) {
     let prepared={payload:smallPayload(payload,urls),resultUrls:urls,previewUrl:null,storageStatus:'external'};
     let storageError=null;
     if(assets) {
-      try { prepared=await assets.prepare({payload,resultUrls:urls,context:{userId:known.userId,taskId:id},onSaved:callback}); }
+      try { prepared=await assets.prepare({payload,resultUrls:urls,context:{userId:known.userId,taskId:id},onSaved:callback,storageMode:known.storageMode}); }
       catch(error) { storageError=String(error.message||'Image save failed').slice(0,1000); prepared={payload:{},resultUrls:urls.filter(url=>!/^data:/i.test(url)),storageStatus:'failed'}; }
     } else if(urls.some(url=>/^data:/i.test(url))) {
       prepared={payload:{},resultUrls:urls.filter(url=>!/^data:/i.test(url)),storageStatus:'failed'};storageError='Image storage is unavailable';
@@ -424,7 +430,7 @@ function createImageJobService(options = {}) {
       observeOperations(job,{events:false});
       if(resumedAssetJobs.has(job.taskId))continue;resumedAssetJobs.add(job.taskId);
       try {
-        await assets.prepare({payload:job.payload,resultUrls:job.resultUrls,context:{userId:job.userId,taskId:job.taskId},onSaved:async update=>{
+        await assets.prepare({payload:job.payload,resultUrls:job.resultUrls,context:{userId:job.userId,taskId:job.taskId},storageMode:job.storageMode,onSaved:async update=>{
           await publishAssetUpdate(job.taskId,update,job.resultUrls);
         }});
       }catch(error){warn(error);await persist(job.taskId,{storageStatus:'failed',storageError:String(error.message).slice(0,1000)});}
@@ -478,7 +484,7 @@ function createImageJobService(options = {}) {
       if(ownPending>=userMaxQueued)throw Object.assign(statusError(`您已有 ${ownPending} 张图片在生成或排队，请等待部分完成后再提交`,429),{code:'USER_QUEUE_FULL'});
       const queued=(await store.list({status:'queued',limit:maxQueued})).length;
       if(queued>=maxQueued)throw Object.assign(statusError('图片任务队列繁忙，请稍后再试',429),{code:'GLOBAL_QUEUE_FULL'});
-      const now=Date.now();const {job}=await store.admit({taskId:`job-${crypto.randomBytes(16).toString('hex')}`,requestId,userId:String(userId),endpoint,fingerprint:fp,createdAt:new Date(now).toISOString(),deadlineAt:now+deadlineMs,uiMode:body.uiMode==='classic'?'classic':'canvas',clientLiveTaskIds:Array.isArray(body.clientLiveTaskIds)?body.clientLiveTaskIds:body.clientLiveTaskId?[body.clientLiveTaskId]:[],prompt:body.prompt,modelId:body.modelId,model:body.model,routeId:body.routeId,outputSize:body.image_size||body.size,aspectRatio:body.aspect_ratio||body.aspectRatio},{body:{body,identity,headers:{authorization:headers.authorization||''}}});
+      const now=Date.now();const {job}=await store.admit({taskId:`job-${crypto.randomBytes(16).toString('hex')}`,requestId,userId:String(userId),endpoint,fingerprint:fp,createdAt:new Date(now).toISOString(),deadlineAt:now+deadlineMs,uiMode:body.uiMode==='classic'?'classic':'canvas',clientLiveTaskIds:Array.isArray(body.clientLiveTaskIds)?body.clientLiveTaskIds:body.clientLiveTaskId?[body.clientLiveTaskId]:[],prompt:body.prompt,modelId:body.modelId,model:body.model,routeId:body.routeId,outputSize:body.image_size||body.size,aspectRatio:body.aspect_ratio||body.aspectRatio,storageMode:normalizeStorageMode(body.storageMode)},{body:{body,identity,headers:{authorization:headers.authorization||''}}});
       const label=identity?.username||identity?.email||identity?.user?.username||identity?.user?.email;
       if(label)operationsLabels.set(job.taskId,operationsText(label,255));
       observeOperations({...job,...(label?{userLabel:operationsLabels.get(job.taskId)}:{})},{events:false});

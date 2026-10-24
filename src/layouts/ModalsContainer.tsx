@@ -45,6 +45,7 @@ interface ModalsContainerProps {
   onDuplicate: () => void;
   onRemoveBackground: () => void;
   onDownloadNode: () => void;
+  onFastDownloadNode?: () => void;
   onCopyLink: () => void;
 }
 
@@ -76,6 +77,7 @@ export const ModalsContainer: React.FC<ModalsContainerProps> = ({
   onDuplicate,
   onRemoveBackground,
   onDownloadNode,
+  onFastDownloadNode,
   onCopyLink
 }) => {
   return (
@@ -157,6 +159,7 @@ export const ModalsContainer: React.FC<ModalsContainerProps> = ({
         onDuplicate={onDuplicate}
         onRemoveBackground={onRemoveBackground}
         onDownload={onDownloadNode}
+        onFastDownload={onFastDownloadNode}
         onCopyLink={onCopyLink}
       />
     </>

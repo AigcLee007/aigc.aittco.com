@@ -90,7 +90,8 @@
     }
   }
   async function submit(endpoint, payload, headers, requestId, owner = '') {
-    const value = { ...payload, asyncTask: true, clientRequestId: requestId };
+    const storageMode = root.ImageResultStore?.getStorageModePreference?.() || 'auto';
+    const value = { storageMode, ...payload, asyncTask: true, clientRequestId: requestId };
     if (owner) await stored(owner, requestId, { owner, requestId, endpoint, payload: value, createdAt: Date.now() }).catch(() => {});
     const body = JSON.stringify(value);
     const send = () => {

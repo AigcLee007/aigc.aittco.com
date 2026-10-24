@@ -56,7 +56,8 @@ test('VIP reload recovers a never-admitted request from IndexedDB with the same 
     return new Response('{"task_id":"job-reloaded"}', { status: 202 });
   }, extra);
   assert.equal((await reloaded.query('request-vip-reload-req', header, '', extra.classicImageJobOwner)).task_id, 'job-reloaded');
-  assert.deepEqual(JSON.parse(calls.at(-1).options.body), { ...payload, asyncTask: true, clientRequestId: 'vip-reload-req' });
+  // The stored request keeps the transfer mode chosen at submission.
+  assert.deepEqual(JSON.parse(calls.at(-1).options.body), { storageMode: 'auto', ...payload, asyncTask: true, clientRequestId: 'vip-reload-req' });
 });
 test('VIP cached owner cannot resend an old upload with a new account session', async () => {
   const { indexedDB } = require('fake-indexeddb');

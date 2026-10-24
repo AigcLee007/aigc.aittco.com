@@ -24,6 +24,7 @@ interface ContextMenuProps {
   onDuplicate: () => void;
   onRemoveBackground: () => void;
   onDownload: () => void;
+  onFastDownload?: () => void;
   onCopyLink: () => void;
 }
 
@@ -31,6 +32,7 @@ const ContextMenu: React.FC<ContextMenuProps> = ({
   onDuplicate,
   onRemoveBackground,
   onDownload,
+  onFastDownload,
   onCopyLink,
 }) => {
   const {
@@ -212,10 +214,18 @@ const ContextMenu: React.FC<ContextMenuProps> = ({
         )}
 
         {isImageNode ? (
+          <>
           <button onClick={onDownload} className="flex items-center gap-2 px-4 py-2 hover:bg-gray-800 text-left text-gray-200">
             <Download size={14} className="text-blue-400" />
             <span>{'\u4FDD\u5B58\u56FE\u7247 (\u539F\u56FE)'}</span>
           </button>
+          {node?.fastDownloadSrc && onFastDownload && (
+            <button onClick={onFastDownload} className="flex items-center gap-2 px-4 py-2 hover:bg-gray-800 text-left text-gray-200" title="\u9AD8\u8D28\u91CF JPEG\uFF0C\u4F53\u79EF\u66F4\u5C0F\uFF0C\u9002\u5408\u7F51\u7EDC\u8F83\u6162\u65F6\u4E0B\u8F7D">
+              <Download size={14} className="text-emerald-400" />
+              <span>\u5FEB\u901F\u4E0B\u8F7D (JPEG)</span>
+            </button>
+          )}
+          </>
         ) : (
           <>
             <button onClick={onDownload} className="flex items-center gap-2 px-4 py-2 hover:bg-gray-800 text-left text-gray-200">

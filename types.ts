@@ -36,6 +36,7 @@ export interface NodeData {
   // Image/Video specific
   src?: string; // Video URL for video nodes
   thumbnailSrc?: string;
+  fastDownloadSrc?: string; // Smaller JPEG copy of a server-saved original
   assetId?: string; // ID for Blob storage (IndexedDB)
   prompt?: string;
   createdAt?: string; // ISO timestamp for generated/imported asset display
