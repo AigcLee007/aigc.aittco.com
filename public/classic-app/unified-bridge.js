@@ -3437,6 +3437,24 @@
       refreshClassicSession(false),
     ]);
 
+    // Shows which build the page is running, so operators can match it to a commit.
+    const renderAppVersionBadge = () => {
+      if (document.querySelector(".app-version-badge")) return;
+      const placeholder = /-placeholder$/;
+      const commit = window.appCommit && !placeholder.test(window.appCommit) ? window.appCommit : "dev";
+      const builtAtDate = window.appBuiltAt && !placeholder.test(window.appBuiltAt) ? new Date(window.appBuiltAt) : null;
+      const pad = (part) => String(part).padStart(2, "0");
+      const builtAt = builtAtDate && !Number.isNaN(builtAtDate.getTime())
+        ? `${builtAtDate.getFullYear()}-${pad(builtAtDate.getMonth() + 1)}-${pad(builtAtDate.getDate())} ${pad(builtAtDate.getHours())}:${pad(builtAtDate.getMinutes())}`
+        : "";
+      const badge = document.createElement("div");
+      badge.className = "app-version-badge";
+      badge.textContent = commit;
+      badge.title = builtAt ? `版本 ${commit} · 构建于 ${builtAt}` : `版本 ${commit}`;
+      badge.setAttribute("aria-label", badge.title);
+      document.body.appendChild(badge);
+    };
+
     let lastCatalogVersion = "";
     let versionNotice = null;
     const checkAppVersion = async () => {
@@ -3466,6 +3484,7 @@
       void checkAppVersion();
     };
     let versionTimer;
+    renderAppVersionBadge();
     scheduleVersionCheck();
     window.addEventListener("focus", scheduleVersionCheck);
     window.addEventListener("online", scheduleVersionCheck);

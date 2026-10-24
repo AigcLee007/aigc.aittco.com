@@ -30,6 +30,9 @@ test('version and image catalogs bypass caches and report the built frontend ID'
   const version = await versionResponse.json();
   assert.equal(version.buildId, (await fs.readFile(path.join(__dirname, 'dist', 'build-id.txt'), 'utf8')).trim());
   assert.match(version.catalogVersion, /^[a-f0-9]{64}$/);
+  const buildInfo = JSON.parse(await fs.readFile(path.join(__dirname, 'dist', 'build-info.json'), 'utf8'));
+  assert.equal(version.commit, buildInfo.commit, 'the running commit must be visible for deployment checks');
+  assert.equal(version.builtAt, buildInfo.builtAt);
 
   for (const pathName of ['/api/image-models/catalog', '/api/image-routes/catalog', '/vip', '/']) {
     const response = await request(pathName);

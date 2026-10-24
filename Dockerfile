@@ -12,8 +12,10 @@ RUN npm ci
 # Copy source code
 COPY . .
 
-# Build frontend
-RUN node -e "require('fs').writeFileSync('public/build-id.txt', process.env.APP_BUILD_ID || new Date().toISOString() + '-' + require('crypto').randomUUID())" && npm run build
+# Build frontend. .git is excluded from the build context, so the commit is
+# passed in: APP_COMMIT=$(git rev-parse --short HEAD) docker compose build app
+ARG APP_COMMIT=
+RUN node -e "const fs=require('fs');const builtAt=new Date().toISOString();fs.writeFileSync('public/build-id.txt', process.env.APP_BUILD_ID || builtAt + '-' + require('crypto').randomUUID());fs.writeFileSync('public/build-info.json', JSON.stringify({commit:String(process.env.APP_COMMIT||'unknown').slice(0,12),builtAt}))" && npm run build
 
 # Production Stage
 FROM node:18-alpine

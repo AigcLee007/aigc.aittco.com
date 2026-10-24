@@ -5619,6 +5619,25 @@ html.classic-vip-mode .classic-live-empty {
   font-size: 14px;
 }
 
+.app-version-badge {
+  position: fixed;
+  z-index: 40;
+  left: 8px;
+  bottom: calc(8px + env(safe-area-inset-bottom));
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 10px;
+  line-height: 1;
+  color: rgba(255, 255, 255, 0.35);
+  user-select: text;
+}
+
+/* Mobile has a fixed 65px bottom navigation bar. */
+@media (max-width: 768px) {
+  .app-version-badge {
+    bottom: calc(71px + env(safe-area-inset-bottom));
+  }
+}
+
 .app-version-notice button {
   flex: 0 0 auto;
   border: 0;

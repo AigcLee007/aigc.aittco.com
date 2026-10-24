@@ -7010,7 +7010,12 @@ app.get("/api/version", async (_req, res) => {
     try {
       buildId = fs.readFileSync(path.join(__dirname, "dist", "build-id.txt"), "utf8").trim() || buildId;
     } catch (_) {}
-    res.json({ buildId, catalogVersion });
+    let buildInfo = { commit: "unknown", builtAt: null };
+    try {
+      const parsed = JSON.parse(fs.readFileSync(path.join(__dirname, "dist", "build-info.json"), "utf8"));
+      buildInfo = { commit: String(parsed.commit || "unknown"), builtAt: parsed.builtAt || null };
+    } catch (_) {}
+    res.json({ buildId, catalogVersion, ...buildInfo });
   } catch (error) {
     res.status(500).json({ error: error.message || "Failed to read application version" });
   }

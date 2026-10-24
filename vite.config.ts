@@ -1,5 +1,6 @@
 import path from 'path';
 import fs from 'fs';
+import { execSync } from 'child_process';
 import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
 
@@ -9,6 +10,18 @@ export default defineConfig(({ mode }) => {
   const appBuildId = fs.existsSync(buildIdPath)
     ? fs.readFileSync(buildIdPath, 'utf8').trim()
     : env.VITE_BUILD_ID || 'development';
+  // Docker builds write build-info.json; local builds fall back to git.
+  const buildInfoPath = path.resolve(__dirname, 'public/build-info.json');
+  const readLocalCommit = () => {
+    try {
+      return execSync('git rev-parse --short HEAD', { cwd: __dirname, stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
+    } catch {
+      return 'unknown';
+    }
+  };
+  const appBuildInfo = fs.existsSync(buildInfoPath)
+    ? JSON.parse(fs.readFileSync(buildInfoPath, 'utf8'))
+    : { commit: readLocalCommit(), builtAt: new Date().toISOString() };
   const backendPort = Number.parseInt(String(env.PORT || '3355'), 10) || 3355;
   
   return {
@@ -34,10 +47,14 @@ export default defineConfig(({ mode }) => {
         closeBundle() {
           const outputDir = path.resolve(__dirname, 'dist');
           fs.writeFileSync(path.join(outputDir, 'build-id.txt'), appBuildId);
+          fs.writeFileSync(path.join(outputDir, 'build-info.json'), JSON.stringify(appBuildInfo));
           const classicHtmlPath = path.join(outputDir, 'classic-app', 'index.html');
           if (fs.existsSync(classicHtmlPath)) {
             const html = fs.readFileSync(classicHtmlPath, 'utf8');
-            fs.writeFileSync(classicHtmlPath, html.replaceAll('app-build-placeholder', appBuildId));
+            fs.writeFileSync(classicHtmlPath, html
+              .replaceAll('app-build-placeholder', appBuildId)
+              .replaceAll('app-commit-placeholder', appBuildInfo.commit)
+              .replaceAll('app-built-at-placeholder', appBuildInfo.builtAt));
           }
         },
       },
@@ -62,6 +79,8 @@ export default defineConfig(({ mode }) => {
     ],
     define: {
       __APP_BUILD_ID__: JSON.stringify(appBuildId),
+      __APP_COMMIT__: JSON.stringify(appBuildInfo.commit),
+      __APP_BUILT_AT__: JSON.stringify(appBuildInfo.builtAt),
       'process.env.API_KEY': JSON.stringify(env.GEMINI_API_KEY),
       'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY)
     },

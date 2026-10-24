@@ -38,6 +38,7 @@ import { revokeDownloadObjectUrlLater } from "./src/utils/downloadObjectUrl";
 import { originalBlobFromSource } from './src/services/imageAssetActions';
 import { localReadsSafe, subscribeLocalReadSafety } from './src/services/localHydrationSafety';
 import { AppVersionNotice } from './src/components/AppVersionNotice';
+import { AppVersionBadge } from './src/components/AppVersionBadge';
 import { retryFailedLocalReads } from './src/services/localPersistenceRecovery';
 
 const App: React.FC = () => {
@@ -425,6 +426,7 @@ const App: React.FC = () => {
              onDrop={handleDrop}
            >
            <AppVersionNotice />
+           <AppVersionBadge />
              <div className="fixed bottom-16 left-1/2 z-30 w-max max-w-[calc(100vw-24px)] -translate-x-1/2 pointer-events-none">
                <ImageRetentionNotice />
              </div>
@@ -489,6 +491,7 @@ const App: React.FC = () => {
     return (
       <div className="fixed inset-0 w-full h-full bg-neutral-900 overflow-hidden text-white">
         <AppVersionNotice />
+        <AppVersionBadge className="bottom-[max(8px,env(safe-area-inset-bottom))] left-2" />
         {localReadNotice}
         <MobileView
           onOpenHistory={() => openModal("history")}
@@ -570,6 +573,7 @@ const App: React.FC = () => {
         onDrop={handleDrop}
       >
         <AppVersionNotice />
+        <AppVersionBadge />
         <div className="fixed bottom-[76px] left-1/2 z-30 w-max max-w-[calc(100vw-24px)] -translate-x-1/2 pointer-events-none">
           <ImageRetentionNotice />
         </div>
