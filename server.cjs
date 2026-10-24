@@ -5901,6 +5901,7 @@ const imageJobService = createImageJobService({
       await imageJobAssets.cleanup();
       await cleanupExpiredLocalAssets();
     },
+    getHealth: () => imageJobAssets.getHealth(),
   }, logger,
   extractResultUrls: extractResultUrlsFromPayload,
   execute: executeLegacyImageHandler,

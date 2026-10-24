@@ -152,6 +152,26 @@ test('terminal cleanup retains its durable job until safe telemetry archival suc
   await service.start();try{assert.equal(removals,0,'failed archival keeps original terminal metadata');available=true;await service.reconcile();assert.equal(removals,1);}finally{await service.stop();}
 });
 
+test('each success records whether the line returned links or inline bytes',async t=>{
+  const logs=[];const logger={info:entry=>logs.push(entry),warn:()=>{}};
+  const inline={images:['data:image/png;base64,AAAA']};
+  const {service,store}=await harness(t,{logger,execute:async(job,body)=>body.prompt==='inline'?inline:remoteResult});
+  const linked=await service.submit(submission({body:{prompt:'link',clientRequestId:'source-url'}}));
+  const bytes=await service.submit(submission({body:{prompt:'inline',clientRequestId:'source-inline'}}));
+  await waitFor(async()=>(await store.get(linked.task_id)).status==='succeeded'&&(await store.get(bytes.task_id)).status==='succeeded');
+  assert.equal((await store.get(linked.task_id)).resultSource,'url');
+  assert.equal((await store.get(bytes.task_id)).resultSource,'base64');
+  assert.deepEqual(logs.filter(entry=>entry.type==='Image result source').map(entry=>entry.resultSource).sort(),['base64','url']);
+});
+
+test('asset file cleanup runs on its own shorter schedule',async()=>{
+  let cleanups=0;
+  const store={init:async()=>{},list:async()=>[],remove:async()=>{}};
+  const service=createImageJobService({store,pollIntervalMs:10,assetCleanupIntervalMs:30,assets:{cleanup:async()=>{cleanups++;},prepare:async()=>({})}});
+  await service.start();
+  try{await waitFor(()=>cleanups>=2);}finally{await service.stop();}
+});
+
 test('expired asset files are cleaned even when the expired-job query fails',async()=>{
   let cleanups=0;
   const store={init:async()=>{},list:async filters=>{if(filters.createdBefore)throw new Error('Out of sort memory');return [];},remove:async()=>{}};

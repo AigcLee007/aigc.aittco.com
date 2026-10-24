@@ -94,6 +94,10 @@ function createOperationsDashboard({store,metrics,getRuntime,now=Date.now,logger
     if(disk?.totalBytes>0&&Number.isFinite(disk.freeBytes)&&(disk.freeBytes/disk.totalBytes<.15||disk.freeBytes<2*1024**3))add('disk','storage_capacity',disk.freeBytes/disk.totalBytes<.1||disk.freeBytes<2*1024**3?'critical':'warning','图片存储卷空间不足：可用低于 15% 或 2 GB');
     if((runtime.backlogTasks||runtime.tasks||[]).some(task=>task.settlementPending&&task.completedAt&&now()-Date.parse(task.completedAt)>120000))add('settlement','settlement_backlog','warning','存在超过 2 分钟未完成结算的任务');
     if((runtime.backlogTasks||[]).filter(task=>task.storageStatus==='pending'&&task.completedAt&&now()-Date.parse(task.completedAt)>120000).length>=5)add('storage','storage_backlog','warning','至少 5 个任务保存等待超过 2 分钟');
+    const storage=runtime.storage;
+    if(storage?.consecutiveFailures>=3)add('asset_cleanup','asset_cleanup','critical','图片清理连续 3 次失败，原图可能正在堆积',{lastError:storage.lastError});
+    if(storage?.overdueOriginals>0)add('asset_overdue','asset_cleanup','warning','存在超期 1 小时以上仍未删除的原图',{count:storage.overdueOriginals});
+    if(storage?.originalTtlMs&&storage.originalTtlMs<5*60*60*1000)add('asset_pressure','storage_capacity','warning','磁盘空间紧张，原图保留已自动缩短');
     for(const name of ['app','mysql'])if(resources.containers?.available&&resources.containers[name]&&resources.containers[name]!=='running')add('container:'+name,'container_state','critical',name+' 容器状态异常');
     if(resources.hostSnapshotStale)add('host_snapshot','collector_stale','warning','主机资源快照已过期或不可读取');
     for(const [key,incident]of found){

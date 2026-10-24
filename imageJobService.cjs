@@ -168,10 +168,11 @@ function createImageJobService(options = {}) {
       perUser.set(userId,user);
     }
     const backlogTasks=[...operationsBacklogs.values()].map(task=>({...task}));
-    return {generatedAt:operationsGeneratedAt,startedAt:operationsStartedAt,limits:{concurrency,userConcurrency,maxQueued,userMaxQueued},active:active.size,localQueued,upstreamQueued,activeUsers:[...new Set([...active.values()].map(controller=>controller.userId))].length,oldestLocalWaitMs:Math.max(0,oldestLocalWaitMs),perUser:[...perUser.values()].sort((a,b)=>a.userId.localeCompare(b.userId)),tasks,backlogs:{settlementPending:backlogTasks.filter(task=>task.settlementPending).length,storagePending:backlogTasks.filter(task=>task.storageStatus==='pending').length},backlogTasks,coverage:{source:'process_memory',events:{available:typeof options.onOperationsEvent==='function',pending:operationsPendingEvents,dirty:operationsDirtyEvents.size,dropped:operationsDroppedEvents,failed:operationsFailedEvents}}};
+    return {generatedAt:operationsGeneratedAt,startedAt:operationsStartedAt,storage:assets?.getHealth?.()||null,limits:{concurrency,userConcurrency,maxQueued,userMaxQueued},active:active.size,localQueued,upstreamQueued,activeUsers:[...new Set([...active.values()].map(controller=>controller.userId))].length,oldestLocalWaitMs:Math.max(0,oldestLocalWaitMs),perUser:[...perUser.values()].sort((a,b)=>a.userId.localeCompare(b.userId)),tasks,backlogs:{settlementPending:backlogTasks.filter(task=>task.settlementPending).length,storagePending:backlogTasks.filter(task=>task.storageStatus==='pending').length},backlogTasks,coverage:{source:'process_memory',events:{available:typeof options.onOperationsEvent==='function',pending:operationsPendingEvents,dirty:operationsDirtyEvents.size,dropped:operationsDroppedEvents,failed:operationsFailedEvents}}};
   };
   const outcomePatch = job => Object.fromEntries(['status','progress','resultUrls','previewUrl','storageStatus','storageError','payload','billing','error','completedAt','settlementPending'].filter(key=>job[key]!==undefined).map(key=>[key,job[key]]));
-  let started=false,stopped=false,pumping=false,reconciling=false,admission=Promise.resolve(),maintenance,lastCleanup=0,startPromise;
+  let started=false,stopped=false,pumping=false,reconciling=false,admission=Promise.resolve(),maintenance,lastCleanup=0,lastAssetCleanup=0,startPromise;
+  const assetCleanupIntervalMs=positive(options.assetCleanupIntervalMs,15*60*1000);
   const warn = error => options.logger?.warn?.({type:'Image job maintenance',message:error.message});
   const owner = (job,userId) => { if(!job || job.userId!==String(userId||'')) throw statusError('Image task not found',404);return job; };
   const publicStatus = job => job.status==='running' ? ['QUEUED','IN_QUEUE'].includes(job.upstreamStatus) ? 'queued' : 'processing' : job.status;
@@ -250,7 +251,12 @@ function createImageJobService(options = {}) {
     // If an inline original cannot finish saving across a process interruption,
     // report storage loss while preserving the upstream success and its charge.
     const usableUrls=urls.filter(url=>!/^data:/i.test(url));
-    const confirmation={status:'succeeded',progress:100,resultUrls:usableUrls,
+    // Record whether this line returned links or inline bytes, so direct
+    // delivery can be offered only where an upstream URL exists.
+    const inlineCount=urls.length-usableUrls.length;
+    const resultSource=!urls.length?null:!inlineCount?'url':inlineCount===urls.length?'base64':'mixed';
+    if(resultSource)options.logger?.info?.({type:'Image result source',routeId:known.routeId||null,resultSource,count:urls.length});
+    const confirmation={status:'succeeded',progress:100,resultUrls:usableUrls,resultSource,
       storageStatus:usableUrls.length?'pending':'failed',
       storageError:usableUrls.length?null:'图片生成已成功，原图暂存尚未完成',
       completedAt:new Date().toISOString(),error:null,settlementPending:true};
@@ -271,7 +277,7 @@ function createImageJobService(options = {}) {
     }
     await store.removeRequest?.(id).catch(warn);
     const result=savedUpdate||prepared;
-    const completion={status:'succeeded',progress:100,error:null,completedAt:new Date().toISOString(),
+    const completion={status:'succeeded',progress:100,error:null,completedAt:new Date().toISOString(),resultSource,
         resultUrls:(result.resultUrls||[]).filter(url=>!/^data:/i.test(url)),previewUrl:result.previewUrl||null,
         storageStatus:result.storageStatus||'external',storageError:result.storageError||storageError,payload:smallPayload(result.payload,result.resultUrls||[]),
         billing:payload?.billing||known.billing||null,settlementPending:true};
@@ -433,6 +439,10 @@ function createImageJobService(options = {}) {
           else {await store.remove(job.taskId);resumedAssetJobs.delete(job.taskId);operationsBacklogs.delete(job.taskId);operationsEventStates.delete(job.taskId);operationsLabels.delete(job.taskId);}
         }catch(error){warn(error);}
       }));
+    }
+    // File cleanup is cheap and runs more often so a disk spike is absorbed quickly.
+    if(Date.now()-lastAssetCleanup>assetCleanupIntervalMs){
+      lastAssetCleanup=Date.now();
       await assets?.cleanup?.().catch(warn);
     }
     await pump();

@@ -15,7 +15,8 @@ async function fixture(t, options = {}) {
   assert.equal(typeof api.createImageJobAssets, 'function', 'asset service must exist');
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'image-job-assets-'));
   const buffer = await sharp({ create: { width: 8, height: 6, channels: 3, background: '#334455' } }).png().toBuffer();
-  const service = api.createImageJobAssets({ root, retryDelayMs: 1, ...options });
+  // The real disk's usage must not change retention in tests.
+  const service = api.createImageJobAssets({ root, retryDelayMs: 1, statfs: async () => null, ...options });
   t.after(async () => { await service.drain(); await fs.rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 30 }); });
   return { root, buffer, service, source: `data:image/png;base64,${buffer.toString('base64')}` };
 }
@@ -64,7 +65,7 @@ test('preview finishes separately and callback publishes a usable small image', 
   assert.equal((await sharp(preview).metadata()).format, 'webp');
 });
 
-test('previews survive original expiry, physical cleanup and a server restart a year later', async t => {
+test('previews survive original expiry, physical cleanup and a restart for 30 days, then expire', async t => {
   let now = Date.now();
   const f = await fixture(t, { now: () => now, ttlMs: 100 });
   let saved;
@@ -73,15 +74,52 @@ test('previews survive original expiry, physical cleanup and a server restart a 
   const original = await f.service.resolveAsset(assetArgs(result.resultUrls[0]));
   const preview = await f.service.resolveAsset(assetArgs(saved.previewUrl));
   const expected = await fs.readFile(preview);
-  now += 365 * 24 * 3600000;
-  await f.service.cleanup();
+  now += 29 * 24 * 3600000;
+  const health = await f.service.cleanup();
+  assert.equal(health.removedOriginals, 1);
+  assert.equal(health.removedPreviews, 0);
   await assert.rejects(fs.access(original));
   await assert.rejects(f.service.resolveAsset(assetArgs(result.resultUrls[0])), error => error.status === 410);
-  const restarted = api.createImageJobAssets({ root: f.root, now: () => now });
+  const restarted = api.createImageJobAssets({ root: f.root, now: () => now, statfs: async () => null });
   assert.deepEqual(await fs.readFile(await restarted.resolveAsset(assetArgs(saved.previewUrl))), expected);
   // A permanent preview capability never authorizes an original or another file.
   await assert.rejects(restarted.resolveAsset({ ...assetArgs(result.resultUrls[0]), token: assetArgs(saved.previewUrl).token }));
   await assert.rejects(restarted.resolveAsset({ ...assetArgs(saved.previewUrl), userId: 'usr_other' }));
+  now += 2 * 24 * 3600000;
+  assert.equal((await restarted.cleanup()).removedPreviews, 1);
+  await assert.rejects(fs.access(preview));
+});
+
+test('disk pressure shortens original retention but never removes young previews', async t => {
+  let now = Date.now(), usedRatio = 0.5;
+  const statfs = async () => ({ bsize: 1, blocks: 1000, bavail: Math.round(1000 * (1 - usedRatio)) });
+  const f = await fixture(t, { now: () => now, statfs });
+  let saved;
+  const result = await f.service.prepare({ resultUrls: [f.source], context, onSaved: value => { saved = value; } });
+  await f.service.drain();
+  const original = await f.service.resolveAsset(assetArgs(result.resultUrls[0]));
+  now += 2 * 3600000;
+  assert.equal((await f.service.cleanup()).removedOriginals, 0, 'normal disk keeps the full five hours');
+  usedRatio = 0.86;
+  const pressured = await f.service.cleanup();
+  assert.equal(pressured.originalTtlMs, 3600000);
+  assert.equal(pressured.removedOriginals, 1);
+  await assert.rejects(fs.access(original));
+  await fs.access(await f.service.resolveAsset(assetArgs(saved.previewUrl)));
+  usedRatio = 0.95;
+  assert.equal((await f.service.cleanup()).originalTtlMs, 15 * 60000);
+});
+
+test('cleanup failures are counted so operators are alerted', async t => {
+  const f = await fixture(t, { statfs: async () => null });
+  await fs.mkdir(path.join(f.root, 'assets'), { recursive: true });
+  await fs.rm(path.join(f.root, 'assets'), { recursive: true });
+  await fs.writeFile(path.join(f.root, 'assets'), 'not a directory');
+  await assert.rejects(f.service.cleanup());
+  await assert.rejects(f.service.cleanup());
+  const health = f.service.getHealth();
+  assert.equal(health.consecutiveFailures, 2);
+  assert.ok(health.lastError);
 });
 
 test('each output publishes its own preview in result order', async t => {

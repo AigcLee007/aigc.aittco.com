@@ -88,3 +88,16 @@ test('full event buffer rejects archival instead of acknowledging a dropped term
     assert.match((await f.dashboard.getSummary()).coverage.collectionError,/缓冲/);
   }finally{release();await Promise.allSettled(pending);await f.dashboard.stop();}
 });
+test('image cleanup failures, overdue originals and storage pressure raise alerts',async()=>{
+  const f=fixture();
+  f.runtime.storage={consecutiveFailures:3,lastError:'EACCES',overdueOriginals:12,originalTtlMs:3600000};
+  await f.dashboard.collect();
+  const active=f.incidents.filter(i=>i.status==='active');
+  assert.ok(active.some(i=>i.fingerprint==='asset_cleanup'&&i.severity==='critical'));
+  assert.ok(active.some(i=>i.fingerprint==='asset_overdue'));
+  assert.ok(active.some(i=>i.fingerprint==='asset_pressure'));
+  f.runtime.storage={consecutiveFailures:0,overdueOriginals:0,originalTtlMs:5*3600000};
+  await f.dashboard.collect();
+  assert.ok(f.incidents.some(i=>i.fingerprint==='asset_cleanup'&&i.status==='recovered'));
+  await f.dashboard.stop();
+});

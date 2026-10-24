@@ -74,15 +74,21 @@ test('MySQL canvas lookup binds job identifiers and keeps the account restrictio
   assert.equal(query.args[1], 'job-requested');
 });
 
-test('legacy image maintenance removes expired originals and retains long-term thumbnails', async () => {
+test('legacy image maintenance expires originals after hours and thumbnails after 30 days', async () => {
   const removed = [];
+  let ageMs = 0;
   const assets = load('generatedAssetService.cjs', {
     fs: { existsSync: () => true, promises: {
       readdir: async () => [{ name: 'image.webp', isDirectory: () => false, isFile: () => true }],
-      stat: async () => ({ mtimeMs: 0 }), unlink: async file => { removed.push(file); },
+      stat: async () => ({ mtimeMs: Date.now() - ageMs }), unlink: async file => { removed.push(file); },
     } },
   });
+  ageMs = 29 * 24 * 3600000;
   await assets.cleanupExpiredLocalAssets();
   assert.equal(removed.length, 1);
   assert.ok(removed[0].includes(`${path.sep}original${path.sep}`));
+  removed.length = 0;
+  ageMs = 31 * 24 * 3600000;
+  await assets.cleanupExpiredLocalAssets();
+  assert.ok(removed.some(file => file.includes(`${path.sep}thumb${path.sep}`)));
 });

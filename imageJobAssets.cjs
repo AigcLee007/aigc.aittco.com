@@ -10,6 +10,7 @@ const sharp = require('sharp');
 
 const STORAGE_ROOT = path.join(__dirname, 'storage', 'image-jobs');
 const TTL_MS = 5 * 60 * 60 * 1000;
+const PREVIEW_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const MIME = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', avif: 'image/avif', gif: 'image/gif' };
 const statusError = (message, status = 404) => Object.assign(new Error(message), { status });
 function publicAddress(address) {
@@ -64,6 +65,8 @@ function createImageJobAssets(options = {}) {
   const now = options.now || Date.now;
   const configuredTtl = Number(options.ttlMs ?? process.env.IMAGE_JOB_RETENTION_MS);
   const ttl = Number.isFinite(configuredTtl) && configuredTtl > 0 ? configuredTtl : TTL_MS;
+  const configuredPreviewTtl = Number(options.previewTtlMs ?? process.env.IMAGE_PREVIEW_RETENTION_MS);
+  const previewTtl = Number.isFinite(configuredPreviewTtl) && configuredPreviewTtl > 0 ? configuredPreviewTtl : PREVIEW_TTL_MS;
   const maxBytes = Math.max(1024, Number(options.maxBytes || process.env.GENERATED_ASSET_MAX_BYTES || 52428800));
   const timeoutMs = Math.max(1000, Number(options.timeoutMs || process.env.GENERATED_ASSET_DOWNLOAD_TIMEOUT_MS || 120000));
   const retries = Math.max(0, Math.min(2, Number(options.retries ?? 1)));
@@ -271,27 +274,55 @@ function createImageJobAssets(options = {}) {
     try { await fs.access(absolute); } catch { throw statusError('Asset not found'); }
     return absolute;
   }
+  // Disk pressure shortens how long originals stay; previews keep their own period.
+  const statfs = options.statfs || (fs.statfs ? directory => fs.statfs(directory) : null);
+  async function diskUsage() {
+    try {
+      const stat = await statfs?.(root);
+      const total = Number(stat?.blocks) * Number(stat?.bsize), free = Number(stat?.bavail) * Number(stat?.bsize);
+      return total > 0 && Number.isFinite(free) ? { usedRatio: 1 - free / total, freeBytes: free, totalBytes: total } : null;
+    } catch { return null; }
+  }
+  const originalTtlFor = disk => !disk ? ttl : disk.usedRatio >= 0.92 ? Math.min(ttl, 15 * 60 * 1000) : disk.usedRatio >= 0.85 ? Math.min(ttl, 60 * 60 * 1000) : ttl;
+  const health = { lastSuccessAt: null, lastError: null, consecutiveFailures: 0, overdueOriginals: 0, removedOriginals: 0, removedPreviews: 0, originalTtlMs: ttl, previewTtlMs: previewTtl, disk: null };
   async function cleanup() {
-    const cutoff = now() - ttl;
-    async function visit(directory) {
-      let children; try { children = await fs.readdir(directory, { withFileTypes: true }); } catch (error) { if (error.code === 'ENOENT') return; throw error; }
-      for (const child of children) {
-        const full = path.join(directory, child.name);
-        if (child.isDirectory()) {
-          await visit(full);
-          // Fresh empty directories may belong to a write between mkdir and rename.
-          const stat = await fs.stat(full).catch(() => null);
-          if (stat && stat.mtimeMs < cutoff) await fs.rmdir(full).catch(() => {});
-        } else if (child.isFile()) {
-          if (/^[a-f0-9]{64}\.preview\.webp$/.test(child.name)) continue;
-          const stat = await fs.stat(full).catch(() => null);
-          if (stat && stat.mtimeMs < cutoff) await fs.unlink(full).catch(() => {});
+    try {
+      const disk = await diskUsage();
+      const originalTtl = originalTtlFor(disk);
+      const originalCutoff = now() - originalTtl, previewCutoff = now() - previewTtl;
+      // Originals left more than an hour past their period mean cleanup is not keeping up.
+      const overdueCutoff = originalCutoff - 60 * 60 * 1000;
+      let removedOriginals = 0, removedPreviews = 0, overdueOriginals = 0;
+      async function visit(directory) {
+        let children; try { children = await fs.readdir(directory, { withFileTypes: true }); } catch (error) { if (error.code === 'ENOENT') return; throw error; }
+        for (const child of children) {
+          const full = path.join(directory, child.name);
+          if (child.isDirectory()) {
+            await visit(full);
+            // Fresh empty directories may belong to a write between mkdir and rename.
+            const stat = await fs.stat(full).catch(() => null);
+            if (stat && stat.mtimeMs < Math.min(originalCutoff, previewCutoff)) await fs.rmdir(full).catch(() => {});
+          } else if (child.isFile()) {
+            const isPreview = /^[a-f0-9]{64}\.preview\.webp$/.test(child.name);
+            const stat = await fs.stat(full).catch(() => null);
+            if (!stat || stat.mtimeMs >= (isPreview ? previewCutoff : originalCutoff)) continue;
+            const removed = await fs.unlink(full).then(() => true, () => false);
+            if (removed) isPreview ? removedPreviews++ : removedOriginals++;
+            else if (!isPreview && stat.mtimeMs < overdueCutoff) overdueOriginals++;
+          }
         }
       }
+      await visit(assetRoot);
+      Object.assign(health, { lastSuccessAt: new Date(now()).toISOString(), lastError: null, consecutiveFailures: 0, overdueOriginals, removedOriginals, removedPreviews, originalTtlMs: originalTtl, disk });
+      if (originalTtl < ttl) options.logger?.warn?.({ type: 'Image storage pressure', message: `磁盘已用 ${Math.round(disk.usedRatio * 100)}%，原图保留缩短为 ${Math.round(originalTtl / 60000)} 分钟` });
+      return { ...health };
+    } catch (error) {
+      health.consecutiveFailures++; health.lastError = String(error.message || error).slice(0, 500);
+      throw error;
     }
-    await visit(assetRoot);
   }
+  const getHealth = () => ({ ...health });
   async function drain() { while (background.size) await Promise.allSettled([...background]); }
-  return { prepare, resolveAsset, cleanup, drain };
+  return { prepare, resolveAsset, cleanup, drain, getHealth };
 }
 module.exports = { createImageJobAssets, STORAGE_ROOT, isPublicImageUrl };
