@@ -452,7 +452,68 @@
     if (choose) { choose.hidden = status.state === 'unsupported'; choose.textContent = status.state === 'none' ? '选择文件夹' : '更换'; }
     if (grant) grant.hidden = !['prompt', 'denied'].includes(status.state);
     if (forget) forget.hidden = ['none', 'unsupported'].includes(status.state);
+    const browse = doc.getElementById('classicFolderBrowse'); if (browse) browse.hidden = status.state !== 'granted';
+    const help = doc.getElementById('classicDownloadsHelp'); if (help) help.hidden = status.state === 'granted';
   }
+  const isMac = /Mac|iPhone|iPad/i.test(root.navigator?.platform || root.navigator?.userAgent || '');
+  const shortcut = isMac ? '⌘ + Shift + J' : 'Ctrl + J';
+  function modal(label, build) {
+    const overlay = doc.createElement('div');
+    overlay.className = 'classic-folder-modal'; overlay.setAttribute('role', 'dialog'); overlay.setAttribute('aria-modal', 'true'); overlay.setAttribute('aria-label', label);
+    const box = doc.createElement('div'); box.className = 'classic-folder-modal-box';
+    const close = () => { overlay.remove(); doc.removeEventListener('keydown', onKey); cleanup.forEach(fn => fn()); };
+    const cleanup = [];
+    const onKey = event => { if (event.key === 'Escape') close(); };
+    overlay.addEventListener('click', event => { if (event.target === overlay) close(); });
+    doc.addEventListener('keydown', onKey);
+    build(box, close, fn => cleanup.push(fn));
+    overlay.appendChild(box); doc.body.appendChild(overlay);
+    return close;
+  }
+  // How to reach the browser's own downloads, which a page cannot open.
+  function openDownloadsHelp() {
+    modal('如何打开下载目录', (box, close) => {
+      box.innerHTML = '<div class="classic-folder-modal-title">如何打开下载目录</div>'
+        + '<ol class="classic-folder-help"><li>按 <kbd></kbd> 打开浏览器的下载列表。</li><li>找到要的图片，点「在文件夹中显示」。</li></ol>'
+        + '<div class="classic-folder-modal-note">网页无法替你打开电脑上的文件夹。使用 Chrome 或 Edge 电脑版时，可以在「本地存储」里选择一个保存文件夹，之后就能在网页里直接查看已保存的图片。</div>'
+        + '<div class="classic-folder-modal-actions"><button type="button" class="classic-live-action-btn">知道了</button></div>';
+      box.querySelector('kbd').textContent = shortcut;
+      box.querySelector('.classic-folder-modal-actions button').addEventListener('click', close);
+    });
+  }
+  // The chosen folder's images, listed in the page.
+  async function openFolderBrowser() {
+    const folder = root.LocalFolderSave;
+    const status = await folder?.getStatus?.().catch(() => null);
+    if (status?.state !== 'granted') { openDownloadsHelp(); return; }
+    modal('已保存的图片', async (box, close, onCleanup) => {
+      box.classList.add('wide');
+      const head = doc.createElement('div'); head.className = 'classic-folder-modal-head';
+      head.innerHTML = '<div><div class="classic-folder-modal-title">已保存的图片</div><div class="classic-folder-modal-note"></div></div><button type="button" class="classic-folder-modal-close" aria-label="关闭">✕</button>';
+      head.querySelector('.classic-folder-modal-note').textContent = '文件夹：' + status.name + ' · 最近 60 张';
+      head.querySelector('button').addEventListener('click', close);
+      const grid = doc.createElement('div'); grid.className = 'classic-folder-grid'; grid.textContent = '正在读取文件夹…';
+      const foot = doc.createElement('div'); foot.className = 'classic-folder-modal-note';
+      foot.textContent = '网页无法直接打开电脑上的文件夹。要在资源管理器里找到这些文件，请打开你选择的「' + status.name + '」文件夹。';
+      box.append(head, grid, foot);
+      const items = await folder.listImages(60).catch(() => []);
+      const urls = items.map(item => root.URL.createObjectURL(item.file));
+      onCleanup(() => urls.forEach(url => root.URL.revokeObjectURL(url)));
+      grid.textContent = '';
+      if (!items.length) { grid.textContent = '这个文件夹里还没有图片。打开自动下载后生成的原图会保存到这里。'; return; }
+      items.forEach((item, index) => {
+        const cell = doc.createElement('button'); cell.type = 'button'; cell.className = 'classic-folder-item'; cell.title = item.name;
+        const img = doc.createElement('img'); img.src = urls[index]; img.alt = item.name; img.loading = 'lazy';
+        const time = doc.createElement('span'); const d = new Date(item.lastModified);
+        time.textContent = (d.getMonth() + 1) + '/' + d.getDate() + ' ' + String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+        cell.append(img, time);
+        cell.addEventListener('click', () => root.openLightbox?.(urls[index]));
+        grid.appendChild(cell);
+      });
+    });
+  }
+  root.openClassicFolderBrowser = openFolderBrowser;
+  root.openClassicDownloadsHelp = openDownloadsHelp;
   async function run(work, done) {
     try { await work(); root.showSoftToast?.(done); }
     catch (error) { if (error?.name !== 'AbortError') root.showSoftToast?.(error?.message || '操作失败，请重试'); }
@@ -464,6 +525,8 @@
     doc.getElementById('classicFolderGrant')?.addEventListener('click', () => run(() => folder.requestAccess(), '已重新授权'));
     doc.getElementById('classicFolderForget')?.addEventListener('click', () => run(() => folder.forgetFolder(), '已改回浏览器默认下载'));
     folder?.subscribe?.(() => void render());
+    doc.getElementById('classicFolderBrowse')?.addEventListener('click', () => void openFolderBrowser());
+    doc.getElementById('classicDownloadsHelp')?.addEventListener('click', openDownloadsHelp);
     void render();
   });
   // Refresh when the profile tab is opened.

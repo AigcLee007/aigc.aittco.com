@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { imageResultStore, type ImageStorageSummary } from '../services/imageResultStore';
 import { localFolderSave, type LocalFolderState } from '../services/localFolderSave';
+import { DownloadsHelp, LocalFolderBrowser } from './LocalFolderBrowser';
 
 const formatBytes = (bytes: number | null | undefined) => {
   if (!Number.isFinite(Number(bytes))) return '—';
@@ -17,6 +18,7 @@ export const LocalStoragePanel = () => {
   const [summary, setSummary] = useState<ImageStorageSummary | null>(null);
   const [folder, setFolder] = useState<{ state: LocalFolderState; name: string }>({ state: 'none', name: '' });
   const [message, setMessage] = useState('');
+  const [dialog, setDialog] = useState<'folder' | 'help' | null>(null);
 
   const refresh = useCallback(async () => {
     const [next, status] = await Promise.all([
@@ -78,7 +80,20 @@ export const LocalStoragePanel = () => {
           </div>
         )}
       </div>
+      <div className="flex justify-end border-t border-white/5 pt-2.5">
+        {folder.state === 'granted' ? (
+          <button type="button" onClick={() => setDialog('folder')} className="rounded-lg px-2.5 py-1 text-xs font-medium text-blue-300 hover:bg-blue-400/10">
+            查看已保存图片 →
+          </button>
+        ) : (
+          <button type="button" onClick={() => setDialog('help')} className="rounded-lg px-2.5 py-1 text-xs font-medium text-blue-300 hover:bg-blue-400/10">
+            如何打开下载目录？
+          </button>
+        )}
+      </div>
       {message && <div className="text-xs text-emerald-300/80" role="status">{message}</div>}
+      {dialog === 'folder' && <LocalFolderBrowser folderName={folder.name} onClose={() => setDialog(null)} />}
+      {dialog === 'help' && <DownloadsHelp onClose={() => setDialog(null)} />}
     </div>
   );
 };

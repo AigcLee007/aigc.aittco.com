@@ -5912,3 +5912,23 @@ html.classic-vip-mode .classic-live-empty {
 .classic-storage-folder { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
 .classic-storage-folder-actions { display: inline-flex; gap: 8px; flex-wrap: wrap; }
 .classic-storage-folder-actions [hidden] { display: none !important; }
+
+/* 本地存储：查看已保存图片 / 如何打开下载目录 */
+.classic-storage-links { display: flex; justify-content: flex-end; gap: 6px; border-top: 1px solid rgba(255, 255, 255, 0.05); padding-top: 8px; }
+.classic-storage-links [hidden] { display: none !important; }
+.classic-folder-modal { position: fixed; inset: 0; z-index: 12000; display: flex; align-items: center; justify-content: center; padding: 16px; background: rgba(0, 0, 0, 0.7); }
+.classic-folder-modal-box { width: 100%; max-width: 380px; max-height: 85vh; display: flex; flex-direction: column; gap: 12px; padding: 18px; border-radius: 16px; border: 1px solid rgba(255, 255, 255, 0.1); background: #15171d; box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6); }
+.classic-folder-modal-box.wide { max-width: 760px; }
+.classic-folder-modal-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.classic-folder-modal-title { font-size: 14px; font-weight: 600; color: #fff; }
+.classic-folder-modal-note { font-size: 11px; line-height: 1.6; color: var(--text-sub); }
+.classic-folder-modal-close { width: auto; padding: 4px 8px; border: 0; border-radius: 8px; background: transparent; color: var(--text-sub); cursor: pointer; }
+.classic-folder-modal-close:hover { background: rgba(255, 255, 255, 0.08); color: #fff; }
+.classic-folder-modal-actions { display: flex; justify-content: flex-end; }
+.classic-folder-help { margin: 0; padding-left: 20px; font-size: 12px; line-height: 1.9; color: #d4d6dd; }
+.classic-folder-help kbd { padding: 1px 6px; border: 1px solid rgba(255, 255, 255, 0.2); border-radius: 4px; background: rgba(255, 255, 255, 0.08); color: #fff; font-size: 11px; font-family: inherit; }
+.classic-folder-grid { flex: 1; min-height: 140px; overflow-y: auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 8px; align-content: start; font-size: 12px; color: var(--text-sub); }
+.classic-folder-item { display: flex; flex-direction: column; width: auto; padding: 0; border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 10px; overflow: hidden; background: rgba(0, 0, 0, 0.3); cursor: zoom-in; }
+.classic-folder-item img { width: 100%; aspect-ratio: 1; object-fit: cover; }
+.classic-folder-item span { padding: 3px 6px; font-size: 10px; color: var(--text-sub); text-align: left; }
+.classic-live-action-btn[data-action="folder"] { min-width: 0; padding-left: 8px; padding-right: 8px; }

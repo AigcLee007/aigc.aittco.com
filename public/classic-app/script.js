@@ -1034,13 +1034,15 @@ function patchClassicLiveCard(card, task, primary) {
     card = document.createElement("div");
     card.innerHTML = '<div class="classic-live-media"><div class="classic-live-meta"><span class="classic-live-chip"></span><span class="classic-live-meta-end"><span class="classic-live-time"></span><span class="history-cache-badge cloud"></span></span></div></div><div class="classic-live-info"><div><div class="classic-live-prompt"></div><div class="classic-live-config"></div></div><div class="classic-live-actions"></div></div>';
     const actions = card.querySelector(".classic-live-actions");
-    for (const [action, label] of [["zoom", "放大"], ["download", "下载原图"], ["fast", "快速下载"], ["regen", "重生"], ["ref", "参考"], ["copy", "链接"], ["recover", "从本地恢复"], ["delete", "删除"]]) {
+    for (const [action, label] of [["zoom", "放大"], ["download", "下载原图"], ["folder", "📂"], ["fast", "快速下载"], ["regen", "重生"], ["ref", "参考"], ["copy", "链接"], ["recover", "从本地恢复"], ["delete", "删除"]]) {
       const button = document.createElement("button"); button.type = "button"; button.className = "classic-live-action-btn"; button.dataset.action = action; button.textContent = label;
       if (action === "fast") button.title = "高质量 JPEG，体积更小，适合网络较慢时下载";
+      if (action === "folder") { button.title = "下载的图片在哪里"; button.setAttribute("aria-label", "下载的图片在哪里"); }
       button.onclick = event => {
         event.stopPropagation(); const src = card.dataset.fullUrl;
         if (action === "zoom") openLightbox(src);
         if (action === "download") downloadSingleImg(src);
+        if (action === "folder") window.openClassicFolderBrowser?.();
         if (action === "fast" && card.dataset.fastUrl) {
           const link = document.createElement("a");
           link.href = card.dataset.fastUrl + (card.dataset.fastUrl.includes("?") ? "&" : "?") + "download=1";

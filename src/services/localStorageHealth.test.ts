@@ -42,4 +42,8 @@ describe('local folder save', () => {
     const status = await localFolderSave.getStatus();
     expect(['none', 'unsupported']).toContain(status.state);
   });
+
+  it('lists nothing (and never prompts) when no folder is chosen', async () => {
+    expect(await localFolderSave.listImages(10)).toEqual([]);
+  });
 });

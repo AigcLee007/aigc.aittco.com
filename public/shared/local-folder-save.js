@@ -99,8 +99,27 @@
     return fileName;
   }
 
+  // Images in the chosen folder, newest first. Read-only; no prompt.
+  // Returns [] when no folder is chosen or permission is not granted.
+  const IMAGE_FILE = /\.(png|jpe?g|webp|gif|avif)$/i;
+  async function listImages(limit = 60) {
+    if (!supported) return [];
+    const target = await readTarget();
+    if (!target) return [];
+    let state = 'prompt';
+    try { state = await target.handle.queryPermission({ mode: 'readwrite' }); } catch {}
+    if (state !== 'granted') return [];
+    const files = [];
+    for await (const entry of target.handle.values()) {
+      if (entry.kind !== 'file' || !IMAGE_FILE.test(entry.name)) continue;
+      try { const file = await entry.getFile(); files.push({ name: entry.name, size: file.size, lastModified: file.lastModified, file }); }
+      catch {}
+    }
+    return files.sort((a, b) => b.lastModified - a.lastModified).slice(0, Math.max(1, limit));
+  }
+
   root.LocalFolderSave = {
-    supported, getStatus, chooseFolder, forgetFolder, requestAccess, saveBlob,
+    supported, getStatus, chooseFolder, forgetFolder, requestAccess, saveBlob, listImages,
     subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn); },
   };
 })(typeof window !== 'undefined' ? window : globalThis);
