@@ -178,6 +178,20 @@ test('the chosen transfer mode survives admission and reaches asset preparation'
   assert.equal((await service.get(speed.task_id,'owner-a')).storage_mode,'speed');
 });
 
+test('standard mode never returns the source address, fast mode still does',async t=>{
+  const relay=async(user,task,index)=>`/api/image-job-relay/${user}/${task}/${index}?token=t`;
+  const assets={cleanup:async()=>{},relayUrl:relay,prepare:async({resultUrls})=>({resultUrls,storageStatus:'pending',payload:{direct_urls:resultUrls}})};
+  const {service,store}=await harness(t,{execute:async()=>remoteResult,assets});
+  const standard=await service.submit(submission({body:{prompt:'std',clientRequestId:'expose-std'}}));
+  const fast=await service.submit(submission({body:{prompt:'fast',clientRequestId:'expose-fast',storageMode:'fast'}}));
+  await waitFor(async()=>(await store.get(standard.task_id)).status==='succeeded'&&(await store.get(fast.task_id)).status==='succeeded');
+  const std=await service.get(standard.task_id,'owner-a');
+  assert.ok(std.images.every(url=>url.startsWith('/api/image-job-relay/')),'standard results use a same-site address');
+  assert.ok(!JSON.stringify(std).includes('images.example'),'no source host anywhere in the response');
+  const quick=await service.get(fast.task_id,'owner-a');
+  assert.ok(quick.images.some(url=>url.includes('images.example')),'fast transfer still receives the direct address');
+});
+
 test('asset file cleanup runs on its own shorter schedule',async()=>{
   let cleanups=0;
   const store={init:async()=>{},list:async()=>[],remove:async()=>{}};

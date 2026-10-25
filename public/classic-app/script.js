@@ -863,10 +863,24 @@ function getClassicLiveCurrentPillLabel(pillId) {
   return String(pill?.querySelector(".trigger-label")?.textContent || "").trim();
 }
 
+// Internal ids (model / route) are never shown; cards show the catalog names.
+function classicDisplayName(kind, value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  try {
+    const list = kind === "route" ? getClassicRoutes() : getClassicModels();
+    const hit = list.find((item) => String(item.id || "") === raw);
+    if (hit) return String(hit.label || hit.name || raw);
+  } catch (_) {}
+  // Not in the catalog: show nothing rather than an internal identifier.
+  return /^[a-z0-9][a-z0-9._-]*$/i.test(raw) && /[-_.]/.test(raw) ? "" : raw;
+}
+
 function getClassicLiveTaskDetails(task = {}) {
   const prompt = String(task.prompt || document.getElementById("prompt")?.value || "").trim();
-  const modelLabel = String(task.modelLabel || getClassicLiveCurrentPillLabel("modelPill") || "未记录").trim();
-  const routeLabel = String(task.routeLabel || getClassicLiveCurrentPillLabel("linePill") || "未记录").trim();
+  const showName = typeof classicDisplayName === "function" ? classicDisplayName : (kind, value) => String(value || "");
+  const modelLabel = String(showName("model", task.modelLabel) || getClassicLiveCurrentPillLabel("modelPill") || "未记录").trim();
+  const routeLabel = String(showName("route", task.routeLabel) || getClassicLiveCurrentPillLabel("linePill") || "未记录").trim();
   const ratio = String(task.ratio || getClassicLiveCurrentPillLabel("ratioPill") || "").trim();
   const size = String(task.size || getClassicLiveCurrentPillLabel("sizePill") || "").trim();
   const quantity = Number(task.quantity || 0);
@@ -1034,7 +1048,7 @@ function patchClassicLiveCard(card, task, primary) {
     card = document.createElement("div");
     card.innerHTML = '<div class="classic-live-media"><div class="classic-live-meta"><span class="classic-live-chip"></span><span class="classic-live-meta-end"><span class="classic-live-time"></span><span class="history-cache-badge cloud"></span></span></div></div><div class="classic-live-info"><div><div class="classic-live-prompt"></div><div class="classic-live-config"></div></div><div class="classic-live-actions"></div></div>';
     const actions = card.querySelector(".classic-live-actions");
-    for (const [action, label] of [["zoom", "放大"], ["download", "下载原图"], ["folder", "📂"], ["fast", "快速下载"], ["regen", "重生"], ["ref", "参考"], ["copy", "链接"], ["recover", "从本地恢复"], ["delete", "删除"]]) {
+    for (const [action, label] of [["zoom", "放大"], ["download", "下载原图"], ["folder", "📂"], ["fast", "快速下载"], ["regen", "重生"], ["ref", "参考"], ["copy", "复制图片"], ["recover", "从本地恢复"], ["delete", "删除"]]) {
       const button = document.createElement("button"); button.type = "button"; button.className = "classic-live-action-btn"; button.dataset.action = action; button.textContent = label;
       if (action === "fast") button.title = "高质量 JPEG，体积更小，适合网络较慢时下载";
       if (action === "folder") { button.title = "下载的图片在哪里"; button.setAttribute("aria-label", "下载的图片在哪里"); }
@@ -1051,7 +1065,7 @@ function patchClassicLiveCard(card, task, primary) {
         }
         if (action === "regen") regenerateFromHistory(encodeURIComponent(card.dataset.prompt || ""));
         if (action === "ref") useAsRef(src, button);
-        if (action === "copy") copyImgUrl(src);
+        if (action === "copy") copyClassicImage(src);
         if (action === "recover") window.restoreClassicLocalFile?.(card.dataset.assetId || card.dataset.liveId, src);
         if (action === "delete") removeClassicLiveTask(card.dataset.liveId);
       };
@@ -1065,7 +1079,8 @@ function patchClassicLiveCard(card, task, primary) {
   card.querySelector(".classic-live-chip").textContent = getClassicLiveStatusLabel(task.status) + " #" + (task.index || 1);
   card.querySelector(".classic-live-time").textContent = formatClassicLiveClock(task.completedAt || task.createdAt);
   card.querySelector(".classic-live-prompt").textContent = task.prompt || "未记录提示词";
-  card.querySelector(".classic-live-config").textContent = [task.modelLabel, task.routeLabel, task.size, task.ratio].filter(Boolean).join(" / ");
+  const showName = typeof classicDisplayName === "function" ? classicDisplayName : (kind, value) => String(value || "");
+  card.querySelector(".classic-live-config").textContent = [showName("model", task.modelLabel), showName("route", task.routeLabel), task.size, task.ratio].filter(Boolean).join(" / ");
   card.dataset.fastUrl = task.fastUrl || "";
   card.querySelectorAll("[data-action]").forEach(button => {
     button.hidden = (button.dataset.action !== "delete" && task.status !== "success") || (button.dataset.action === "fast" && !task.fastUrl);
@@ -4557,7 +4572,7 @@ function renderClassicHistoryRecords(records = [], options = {}) {
     if (!card) {
       card = document.createElement("div"); card.className = "result-item history-item"; card.dataset.recordId = record.id;
       card.innerHTML = `<img loading="lazy" decoding="async"><div class="history-time-tag"></div><div class="history-cache-badge cloud"></div><div class="history-prompt-tip"></div><div class="item-overlay"></div>`;
-      const actions = [["zoom", "放大", "🔍"], ["download", "下载原图", "💾"], ["regenerate", "重生", "♻️"], ["reference", "垫图", "🧩"], ["copy", "链接", "🔗"], ["restore", "从本地恢复", "📂"]];
+      const actions = [["zoom", "放大", "🔍"], ["download", "下载原图", "💾"], ["regenerate", "重生", "♻️"], ["reference", "垫图", "🧩"], ["copy", "复制图片", "📋"], ["restore", "从本地恢复", "📂"]];
       for (const [action, label, icon] of actions) {
         const button = document.createElement("button"); button.className = "overlay-btn history-icon-btn";
         button.dataset.action = action; button.dataset.label = label; button.textContent = icon; button.title = label;
@@ -4570,7 +4585,7 @@ function renderClassicHistoryRecords(records = [], options = {}) {
         if (kind === "download") downloadSingleImg(row.fullUrl, row.assetId || row.id);
         if (kind === "regenerate") regenerateFromHistory(encodeURIComponent(row.prompt));
         if (kind === "reference") useAsRef(row.fullUrl);
-        if (kind === "copy") copyImgUrl(row.fullUrl);
+        if (kind === "copy") copyClassicImage(row.fullUrl);
         if (kind === "restore") window.restoreClassicLocalFile?.(row.assetId || row.id, row.fullUrl);
       };
       card.addEventListener("click", action);
@@ -4652,6 +4667,27 @@ function regenerateFromHistory(encodedPrompt) {
 }
 
 // New Helper: Copy URL (Robust Version)
+// Puts the image itself on the clipboard (never an address), so nothing about
+// where it is stored can be copied out.
+async function copyClassicImage(src) {
+  const tell = (title, desc) => showApiGuideModal({ title, desc, primaryText: "我知道了", showSecondary: false, action: "close" });
+  try {
+    if (!navigator.clipboard?.write || typeof ClipboardItem === "undefined") throw new Error("unsupported");
+    let blob = await fetchClassicImageBlob(src);
+    if (blob.type !== "image/png") {
+      const bitmap = await createImageBitmap(blob);
+      const canvas = document.createElement("canvas"); canvas.width = bitmap.width; canvas.height = bitmap.height;
+      canvas.getContext("2d").drawImage(bitmap, 0, 0); bitmap.close?.();
+      blob = await new Promise((resolve, reject) => canvas.toBlob(out => out ? resolve(out) : reject(new Error("encode")), "image/png"));
+    }
+    await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
+    tell("复制成功", "图片已复制，可以直接粘贴到聊天或设计软件里。");
+  } catch (error) {
+    tell("暂时无法复制", "当前浏览器不支持复制图片，请使用「下载原图」保存。");
+  }
+}
+window.copyClassicImage = copyClassicImage;
+
 function copyImgUrl(url) {
   if (!url) return;
 

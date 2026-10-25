@@ -13,8 +13,8 @@ export const useStorageMode = (): [ImageStorageMode, (mode: ImageStorageMode) =>
   return [mode, next => imageResultStore.setStorageModePreference(next)];
 };
 
-const FAST_TITLE = '从上游直接下载原图，本站只保留预览；链接过期后只能用已下载的本地文件';
-const UNSUPPORTED_TITLE = '此线路返回图片数据，固定经本站传输';
+const FAST_TITLE = '原图直接传到你的设备，速度更快；云端只保留预览，请及时下载';
+const STANDARD_TITLE = '此线路使用标准传输，生成和下载都正常；极速只在部分线路可选';
 
 // Fast transfer only changes anything on lines that return upstream links,
 // so it is shown next to the line and disabled where it would have no effect.
@@ -29,13 +29,13 @@ export const TransferModeToggle = ({ supported }: { supported: boolean }) => {
       aria-label="极速传输"
       disabled={!supported}
       onClick={() => setMode(active ? 'standard' : 'fast')}
-      title={supported ? FAST_TITLE : UNSUPPORTED_TITLE}
-      className={`flex items-center gap-1 rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
-        active ? 'border-yellow-400/60 bg-yellow-400/15 text-yellow-200' : 'border-white/10 bg-white/5 text-gray-400 hover:bg-white/10'
+      title={supported ? FAST_TITLE : STANDARD_TITLE}
+      className={`flex items-center gap-1 rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors disabled:cursor-default ${
+        active ? 'border-yellow-400/60 bg-yellow-400/15 text-yellow-200' : 'border-white/10 bg-white/5 text-gray-400 enabled:hover:bg-white/10'
       }`}
     >
-      <span aria-hidden="true">⚡</span>
-      极速{supported ? (active ? ' · 开' : ' · 关') : ' · 此线路不支持'}
+      {/* Lines without fast transfer read as a normal state, not an error. */}
+      {supported ? <><span aria-hidden="true">⚡</span>极速{active ? ' · 开' : ' · 关'}</> : '标准传输'}
     </button>
   );
 };

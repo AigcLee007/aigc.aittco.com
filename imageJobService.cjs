@@ -193,6 +193,21 @@ function createImageJobService(options = {}) {
     ...(job.storageError?{storage_error:job.storageError}:{}),
     ...(job.completedAt?{completed_at:job.completedAt}:{}),
   });
+  // Source addresses must not reach the browser unless fast transfer is on:
+  // until a copy is saved, standard mode serves the image from our own address.
+  const isSourceUrl = url => typeof url==='string' && /^https?:///i.test(url);
+  const exposed = async (view, job) => {
+    if (!view) return view;
+    const fast = (job?.storageMode==='speed') || view.storage_mode==='speed';
+    const urls = Array.isArray(view.images) ? view.images : [];
+    if (!fast && assets?.relayUrl && urls.some(isSourceUrl)) {
+      const mapped = await Promise.all(urls.map(async (url,index)=>isSourceUrl(url) ? assets.relayUrl(job.userId,job.taskId,index) : url));
+      Object.assign(view,{images:mapped,results:mapped,data:mapped.map(url=>({url}))});
+    }
+    // Source links are only meaningful for fast transfer.
+    if (!fast) view.direct_urls = (view.direct_urls||[]).map(()=>null);
+    return view;
+  };
   const persist = async (id,patch) => {
     const job=await store.update(id,async current=>{const value=typeof patch==='function'?await patch(current):patch;return {...(operationsLabels.has(id)?{userLabel:operationsLabels.get(id)}:{}),...value};});
     observeOperations(job);return job;
@@ -502,13 +517,13 @@ function createImageJobService(options = {}) {
     const key=JSON.stringify([ownerId,mode||null,pending,safeLimit]);
     if(pendingPublicLists.has(key))return pendingPublicLists.get(key);
     const request=store.list({userId:ownerId,uiMode:mode,...(pending?{statuses:['queued','running']}:{}),limit:safeLimit,descending:true,publicListProjection:true})
-      .then(jobs=>jobs.map(job=>({...publicJob(job),ui_mode:job.uiMode,client_live_task_ids:job.clientLiveTaskIds||[]})))
+      .then(jobs=>Promise.all(jobs.map(job=>exposed({...publicJob(job),ui_mode:job.uiMode,client_live_task_ids:job.clientLiveTaskIds||[]},job))))
       .finally(()=>{if(pendingPublicLists.get(key)===request)pendingPublicLists.delete(key);});
     pendingPublicLists.set(key,request);
     return request;
   };
-  return {submit,get:async(id,userId)=>publicJob(owner(outcomes.get(id)||await store.get(id),userId)),
-    lookupRequest:async(requestId,userId)=>{const job=owner(await store.findByRequest(requestId,userId),userId);return publicJob(outcomes.get(job.taskId)||job);},
+  return {submit,get:async(id,userId)=>{const job=owner(outcomes.get(id)||await store.get(id),userId);return exposed(publicJob(job),job);},
+    lookupRequest:async(requestId,userId)=>{const job=owner(await store.findByRequest(requestId,userId),userId);const current=outcomes.get(job.taskId)||job;return exposed(publicJob(current),{...job,...current});},
     list:listPublicJobs,
     start,stop,reconcile,persist,processPayload,store,getOperationsSnapshot};
 }

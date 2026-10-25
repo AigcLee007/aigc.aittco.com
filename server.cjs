@@ -6010,6 +6010,27 @@ app.get("/api/image-jobs", pollingLimiter, async (req, res) => {
   try { const user = await requireAuthUser(req); return res.json({ jobs: await imageJobService.list(user.userId, { uiMode: req.query.uiMode, status: req.query.status, limit: req.query.limit }) }); }
   catch (error) { if (sendAuthError(res,error)) return; return res.status(error.status || 500).json({ error: error.message }); }
 });
+// Serves a result that is not saved yet from our own address, so the browser
+// never sees where it comes from. The signed link carries no source address.
+app.get("/api/image-job-relay/:userId/:taskId/:index", async (req, res) => {
+  try {
+    const { userId, taskId } = req.params;
+    const index = Math.max(0, Math.floor(Number(req.params.index) || 0));
+    await imageJobAssets.verifyRelay(userId, taskId, index, req.query.token);
+    const job = await imageJobService.store.get(taskId);
+    if (!job || job.userId !== userId) return res.status(404).json({ error: "Image asset not found" });
+    const saved = (job.resultUrls || [])[index];
+    // Once saved, the stored copy is the answer.
+    if (typeof saved === "string" && saved.startsWith("/api/image-job-assets/")) return res.redirect(302, saved);
+    if (typeof saved !== "string" || !/^https?:\/\//i.test(saved)) return res.status(404).json({ error: "Image asset not found" });
+    const upstream = await axios.get(saved, { responseType: "stream", timeout: 120000, maxRedirects: 3, httpsAgent: SHARED_HTTPS_AGENT, validateStatus: s => s >= 200 && s < 300, headers: { Accept: "image/*", "Accept-Encoding": "identity" } });
+    res.setHeader("Content-Type", upstream.headers["content-type"] || "image/png");
+    res.setHeader("Cache-Control", "private, max-age=600");
+    if (upstream.headers["content-length"]) res.setHeader("Content-Length", upstream.headers["content-length"]);
+    upstream.data.on("error", () => { if (!res.headersSent) res.status(502).end(); else res.destroy(); });
+    return upstream.data.pipe(res);
+  } catch (error) { return res.status(error.status || 404).json({ error: "Image asset not found" }); }
+});
 app.get("/api/image-job-assets/:userId/:taskId/:filename", async (req, res) => {
   try {
     const file = await imageJobAssets.resolveAsset({ ...req.params, token: req.query.token });

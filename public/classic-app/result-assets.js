@@ -372,18 +372,19 @@
     toggle.disabled = !supported;
     toggle.setAttribute('aria-checked', String(active));
     toggle.classList.toggle('active', active);
-    const state = toggle.querySelector('.classic-fast-state');
-    if (state) state.textContent = !supported ? '此线路不支持' : active ? '开' : '关';
+    // Lines without fast transfer read as a normal state, not an error.
+    toggle.classList.toggle('is-standard', !supported);
+    toggle.textContent = !supported ? '标准传输' : '⚡ 极速 · ' + (active ? '开' : '关');
     toggle.title = !supported
-      ? '此线路返回图片数据，固定经本站传输'
-      : '从上游直接下载原图，本站只保留预览；关闭时经本站传输，原图暂存 5 小时';
+      ? '此线路使用标准传输，生成和下载都正常；极速只在部分线路可选'
+      : '原图直接传到你的设备，速度更快；云端只保留预览。关闭时原图在云端暂存 4 小时';
     syncRetentionNotice(active);
   }
   // With fast transfer on, the original is not kept in the cloud.
   function syncRetentionNotice(fast) {
     root.document.querySelectorAll('[data-retention-notice]').forEach(notice => {
       notice.innerHTML = fast
-        ? '已开启极速：原图<strong>不在云端保存</strong>，从上游直接下载，请及时保存到本地；预览保留 30 天，生成记录长期保留。'
+        ? '已开启极速：原图直接传到你的设备，<strong>不在云端保存</strong>，请及时下载；预览保留 30 天，生成记录长期保留。'
         : '原图云端仅保留 <strong>4 小时</strong>，请尽快下载到本地；预览保留 30 天，生成记录长期保留。';
     });
   }

@@ -93,6 +93,18 @@ function createImageJobAssets(options = {}) {
   };
   const signature = async (userId, taskId, expires) => crypto.createHmac('sha256', await getKey()).update(`${userId}/${taskId}/${expires}`).digest('hex');
   const previewSignature = async (userId, taskId, filename) => crypto.createHmac('sha256', await getKey()).update(`preview/v1/${userId}/${taskId}/${filename}`).digest('hex');
+  // A same-site address for an image that is still only at its source. The
+  // source address never appears in it; the server resolves it when fetched.
+  const relaySignature = async (userId, taskId, index) => crypto.createHmac('sha256', await getKey()).update(`relay/v1/${userId}/${taskId}/${index}`).digest('hex');
+  async function relayUrl(userId, taskId, index) {
+    const user = safeSegment(userId), task = safeSegment(taskId), slot = Math.max(0, Math.floor(Number(index) || 0));
+    return `/api/image-job-relay/${user}/${task}/${slot}?token=${await relaySignature(user, task, slot)}`;
+  }
+  async function verifyRelay(userId, taskId, index, token) {
+    const user = safeSegment(userId), task = safeSegment(taskId), slot = Math.max(0, Math.floor(Number(index) || 0));
+    const expected = Buffer.from(await relaySignature(user, task, slot)), supplied = Buffer.from(String(token || ''));
+    if (expected.length !== supplied.length || !crypto.timingSafeEqual(expected, supplied)) throw statusError('Asset not found');
+  }
   async function makeUrl(context, filename, expires) {
     const user = safeSegment(context.userId), task = safeSegment(context.taskId);
     return `/api/image-job-assets/${user}/${task}/${filename}?token=${expires}.${await signature(user, task, expires)}`;
@@ -358,6 +370,6 @@ function createImageJobAssets(options = {}) {
   }
   const getHealth = () => ({ ...health });
   async function drain() { while (background.size) await Promise.allSettled([...background]); }
-  return { prepare, resolveAsset, cleanup, drain, getHealth };
+  return { prepare, resolveAsset, cleanup, drain, getHealth, relayUrl, verifyRelay };
 }
 module.exports = { createImageJobAssets, STORAGE_ROOT, isPublicImageUrl };

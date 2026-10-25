@@ -15,13 +15,14 @@ describe('TransferModeToggle', () => {
     expect(toggle.getAttribute('aria-checked')).toBe('true');
   });
 
-  it('is disabled and shown off on lines that return image data', () => {
+  it('reads as a normal standard state on lines without fast transfer', () => {
     imageResultStore.setStorageModePreference('fast');
     render(<TransferModeToggle supported={false} />);
     const toggle = screen.getByRole('switch', { name: '极速传输' }) as HTMLButtonElement;
     expect(toggle.disabled).toBe(true);
     expect(toggle.getAttribute('aria-checked')).toBe('false');
-    expect(toggle.textContent).toContain('此线路不支持');
+    expect(toggle.textContent).toBe('标准传输');
+    expect(toggle.textContent).not.toContain('不支持');
   });
 
   it('reads values saved by earlier builds', () => {

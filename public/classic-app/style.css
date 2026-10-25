@@ -5932,3 +5932,7 @@ html.classic-vip-mode .classic-live-empty {
 .classic-folder-item img { width: 100%; aspect-ratio: 1; object-fit: cover; }
 .classic-folder-item span { padding: 3px 6px; font-size: 10px; color: var(--text-sub); text-align: left; }
 .classic-live-action-btn[data-action="folder"] { min-width: 0; padding-left: 8px; padding-right: 8px; }
+
+/* 不支持极速的线路：显示为普通状态，不像出错 */
+.classic-fast-toggle.is-standard,
+.classic-fast-toggle.is-standard:disabled { opacity: 1; cursor: default; color: var(--text-sub); }
