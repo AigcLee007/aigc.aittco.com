@@ -167,7 +167,7 @@ function createImageJobStore(options = {}) {
       // Drop duplicate provider data in MySQL before it crosses the connection;
       // maintenance, settlement and individual lookups still read the full job.
       const projection=publicListProjection
-        ? "JSON_SET(JSON_REMOVE(job_json, '$.payload', '$.images', '$.results'), '$.payload', JSON_OBJECT('preview_urls', JSON_EXTRACT(job_json, '$.payload.preview_urls'))) AS job_json"
+        ? "JSON_SET(JSON_REMOVE(job_json, '$.payload', '$.images', '$.results'), '$.payload', JSON_OBJECT('preview_urls', JSON_EXTRACT(job_json, '$.payload.preview_urls'), 'fast_urls', JSON_EXTRACT(job_json, '$.payload.fast_urls'), 'direct_urls', JSON_EXTRACT(job_json, '$.payload.direct_urls'), 'storage_mode', JSON_EXTRACT(job_json, '$.payload.storage_mode'))) AS job_json"
         : 'job_json';
       // Sort only narrow ids: ordering full job_json rows overflows MySQL's
       // sort buffer once payloads grow, which silently stopped maintenance.
