@@ -13,6 +13,7 @@ import { getImageJobOwner } from '../services/imageJobClient';
 import { getStoredAuthSessionToken, buildBillingIdentityHeaders } from '../services/accountIdentity';
 import { imageResultStore, type ImageResultInput } from '../services/imageResultStore';
 import { canvasResultIdentity, registerCanvasResult } from '../services/canvasResultIdentity';
+import { saveToLocalFolder } from '../services/localFolderSave';
 
 type AutoDownloadItem = {
     src: string;
@@ -86,11 +87,14 @@ const flushAutoDownloadQueue = async () => {
         if(item.session !== getStoredAuthSessionToken() || !imageResultStore.getAutoDownloadPreference(true))continue;
         if (blob) {
             const ext = inferExt(item.src, blob.type);
-            const href = URL.createObjectURL(blob);
-            try {
-              triggerDownload(href, `${seq}_${filenameBase}_${item.id || Date.now()}.${ext}`);
-              if(resultId && token)await imageResultStore.markDownloadStarted(resultId,token).catch(()=>false);
-            } finally { revokeDownloadObjectUrlLater(href); }
+            const name = `${seq}_${filenameBase}_${item.id || Date.now()}.${ext}`;
+            // A chosen local folder takes the file directly; otherwise a normal download.
+            const saved = await saveToLocalFolder(blob, name).catch(error => { console.warn('Local folder save failed; using download', error); return null; });
+            if (!saved) {
+              const href = URL.createObjectURL(blob);
+              try { triggerDownload(href, name); } finally { revokeDownloadObjectUrlLater(href); }
+            }
+            if(resultId && token)await imageResultStore.markDownloadStarted(resultId,token).catch(()=>false);
         }
         if (autoDownloadQueue.length) {
             await new Promise((resolve) => setTimeout(resolve, 220));

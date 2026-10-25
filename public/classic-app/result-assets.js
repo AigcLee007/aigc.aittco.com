@@ -170,7 +170,10 @@
       if (!manual && !token) return false;
       current(info.ownerId);
       if (!manual && !store.getAutoDownloadPreference()) return false;
-      triggerDownload(blob, filename(info, prompt, blob));
+      // A chosen local folder takes the file directly; otherwise a normal download.
+      const savedName = await root.LocalFolderSave?.saveBlob(blob, filename(info, prompt, blob)).catch(error => { root.console?.warn('Local folder save failed; using download', error); return null; });
+      if (!savedName) triggerDownload(blob, filename(info, prompt, blob));
+      else if (manual) root.showSoftToast?.('已保存到本地文件夹：' + savedName);
       if (token) await store.markDownloadStarted(info.id, token);
       refreshCards(info.id);
       return true;
@@ -411,4 +414,60 @@
   root.addEventListener('image-auto-download-change', syncPreference);
   root.addEventListener('image-storage-mode-change', syncPreference);
   root.addEventListener('auth-session-change', () => { reader = null; readerOwner = undefined; });
+})(window);
+
+// 我的 → 本地存储: cache usage and the optional local save folder.
+(function (root) {
+  const doc = root.document;
+  const formatBytes = value => {
+    const n = Number(value);
+    if (!Number.isFinite(n)) return '—';
+    if (n >= 1024 ** 3) return (n / 1024 ** 3).toFixed(1) + ' GB';
+    if (n >= 1024 ** 2) return Math.round(n / 1024 ** 2) + ' MB';
+    return Math.max(0, Math.round(n / 1024)) + ' KB';
+  };
+  async function render() {
+    const usage = doc.getElementById('classicStorageUsage');
+    if (!usage) return;
+    const store = root.ImageResultStore, folder = root.LocalFolderSave;
+    const summary = await store?.getStorageSummary?.().catch(() => null);
+    if (summary) {
+      const guard = summary.persisted === true ? ' · 已受浏览器保护，不会被自动清理' : summary.persisted === false ? ' · 浏览器空间紧张时可能被清理' : '';
+      usage.textContent = `原图缓存 ${formatBytes(summary.originalBytes)} / ${formatBytes(summary.budgetBytes)}（${summary.cachedOriginals} 张）${guard}`;
+      const percent = summary.budgetBytes ? Math.min(100, Math.round(summary.originalBytes / summary.budgetBytes * 100)) : 0;
+      const fill = doc.getElementById('classicStorageBarFill'); if (fill) fill.style.width = percent + '%';
+      fill?.parentElement?.setAttribute('aria-valuenow', String(percent));
+    }
+    const status = await folder?.getStatus?.().catch(() => ({ state: 'unsupported', name: '' })) || { state: 'unsupported', name: '' };
+    const text = doc.getElementById('classicFolderStatus');
+    const grant = doc.getElementById('classicFolderGrant'), choose = doc.getElementById('classicFolderChoose'), forget = doc.getElementById('classicFolderForget');
+    const escape = value => String(value).replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[ch]);
+    if (text) text.innerHTML = {
+      unsupported: '保存到本地文件夹需要 Chrome 或 Edge 桌面版，当前使用浏览器默认下载。',
+      none: '选择一个文件夹后，自动下载的原图会直接保存到这里。',
+      granted: `自动下载保存到：<strong>${escape(status.name)}</strong>`,
+      prompt: `文件夹「<strong>${escape(status.name)}</strong>」需要重新授权，授权前使用浏览器默认下载。`,
+      denied: `文件夹「<strong>${escape(status.name)}</strong>」需要重新授权，授权前使用浏览器默认下载。`,
+    }[status.state] || '';
+    if (choose) { choose.hidden = status.state === 'unsupported'; choose.textContent = status.state === 'none' ? '选择文件夹' : '更换'; }
+    if (grant) grant.hidden = !['prompt', 'denied'].includes(status.state);
+    if (forget) forget.hidden = ['none', 'unsupported'].includes(status.state);
+  }
+  async function run(work, done) {
+    try { await work(); root.showSoftToast?.(done); }
+    catch (error) { if (error?.name !== 'AbortError') root.showSoftToast?.(error?.message || '操作失败，请重试'); }
+    void render();
+  }
+  doc.addEventListener('DOMContentLoaded', () => {
+    const folder = root.LocalFolderSave;
+    doc.getElementById('classicFolderChoose')?.addEventListener('click', () => run(() => folder.chooseFolder(), '已设置保存文件夹'));
+    doc.getElementById('classicFolderGrant')?.addEventListener('click', () => run(() => folder.requestAccess(), '已重新授权'));
+    doc.getElementById('classicFolderForget')?.addEventListener('click', () => run(() => folder.forgetFolder(), '已改回浏览器默认下载'));
+    folder?.subscribe?.(() => void render());
+    void render();
+  });
+  // Refresh when the profile tab is opened.
+  const legacySwitch = root.switchTab;
+  if (typeof legacySwitch === 'function') root.switchTab = function (name) { const out = legacySwitch.apply(this, arguments); if (String(name) === 'profile') void render(); return out; };
+  root.renderClassicStoragePanel = render;
 })(window);

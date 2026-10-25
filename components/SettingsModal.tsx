@@ -1,5 +1,6 @@
 import { AssetImage } from '../src/components/AssetImage';
 import { ImageRetentionNotice } from '../src/components/ImageRetentionNotice';
+import { LocalStoragePanel } from '../src/components/LocalStoragePanel';
 import { assetActionSource } from '../src/services/imageAssetActions';
 import { readOriginalBlob } from '../src/services/imageAssetCache';
 ﻿import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
@@ -663,6 +664,8 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
                   </div>
                 </div>
               </div>
+
+              <LocalStoragePanel />
 
               <div className="bg-white/5 border border-white/10 rounded-xl p-3.5">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">

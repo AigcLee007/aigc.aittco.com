@@ -5902,3 +5902,13 @@ html.classic-vip-mode .classic-live-empty {
 }
 .classic-live-gallery-link:hover { background: rgba(124, 196, 255, 0.1); }
 .classic-live-empty .classic-live-gallery-link { margin-top: 10px; }
+
+/* 我的 → 本地存储 */
+.classic-storage-panel { gap: 10px; }
+.classic-storage-usage, .classic-storage-folder-text { font-size: 12px; color: var(--text-sub); line-height: 1.6; }
+.classic-storage-folder-text strong { color: var(--text-main, #fff); font-weight: 600; }
+.classic-storage-bar { height: 6px; border-radius: 99px; background: rgba(255, 255, 255, 0.08); overflow: hidden; }
+.classic-storage-bar > div { height: 100%; width: 0; border-radius: 99px; background: rgba(124, 196, 255, 0.75); transition: width 0.3s; }
+.classic-storage-folder { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.classic-storage-folder-actions { display: inline-flex; gap: 8px; flex-wrap: wrap; }
+.classic-storage-folder-actions [hidden] { display: none !important; }

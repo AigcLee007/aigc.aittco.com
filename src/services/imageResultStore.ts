@@ -2,6 +2,11 @@
 import '../../public/shared/image-result-store.js';
 
 export type ImageStorageMode = 'standard' | 'fast';
+export interface ImageStorageSummary {
+  originalBytes: number; previewBytes: number; results: number; cachedOriginals: number;
+  budgetBytes: number; previewBudgetBytes: number;
+  usage: number | null; quota: number | null; persisted: boolean | null;
+}
 export interface ImageResultIdentity { ownerId: string; jobId: string; outputIndex?: number }
 export interface ImageResultInput extends ImageResultIdentity {
   originalUrl?: string; previewUrl?: string; createdAt?: number;
@@ -32,6 +37,8 @@ export interface ImageResultStore {
   setAutoDownloadPreference(enabled: boolean): void;
   getStorageModePreference(): ImageStorageMode;
   setStorageModePreference(mode: ImageStorageMode): void;
+  prepareStorage(): Promise<{ persisted: boolean; budgetBytes: number; previewBudgetBytes: number }>;
+  getStorageSummary(): Promise<ImageStorageSummary>;
   close(): void;
 }
 type ResultStoreFactory = ImageResultStore & { createStore(options?: { budgetBytes?: number; previewBudgetBytes?: number; timeoutMs?: number; indexedDB?: IDBFactory }): ImageResultStore };

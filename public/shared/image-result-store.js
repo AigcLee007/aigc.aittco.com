@@ -25,8 +25,11 @@
     let connection, opening, sourceMaintenance;
     const timeoutMs = options.timeoutMs || 15000;
     const mobile = /Android|iPhone|iPad|Mobile/i.test(root.navigator?.userAgent || '');
-    const budgetBytes = options.budgetBytes ?? (mobile ? 128 : 384) * 1024 * 1024;
-    const previewBudgetBytes = options.previewBudgetBytes ?? (mobile ? 24 : 64) * 1024 * 1024;
+    // Fixed defaults until the browser reports its real quota (adaptBudget).
+    // An explicit budget (tests, constrained callers) is never adapted.
+    const adaptive = options.budgetBytes === undefined && options.previewBudgetBytes === undefined;
+    let budgetBytes = options.budgetBytes ?? (mobile ? 128 : 384) * 1024 * 1024;
+    let previewBudgetBytes = options.previewBudgetBytes ?? (mobile ? 24 : 64) * 1024 * 1024;
     const errors = new Map(), pins = new Map();
     const tabId = makeToken();
     function open() {
@@ -247,6 +250,44 @@
         const value = mode === 'speed' ? 'fast' : STORAGE_MODES.includes(mode) ? mode : 'standard';
         try { root.localStorage?.setItem(STORAGE_MODE_KEY, value); root.dispatchEvent?.(new root.CustomEvent('image-storage-mode-change', { detail: value })); } catch {}
       },
+      // Ask the browser not to evict this site's cache under storage pressure,
+      // then size the original cache from the real quota: 10% of it, between
+      // the fixed default and 4 GB (1 GB on phones). Safe to call repeatedly.
+      async prepareStorage() {
+        const storage = root.navigator?.storage;
+        let persisted = false;
+        try { persisted = await storage?.persisted?.() || await storage?.persist?.() || false; } catch {}
+        if (adaptive) {
+          try {
+            const { quota } = await storage?.estimate?.() || {};
+            if (Number(quota) > 0) {
+              const ceiling = (mobile ? 1024 : 4096) * 1024 * 1024;
+              budgetBytes = Math.max(budgetBytes, Math.min(ceiling, Math.floor(quota * 0.1)));
+              previewBudgetBytes = Math.max(previewBudgetBytes, Math.min(512 * 1024 * 1024, Math.floor(quota * 0.02)));
+            }
+          } catch {}
+        }
+        return { persisted, budgetBytes, previewBudgetBytes };
+      },
+      // Bytes this cache holds, its budget, and the browser's own figures.
+      async getStorageSummary() {
+        const summary = { originalBytes: 0, previewBytes: 0, results: 0, cachedOriginals: 0, budgetBytes, previewBudgetBytes, usage: null, quota: null, persisted: null };
+        await transact('readonly', store => {
+          const cursor = store.openCursor(root.IDBKeyRange.bound('result-info-', 'result-info-￿'));
+          cursor.onsuccess = () => {
+            const item = cursor.result; if (!item) return;
+            const info = item.value || {};
+            summary.results++;
+            summary.originalBytes += Math.max(0, Number(info.originalBytes) || 0);
+            summary.previewBytes += Math.max(0, Number(info.previewBytes) || 0);
+            if (Number(info.originalBytes) > 0) summary.cachedOriginals++;
+            item.continue();
+          };
+        }).catch(() => {});
+        try { const estimate = await root.navigator?.storage?.estimate?.(); summary.usage = estimate?.usage ?? null; summary.quota = estimate?.quota ?? null; } catch {}
+        try { summary.persisted = await root.navigator?.storage?.persisted?.() ?? null; } catch {}
+        return summary;
+      },
       close() { connection?.close(); connection = undefined; },
     };
     async function putBlob(id, blob, preview, metadata) {
@@ -308,4 +349,6 @@
     return api;
   }
   root.ImageResultStore = Object.assign(createStore(), { createStore });
+  // Both layouts load this file; preparing once here covers canvas and classic.
+  if (root.navigator?.storage) root.ImageResultStore.prepareStorage().catch(() => {});
 })(globalThis);
