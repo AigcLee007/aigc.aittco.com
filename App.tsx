@@ -437,6 +437,7 @@ const App: React.FC = () => {
            </MainLayout>
 
            <ModalsContainer
+             onOpenClassicMode={openClassicMode}
              settingsOpen={modalOpen}
              settingsTab={modalTab}
              onCloseSettings={() => setModalOpen(false)}
@@ -506,6 +507,7 @@ const App: React.FC = () => {
           onOpenBatchModal={handleOpenBatch}
         />
         <ModalsContainer
+          onOpenClassicMode={openClassicMode}
           settingsOpen={modalOpen}
           settingsTab={modalTab}
           onCloseSettings={() => setModalOpen(false)}
@@ -603,6 +605,7 @@ const App: React.FC = () => {
         />
 
         <ModalsContainer
+          onOpenClassicMode={openClassicMode}
           settingsOpen={modalOpen}
           settingsTab={modalTab}
           onCloseSettings={() => setModalOpen(false)}

@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Bell, CheckCheck, Megaphone, ReceiptText, UserRound, Wallet, X } from 'lucide-react';
+import { Bell, CheckCheck, LayoutList, Megaphone, ReceiptText, UserRound, Wallet, X } from 'lucide-react';
+import { ClassicModeGuide, markClassicModeGuideSeen } from '../src/components/ClassicModeGuide';
 import PricingReferencePanel from './PricingReferencePanel';
 import { fetchBillingAccount } from '../src/services/accountService';
 import {
@@ -47,9 +48,10 @@ const formatAnnouncementDate = (input?: string) => {
 
 interface AnnouncementPopupProps {
   onOpenSettings?: () => void;
+  onOpenClassicMode?: () => void;
 }
 
-const AnnouncementPopup: React.FC<AnnouncementPopupProps> = ({ onOpenSettings }) => {
+const AnnouncementPopup: React.FC<AnnouncementPopupProps> = ({ onOpenSettings, onOpenClassicMode }) => {
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [seenIds, setSeenIds] = useState<string[]>(() => readSeenAnnouncementIds());
   const [isCenterOpen, setIsCenterOpen] = useState(false);
@@ -201,6 +203,20 @@ const AnnouncementPopup: React.FC<AnnouncementPopupProps> = ({ onOpenSettings })
             {accountSummary ? `${formatPoint(accountSummary.points)} 点` : '登录 / 账户'}
           </span>
         </button>
+        {onOpenClassicMode && (
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => { markClassicModeGuideSeen(); onOpenClassicMode(); }}
+              className="inline-flex h-10 items-center gap-1.5 rounded-xl border border-white/12 bg-[#171b24]/92 px-3 text-xs font-semibold text-gray-100 shadow-[0_10px_30px_rgba(0,0,0,0.35)] backdrop-blur-xl transition-all hover:border-white/25 hover:bg-[#1d2431] hover:text-white"
+              title="切换到经典版"
+            >
+              <LayoutList size={15} aria-hidden="true" />
+              经典版
+            </button>
+            <ClassicModeGuide onOpenClassicMode={onOpenClassicMode} />
+          </div>
+        )}
       </div>
 
       <PricingReferencePanel isOpen={isPricingOpen} onClose={() => setIsPricingOpen(false)} />

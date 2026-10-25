@@ -46,6 +46,7 @@ interface ModalsContainerProps {
   onRemoveBackground: () => void;
   onDownloadNode: () => void;
   onFastDownloadNode?: () => void;
+  onOpenClassicMode?: () => void;
   onCopyLink: () => void;
 }
 
@@ -78,11 +79,12 @@ export const ModalsContainer: React.FC<ModalsContainerProps> = ({
   onRemoveBackground,
   onDownloadNode,
   onFastDownloadNode,
+  onOpenClassicMode,
   onCopyLink
 }) => {
   return (
     <>
-      <AnnouncementPopup onOpenSettings={onOpenSettings} />
+      <AnnouncementPopup onOpenSettings={onOpenSettings} onOpenClassicMode={onOpenClassicMode} />
       <SettingsModal
         isOpen={settingsOpen}
         initialTab={settingsTab}
