@@ -350,6 +350,15 @@
     toggle.title = !supported
       ? '此线路返回图片数据，固定经本站传输'
       : '从上游直接下载原图，本站只保留预览；关闭时经本站传输，原图暂存 5 小时';
+    syncRetentionNotice(active);
+  }
+  // With fast transfer on, the original is not kept in the cloud.
+  function syncRetentionNotice(fast) {
+    root.document.querySelectorAll('[data-retention-notice]').forEach(notice => {
+      notice.innerHTML = fast
+        ? '已开启极速：原图<strong>不在云端保存</strong>，从上游直接下载，请及时保存到本地；预览保留 30 天，生成记录长期保留。'
+        : '原图云端仅保留 <strong>4 小时</strong>，请尽快下载到本地；预览保留 30 天，生成记录长期保留。';
+    });
   }
   root.syncClassicTransferToggle = syncTransferToggle;
   root.downloadClassicUnprocessed = async () => {

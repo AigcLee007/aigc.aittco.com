@@ -1604,9 +1604,30 @@ html.classic-vip-mode .right-column > .line-selector-module {
 html.classic-vip-mode .right-column > .params-row,
 html.classic-vip-mode .right-column > .current-price-card,
 html.classic-vip-mode .right-column > .gpt-settings-row,
-html.classic-vip-mode .right-column > .classic-transfer-line,
 html.classic-vip-mode .right-column > .grok-ref-mode-module {
   grid-column: 1 / -1;
+}
+
+/* 第一行：图像模型 | 线路 | 极速 + 自动下载 */
+html.classic-vip-mode .right-column {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+}
+html.classic-vip-mode .right-column > .classic-transfer-line {
+  align-self: stretch;
+  flex-wrap: nowrap;
+  padding: 0 4px 0 8px;
+}
+/* 线路隐藏时（单线路模型），模型占两格，传输仍在同一行 */
+html.classic-vip-mode .right-column > .model-selector-module:has(+ .line-selector-module[style*="display: none"]) {
+  grid-column: span 2;
+}
+html.classic-vip-mode .tech-module.inline-module .pill-dropdown {
+  width: auto !important;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+html.classic-vip-mode .tech-module.inline-module {
+  gap: 14px;
 }
 
 html.classic-vip-mode .classic-live-panel.result-module {
@@ -1656,6 +1677,21 @@ html.classic-vip-mode .classic-live-empty {
 @media (max-width: 768px) {
   html.classic-vip-mode .right-column {
     grid-template-columns: 1fr;
+  }
+  html.classic-vip-mode .right-column > .model-selector-module {
+    grid-column: auto;
+  }
+  /* 手机端：极速和自动下载占满整行，并排显示 */
+  html.classic-vip-mode .right-column > .classic-transfer-line {
+    grid-column: 1 / -1;
+    flex-wrap: nowrap;
+    gap: 12px;
+    padding: 0 4px;
+  }
+  html.classic-vip-mode .classic-fast-toggle,
+  html.classic-vip-mode .classic-transfer-autodl {
+    white-space: nowrap;
+    flex: 0 0 auto;
   }
 }
 

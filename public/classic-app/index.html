@@ -23,7 +23,7 @@
         document.documentElement.classList.add("classic-vip-mode");
       }
     </script>
-    <link rel="stylesheet" href="/classic-app/style.css?v=classic_transfer_v3" />
+    <link rel="stylesheet" href="/classic-app/style.css?v=classic_transfer_v4" />
   </head>
   <body>
     <div class="top-controls">
@@ -306,6 +306,13 @@
               </div>
             </div>
 
+            <div class="classic-transfer-line">
+              <button type="button" class="classic-fast-toggle" id="classicFastToggle" role="switch" aria-checked="false" aria-label="极速传输">
+                <span aria-hidden="true">⚡</span> 极速 · <span class="classic-fast-state">关</span>
+              </button>
+              <label class="classic-transfer-autodl"><input id="classicAutoDownload" type="checkbox" checked> 生成后自动下载</label>
+            </div>
+
             <div class="tech-module inline-module grok-ref-mode-module" id="grokRefModeModule" style="display: none;">
               <div class="module-header">参考图模式 (GROK)</div>
               <div class="pill-dropdown" id="grokRefModePill" data-selected-value="stable_fusion">
@@ -450,13 +457,6 @@
               </div>
             </div>
 
-            <div class="classic-transfer-line">
-              <button type="button" class="classic-fast-toggle" id="classicFastToggle" role="switch" aria-checked="false" aria-label="极速传输">
-                <span aria-hidden="true">⚡</span> 极速 · <span class="classic-fast-state">关</span>
-              </button>
-              <label class="classic-transfer-autodl"><input id="classicAutoDownload" type="checkbox" checked> 生成后自动下载</label>
-            </div>
-
             <div class="current-price-card" id="currentPriceCard">
               <div>
                 <div class="current-price-label">当前配置消耗</div>
@@ -498,7 +498,7 @@
             </div>
           </div>
 
-          <div class="image-retention-notice" role="note">原图云端仅保留 <strong>4 小时</strong>，请尽快下载到本地；预览保留 30 天，生成记录长期保留。</div>
+          <div class="image-retention-notice" role="note" data-retention-notice>原图云端仅保留 <strong>4 小时</strong>，请尽快下载到本地；预览保留 30 天，生成记录长期保留。</div>
 
           <div class="classic-live-status-row">
             <div class="status-text" id="statusText">SYSTEM READY</div>
@@ -549,7 +549,7 @@
             </button>
           </div>
           <!-- History Warning -->
-          <div class="image-retention-notice" role="note">原图云端仅保留 <strong>4 小时</strong>，请尽快下载到本地；预览保留 30 天，生成记录长期保留。</div>
+          <div class="image-retention-notice" role="note" data-retention-notice>原图云端仅保留 <strong>4 小时</strong>，请尽快下载到本地；预览保留 30 天，生成记录长期保留。</div>
 
           <div class="classic-download-settings">
             <button type="button" class="classic-live-action-btn" onclick="downloadClassicUnprocessed()">下载未处理原图</button>
@@ -1119,7 +1119,7 @@
     <script src="/classic-app/image-runtime.js?v=classic_gallery_v2"></script>
     <script src="/classic-app/image-job-client.js?v=classic_transfer_v2"></script>
     <script src="/classic-app/script.js?v=classic_transfer_v3"></script>
-    <script src="/classic-app/result-assets.js?v=classic_transfer_v3"></script>
+    <script src="/classic-app/result-assets.js?v=classic_transfer_v4"></script>
     <script src="/classic-app/unified-bridge.js?v=classic_transfer_v2"></script>
   </body>
 </html>
