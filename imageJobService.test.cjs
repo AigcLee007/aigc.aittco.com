@@ -164,6 +164,18 @@ test('each success records whether the line returned links or inline bytes',asyn
   assert.deepEqual(logs.filter(entry=>entry.type==='Image result source').map(entry=>entry.resultSource).sort(),['base64','url']);
 });
 
+test('the chosen transfer mode survives admission and reaches asset preparation',async t=>{
+  const modes=[];
+  const {service,store}=await harness(t,{execute:async()=>remoteResult,assets:{prepare:async({storageMode,resultUrls})=>{modes.push(storageMode);return {resultUrls,storageStatus:'saved'};}}});
+  const speed=await service.submit(submission({body:{prompt:'speed',clientRequestId:'mode-speed',storageMode:'speed'}}));
+  const unknown=await service.submit(submission({body:{prompt:'unknown',clientRequestId:'mode-unknown',storageMode:'bogus'}}));
+  await waitFor(async()=>(await store.get(speed.task_id)).status==='succeeded'&&(await store.get(unknown.task_id)).status==='succeeded');
+  assert.equal((await store.get(speed.task_id)).storageMode,'speed','admission must keep the requested mode');
+  assert.equal((await store.get(unknown.task_id)).storageMode,'auto','unknown modes fall back to auto');
+  assert.deepEqual(modes.sort(),['auto','speed']);
+  assert.equal((await service.get(speed.task_id,'owner-a')).storage_mode,'speed');
+});
+
 test('asset file cleanup runs on its own shorter schedule',async()=>{
   let cleanups=0;
   const store={init:async()=>{},list:async()=>[],remove:async()=>{}};

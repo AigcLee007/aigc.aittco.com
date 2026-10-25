@@ -111,7 +111,7 @@ function createImageJobStore(options = {}) {
         uiMode: input.uiMode || 'canvas', clientLiveTaskIds: input.clientLiveTaskIds || [],
         prompt: String(input.prompt || '').slice(0,32000), modelId: input.modelId || null,
         model: input.model || null, routeId: input.routeId || null, outputSize: input.outputSize || null,
-        aspectRatio: input.aspectRatio || null,
+        aspectRatio: input.aspectRatio || null, storageMode: input.storageMode || 'auto',
         fingerprint: fp, status: input.status || 'queued', progress: 0,
         innerTaskId: input.innerTaskId || null, resultUrls: [], images: [], results: [],
         previewUrl: null, storageStatus: null, storage_status: null, error: null,
