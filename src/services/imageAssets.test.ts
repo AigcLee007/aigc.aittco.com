@@ -205,7 +205,7 @@ describe('image asset recovery and lifecycle', () => {
     expect((await acquireImageAsset({assetId:'gone',src:'/gone'})).status).toBe('missing');
   });
   it('speed mode reads upstream links directly and falls back to the proxy', async () => {
-    imageResultStore.setStorageModePreference('speed');
+    imageResultStore.setStorageModePreference('fast');
     try {
       const calls:string[]=[];
       vi.mocked(fetch).mockImplementation(async input => { calls.push(String(input)); return new Response(png()); });
@@ -215,7 +215,7 @@ describe('image asset recovery and lifecycle', () => {
       vi.mocked(fetch).mockImplementation(async input => { calls.push(String(input)); if(!String(input).startsWith('/api/proxy/'))throw new TypeError('CORS blocked'); return new Response(png()); });
       await cacheImageSource('https://cdn.example/blocked.png');
       expect(calls).toEqual(['https://cdn.example/blocked.png','/api/proxy/image?url=https%3A%2F%2Fcdn.example%2Fblocked.png']);
-    } finally { imageResultStore.setStorageModePreference('auto'); }
+    } finally { imageResultStore.setStorageModePreference('standard'); }
   });
   it('bounds hanging network reads and permits a clean retry', async () => {
     vi.useFakeTimers();

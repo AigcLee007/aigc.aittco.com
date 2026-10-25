@@ -38,6 +38,7 @@ const createEmptyForm = (sortOrder = 0): AdminImageRoutePayload => ({
   line: `route-${sortOrder + 1}`,
   transport: 'openai-image',
   mode: 'async',
+  resultKind: 'inline',
   baseUrl: '',
   generatePath: '/v1/images/generations?async=true',
   taskPath: '/v1/images/tasks/{taskId}',
@@ -62,6 +63,7 @@ const mapRouteToForm = (route: AdminImageRoute): AdminImageRoutePayload => ({
   line: route.line,
   transport: route.transport,
   mode: route.mode,
+  resultKind: route.resultKind === 'url' ? 'url' : 'inline',
   baseUrl: route.baseUrl,
   generatePath: route.generatePath,
   taskPath: route.taskPath || '',
@@ -468,6 +470,21 @@ const RouteAdminPanel: React.FC<RouteAdminPanelProps> = ({ session }) => {
               >
                 <option value="async">async</option>
                 <option value="sync">sync</option>
+              </select>
+              <select
+                value={form.resultKind || 'inline'}
+                onChange={(event) =>
+                  setForm((prev) => ({
+                    ...prev,
+                    resultKind: event.target.value as 'url' | 'inline',
+                  }))
+                }
+                aria-label="返回类型"
+                title="返回图片链接的线路可以使用极速传输"
+                className="h-10 rounded-lg border border-white/10 bg-black/25 px-3 text-sm text-white focus:border-white/20 focus:outline-none md:col-span-2"
+              >
+                <option value="inline">返回类型：图片数据（固定经本站传输）</option>
+                <option value="url">返回类型：图片链接（支持极速直连）</option>
               </select>
             </div>
 

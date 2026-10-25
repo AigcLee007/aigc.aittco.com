@@ -36,6 +36,7 @@ export interface AdminImageRoutePayload {
   line: string;
   transport: 'openai-image' | 'gemini-native';
   mode: 'async' | 'sync';
+  resultKind?: 'url' | 'inline';
   baseUrl: string;
   generatePath: string;
   taskPath?: string;

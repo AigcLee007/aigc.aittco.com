@@ -1,12 +1,6 @@
 import { useEffect, useState } from 'react';
 import { imageResultStore, type ImageStorageMode } from '../services/imageResultStore';
 
-export const STORAGE_MODE_OPTIONS: Array<{ value: ImageStorageMode; label: string; description: string }> = [
-  { value: 'auto', label: '自动', description: '服务器暂存原图 5 小时，作为稳定兜底' },
-  { value: 'stable', label: '稳定优先', description: '全部经本站服务器中转，适合上游链接打不开时' },
-  { value: 'speed', label: '速度优先', description: '优先从上游直接下载，服务器只保留预览；链接过期后只能用已下载的本地文件' },
-];
-
 export const useStorageMode = (): [ImageStorageMode, (mode: ImageStorageMode) => void] => {
   const [mode, setMode] = useState<ImageStorageMode>(() => imageResultStore.getStorageModePreference());
   useEffect(() => {
@@ -19,27 +13,29 @@ export const useStorageMode = (): [ImageStorageMode, (mode: ImageStorageMode) =>
   return [mode, next => imageResultStore.setStorageModePreference(next)];
 };
 
-export const StorageModeSelector = () => {
+const FAST_TITLE = '从上游直接下载原图，本站只保留预览；链接过期后只能用已下载的本地文件';
+const UNSUPPORTED_TITLE = '此线路返回图片数据，固定经本站传输';
+
+// Fast transfer only changes anything on lines that return upstream links,
+// so it is shown next to the line and disabled where it would have no effect.
+export const TransferModeToggle = ({ supported }: { supported: boolean }) => {
   const [mode, setMode] = useStorageMode();
-  const current = STORAGE_MODE_OPTIONS.find(option => option.value === mode) || STORAGE_MODE_OPTIONS[0];
+  const active = supported && mode === 'fast';
   return (
-    <div className="bg-white/5 border border-white/10 rounded-xl p-3.5">
-      <div className="text-sm text-gray-200 font-medium" id="storage-mode-label">图片传输方式</div>
-      <div className="mt-2 grid grid-cols-3 gap-1.5" role="radiogroup" aria-labelledby="storage-mode-label">
-        {STORAGE_MODE_OPTIONS.map(option => (
-          <button
-            key={option.value}
-            type="button"
-            role="radio"
-            aria-checked={mode === option.value}
-            onClick={() => setMode(option.value)}
-            className={`rounded-lg px-2 py-1.5 text-xs font-medium transition-colors ${mode === option.value ? 'bg-blue-500/80 text-white' : 'bg-white/5 text-gray-300 hover:bg-white/10'}`}
-          >
-            {option.label}
-          </button>
-        ))}
-      </div>
-      <div className="text-xs text-gray-500 mt-2">{current.description}。仅对之后生成的图片生效，部分线路只返回图片数据，会照常经本站传输。</div>
-    </div>
+    <button
+      type="button"
+      role="switch"
+      aria-checked={active}
+      aria-label="极速传输"
+      disabled={!supported}
+      onClick={() => setMode(active ? 'standard' : 'fast')}
+      title={supported ? FAST_TITLE : UNSUPPORTED_TITLE}
+      className={`flex items-center gap-1 rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+        active ? 'border-yellow-400/60 bg-yellow-400/15 text-yellow-200' : 'border-white/10 bg-white/5 text-gray-400 hover:bg-white/10'
+      }`}
+    >
+      <span aria-hidden="true">⚡</span>
+      极速{supported ? (active ? ' · 开' : ' · 关') : ' · 此线路不支持'}
+    </button>
   );
 };

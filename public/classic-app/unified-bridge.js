@@ -702,6 +702,7 @@
     isDefaultRoute: raw.isDefaultRoute === true,
     isDefaultNanoBananaLine: raw.isDefaultNanoBananaLine === true,
     allowUserApiKeyWithoutLogin: raw.allowUserApiKeyWithoutLogin === true,
+    resultKind: raw.resultKind === "url" ? "url" : "inline",
     sortOrder: Number(raw.sortOrder || 0),
   });
   const getAllModels = () =>
@@ -1541,6 +1542,7 @@
     if (typeof window.updateClassicGptSettingsUi === "function") {
       window.updateClassicGptSettingsUi();
     }
+    window.syncClassicTransferToggle?.();
     syncClassicPriceUi();
   };
   window.refreshClassicCatalogUi = renderCatalogUi;
@@ -1584,6 +1586,8 @@
     renderCatalogUi();
   };
   window.refreshClassicCatalogs = loadClassicCatalogs;
+  // The route a submission will use; the transfer toggle follows it.
+  window.getClassicSubmitRoute = () => getCurrentRoute();
   const loadRegistrationStatus = async () => {
     try {
       bridgeAuthState.registrationStatus = await fetchJson("/auth/registration-status", {

@@ -45,6 +45,8 @@ export interface ImageRouteConfig {
   pointCost?: number;
   sizeOverrides?: ImageRouteSizeOverrideMap;
   supportedQualities?: ImageRouteQuality[];
+  // 'url': the upstream returns image links, so fast mode can download directly.
+  resultKind?: 'url' | 'inline';
   isActive?: boolean;
   isDefaultRoute?: boolean;
   isDefaultNanoBananaLine?: boolean;
@@ -141,6 +143,7 @@ const normalizeRoute = (route: Partial<ImageRouteConfig> = {}): ImageRouteConfig
   pointCost: roundNonNegativePoint(route.pointCost || 0, 0),
   sizeOverrides: normalizeSizeOverrides(route.sizeOverrides),
   supportedQualities: normalizeSupportedQualities(route.supportedQualities),
+  resultKind: route.resultKind === 'url' ? 'url' : 'inline',
   isActive: route.isActive !== false,
   isDefaultRoute: route.isDefaultRoute === true,
   isDefaultNanoBananaLine: route.isDefaultNanoBananaLine === true,

@@ -167,12 +167,14 @@ test('each success records whether the line returned links or inline bytes',asyn
 test('the chosen transfer mode survives admission and reaches asset preparation',async t=>{
   const modes=[];
   const {service,store}=await harness(t,{execute:async()=>remoteResult,assets:{prepare:async({storageMode,resultUrls})=>{modes.push(storageMode);return {resultUrls,storageStatus:'saved'};}}});
-  const speed=await service.submit(submission({body:{prompt:'speed',clientRequestId:'mode-speed',storageMode:'speed'}}));
+  const speed=await service.submit(submission({body:{prompt:'speed',clientRequestId:'mode-speed',storageMode:'fast'}}));
+  const legacy=await service.submit(submission({body:{prompt:'legacy',clientRequestId:'mode-legacy',storageMode:'speed'}}));
   const unknown=await service.submit(submission({body:{prompt:'unknown',clientRequestId:'mode-unknown',storageMode:'bogus'}}));
-  await waitFor(async()=>(await store.get(speed.task_id)).status==='succeeded'&&(await store.get(unknown.task_id)).status==='succeeded');
-  assert.equal((await store.get(speed.task_id)).storageMode,'speed','admission must keep the requested mode');
-  assert.equal((await store.get(unknown.task_id)).storageMode,'auto','unknown modes fall back to auto');
-  assert.deepEqual(modes.sort(),['auto','speed']);
+  await waitFor(async()=>(await store.get(speed.task_id)).status==='succeeded'&&(await store.get(unknown.task_id)).status==='succeeded'&&(await store.get(legacy.task_id)).status==='succeeded');
+  assert.equal((await store.get(speed.task_id)).storageMode,'speed','fast transfer is stored as the speed asset mode');
+  assert.equal((await store.get(legacy.task_id)).storageMode,'speed','older clients sending speed keep working');
+  assert.equal((await store.get(unknown.task_id)).storageMode,'auto','unknown modes fall back to standard');
+  assert.deepEqual(modes.sort(),['auto','speed','speed']);
   assert.equal((await service.get(speed.task_id,'owner-a')).storage_mode,'speed');
 });
 
@@ -314,6 +316,9 @@ test('public recovery list reads only projected metadata and preserves every vis
   assert.match(listing.sql,/'\$\.images'/);
   assert.match(listing.sql,/'\$\.results'/);
   assert.match(listing.sql,/JSON_EXTRACT\(job_json, '\$\.payload\.preview_urls'\)/);
+  // Recovery lists must carry the per-output download alternatives too.
+  assert.match(listing.sql,/'fast_urls', JSON_EXTRACT\(job_json, '\$\.payload\.fast_urls'\)/);
+  assert.match(listing.sql,/'direct_urls', JSON_EXTRACT\(job_json, '\$\.payload\.direct_urls'\)/);
   const internal=await store.list({userId:job.userId});
   assert.equal(internal[0].payload.raw.length,2*1024*1024,'internal recovery must retain the complete payload');
   assert.match(statements.at(-1).sql,/^SELECT task_id, job_json FROM/);

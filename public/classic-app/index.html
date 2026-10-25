@@ -23,7 +23,7 @@
         document.documentElement.classList.add("classic-vip-mode");
       }
     </script>
-    <link rel="stylesheet" href="/classic-app/style.css?v=classic_storage_mode_v1" />
+    <link rel="stylesheet" href="/classic-app/style.css?v=classic_transfer_v2" />
   </head>
   <body>
     <div class="top-controls">
@@ -459,46 +459,17 @@
                   </div>
                 </div>
               </div>
+            </div>
 
-              <div class="tech-module" title="输出格式">
-                <div class="module-header">格式</div>
-                <div class="pill-dropdown" id="gptOutputFormatPill" data-selected-value="png">
-                  <div class="pill-trigger" onclick="togglePill(event, 'gptOutputFormatPill')">
-                    <span class="trigger-label">PNG</span>
-                    <span class="arrow">▼</span>
-                  </div>
-                  <div class="dropdown-menu">
-                    <div class="dropdown-item active" data-value="png" onclick="selectPill('gptOutputFormatPill', this)"><span>PNG</span></div>
-                    <div class="dropdown-item" data-value="jpeg" onclick="selectPill('gptOutputFormatPill', this)"><span>JPEG</span></div>
-                    <div class="dropdown-item" data-value="webp" onclick="selectPill('gptOutputFormatPill', this)"><span>WebP</span></div>
-                  </div>
+            <div class="params-row classic-transfer-row">
+              <div class="tech-module classic-transfer-module" title="图片传输方式">
+                <div class="module-header">传输</div>
+                <div class="classic-transfer-toggle" role="radiogroup" aria-label="图片传输方式">
+                  <button type="button" class="classic-transfer-option" data-mode="standard" role="radio" aria-checked="true">标准</button>
+                  <button type="button" class="classic-transfer-option" data-mode="fast" role="radio" aria-checked="false">⚡ 极速</button>
                 </div>
-              </div>
-
-              <div class="tech-module" title="输出压缩率">
-                <div class="module-header">压缩率</div>
-                <input
-                  id="gptOutputCompressionInput"
-                  type="number"
-                  min="0"
-                  max="100"
-                  step="1"
-                  placeholder="0-100"
-                />
-              </div>
-
-              <div class="tech-module" title="审核强度">
-                <div class="module-header">审核强度</div>
-                <div class="pill-dropdown" id="gptModerationPill" data-selected-value="auto">
-                  <div class="pill-trigger" onclick="togglePill(event, 'gptModerationPill')">
-                    <span class="trigger-label">自动</span>
-                    <span class="arrow">▼</span>
-                  </div>
-                  <div class="dropdown-menu">
-                    <div class="dropdown-item active" data-value="auto" onclick="selectPill('gptModerationPill', this)"><span>自动</span></div>
-                    <div class="dropdown-item" data-value="low" onclick="selectPill('gptModerationPill', this)"><span>低</span></div>
-                  </div>
-                </div>
+                <div class="classic-transfer-hint" id="classicTransferHint">经本站传输，原图暂存 5 小时</div>
+                <label class="classic-transfer-autodl"><input id="classicAutoDownload" type="checkbox" checked> 生成后自动下载</label>
               </div>
             </div>
           </div>
@@ -536,18 +507,6 @@
           </div>
 
           <div class="image-retention-notice" role="note">原图云端仅保留 <strong>4 小时</strong>，请尽快下载到本地；预览保留 30 天，生成记录长期保留。</div>
-
-          <div class="classic-download-settings">
-            <label><input id="classicAutoDownload" type="checkbox" checked> 生成成功后自动下载原图</label>
-            <span>浏览器缓存与下载文件分别保存，请核对下载记录。</span>
-            <label class="classic-storage-mode">图片传输
-              <select id="classicStorageMode" class="classicStorageMode" aria-label="图片传输方式">
-                <option value="auto">自动（服务器暂存 5 小时）</option>
-                <option value="stable">稳定优先（全部经本站中转）</option>
-                <option value="speed">速度优先（上游直连，仅留预览）</option>
-              </select>
-            </label>
-          </div>
 
           <div class="classic-live-status-row">
             <div class="status-text" id="statusText">SYSTEM READY</div>
@@ -1164,11 +1123,11 @@
 </div>
 
     <script src="/classic-app/promptTags.js?v=classic_vip_mode_v1"></script>
-    <script src="/shared/image-result-store.js?v=classic_cache_v4"></script>
+    <script src="/shared/image-result-store.js?v=classic_transfer_v2"></script>
     <script src="/classic-app/image-runtime.js?v=classic_gallery_v2"></script>
-    <script src="/classic-app/image-job-client.js?v=classic_image_jobs_v2"></script>
-    <script src="/classic-app/script.js?v=classic_storage_mode_v1"></script>
-    <script src="/classic-app/result-assets.js?v=classic_storage_mode_v1"></script>
-    <script src="/classic-app/unified-bridge.js?v=classic_storage_mode_v1"></script>
+    <script src="/classic-app/image-job-client.js?v=classic_transfer_v2"></script>
+    <script src="/classic-app/script.js?v=classic_transfer_v2"></script>
+    <script src="/classic-app/result-assets.js?v=classic_transfer_v2"></script>
+    <script src="/classic-app/unified-bridge.js?v=classic_transfer_v2"></script>
   </body>
 </html>

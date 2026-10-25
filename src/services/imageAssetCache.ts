@@ -45,7 +45,7 @@ export const imageAssetKey = (ref:ImageAssetRef,variant:AssetVariant='preview') 
 // upstream CDN skips our server; the proxy remains the fallback when the
 // upstream blocks cross-origin reads or is unreachable from this network.
 async function fetchDirect(src:string,signal:AbortSignal,timeoutMs:number):Promise<Blob|null> {
-  if(!/^https?:\/\//i.test(src) || imageResultStore.getStorageModePreference()!=='speed')return null;
+  if(!/^https?:\/\//i.test(src) || imageResultStore.getStorageModePreference()!=='fast')return null;
   try {
     const response=await bounded(fetch(src,{signal,mode:'cors',credentials:'omit',referrerPolicy:'no-referrer'}),Math.min(timeoutMs,8000));
     if(!response.ok)return null;

@@ -334,9 +334,25 @@
   function syncPreference() {
     const checkbox = root.document.getElementById('classicAutoDownload');
     if (checkbox) checkbox.checked = store.getAutoDownloadPreference();
-    const mode = store.getStorageModePreference?.() || 'auto';
-    root.document.querySelectorAll('.classicStorageMode').forEach(select => { select.value = mode; });
+    syncTransferToggle();
   }
+  // Fast transfer only changes anything on lines that return upstream links.
+  function syncTransferToggle() {
+    const route = root.getClassicSubmitRoute?.();
+    const supported = route?.resultKind === 'url';
+    const mode = store.getStorageModePreference?.() || 'standard';
+    const effective = supported ? mode : 'standard';
+    root.document.querySelectorAll('.classic-transfer-option').forEach(button => {
+      const isFast = button.dataset.mode === 'fast';
+      button.disabled = isFast && !supported;
+      button.setAttribute('aria-checked', String(button.dataset.mode === effective));
+      button.classList.toggle('active', button.dataset.mode === effective);
+      if (isFast) button.title = supported ? '从上游直接下载原图，本站只保留预览' : '此线路返回图片数据，固定经本站传输';
+    });
+    const hint = root.document.getElementById('classicTransferHint');
+    if (hint) hint.textContent = !supported ? '此线路固定经本站传输' : effective === 'fast' ? '从上游直接下载，本站仅保留预览' : '经本站传输，原图暂存 5 小时';
+  }
+  root.syncClassicTransferToggle = syncTransferToggle;
   root.downloadClassicUnprocessed = async () => {
     const records = await root.readHistoryRecordsFromDB?.() || [];
     let started = 0;
@@ -352,8 +368,10 @@
   root.document.addEventListener('DOMContentLoaded', () => {
     syncPreference();
     root.document.getElementById('classicAutoDownload')?.addEventListener('change', event => store.setAutoDownloadPreference(event.target.checked));
-    // Both classic layouts carry a selector; they share the canvas preference.
-    root.document.querySelectorAll('.classicStorageMode').forEach(select => select.addEventListener('change', event => store.setStorageModePreference?.(event.target.value)));
+    // Shares the canvas preference; a disabled option cannot be chosen.
+    root.document.querySelectorAll('.classic-transfer-option').forEach(button => button.addEventListener('click', () => {
+      if (!button.disabled) store.setStorageModePreference?.(button.dataset.mode);
+    }));
   });
   root.addEventListener('storage', syncPreference);
   root.addEventListener('image-auto-download-change', syncPreference);

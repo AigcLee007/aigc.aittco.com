@@ -55,3 +55,19 @@ describe("image route store schema seeding", () => {
     }
   });
 });
+
+describe("image route result kind", () => {
+  it("defaults link-returning upstreams to url and every other upstream to inline", () => {
+    const { normalizeResultKind } = require("./imageRouteStore.cjs");
+    expect(normalizeResultKind("", "https://api.mouxihub.com")).toBe("url");
+    expect(normalizeResultKind(null, "https://api.visionary.beer")).toBe("url");
+    expect(normalizeResultKind("", "https://rolldek.com")).toBe("inline");
+    expect(normalizeResultKind("", "not a url")).toBe("inline");
+  });
+
+  it("keeps an administrator's explicit choice", () => {
+    const { normalizeResultKind } = require("./imageRouteStore.cjs");
+    expect(normalizeResultKind("inline", "https://api.mouxihub.com")).toBe("inline");
+    expect(normalizeResultKind("url", "https://rolldek.com")).toBe("url");
+  });
+});

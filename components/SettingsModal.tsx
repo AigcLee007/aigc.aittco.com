@@ -1,6 +1,5 @@
 import { AssetImage } from '../src/components/AssetImage';
 import { ImageRetentionNotice } from '../src/components/ImageRetentionNotice';
-import { StorageModeSelector } from '../src/components/StorageModeSelector';
 import { assetActionSource } from '../src/services/imageAssetActions';
 import { readOriginalBlob } from '../src/services/imageAssetCache';
 ﻿import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
@@ -293,7 +292,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
   onUseAsReference,
   initialTab = 'settings'
 }) => {
-  const { apiKey, setApiKey, autoDownloadOnSuccess, setAutoDownloadOnSuccess } = useSelectionStore();
+  const { apiKey, setApiKey } = useSelectionStore();
   const [activeTab, setActiveTab] = useState<'settings' | 'history'>(initialTab);
   const [showApiKey, setShowApiKey] = useState(false);
   const [isCheckingBal, setIsCheckingBal] = useState(false);
@@ -663,28 +662,6 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
                     本站 API 仅限合规技术研发及学术测试使用。用户须严格遵守《生成式人工智能服务管理暂行办法》，严禁利用本平台接口生成或传播违法违规内容。本平台不对用户行为承担连带法律责任。
                   </div>
                 </div>
-              </div>
-
-              <StorageModeSelector />
-
-              <div className="bg-white/5 border border-white/10 rounded-xl p-3.5">
-                <label className="flex items-center justify-between gap-3 cursor-pointer">
-                  <div className="min-w-0">
-                    <div className="text-sm text-gray-200 font-medium">生成成功后自动下载图片</div>
-                    <div className="text-xs text-gray-500 mt-1">自动保存到浏览器默认下载目录（仅图片，视频不自动下载；多图会逐张自动下载）</div>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setAutoDownloadOnSuccess(!autoDownloadOnSuccess)}
-                    className={`relative inline-flex h-7 w-12 items-center rounded-full transition-colors ${autoDownloadOnSuccess ? 'bg-blue-500/80' : 'bg-white/10'}`}
-                    aria-pressed={autoDownloadOnSuccess}
-                    title={autoDownloadOnSuccess ? '已开启' : '已关闭'}
-                  >
-                    <span
-                      className={`inline-block h-5 w-5 transform rounded-full bg-white transition-transform ${autoDownloadOnSuccess ? 'translate-x-6' : 'translate-x-1'}`}
-                    />
-                  </button>
-                </label>
               </div>
 
               <div className="bg-white/5 border border-white/10 rounded-xl p-3.5">

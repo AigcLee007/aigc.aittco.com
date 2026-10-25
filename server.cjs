@@ -330,6 +330,8 @@ const toPublicImageRoute = (route = {}) => ({
   supportedQualities: Array.isArray(route.supportedQualities)
     ? route.supportedQualities
     : undefined,
+  // "url" lines can be downloaded straight from the upstream in fast mode.
+  resultKind: route.resultKind === "url" ? "url" : "inline",
   sortOrder: Number(route.sortOrder || 0),
   isActive: route.isActive !== false,
   isDefaultRoute: route.isDefaultRoute === true,

@@ -353,7 +353,7 @@ async function getClassicImageCacheState(id) {
 
 // Speed mode reads upstream links straight from their CDN; the proxy is the fallback.
 async function fetchClassicDirectBlob(src, signal) {
-  if (!/^https?:\/\//i.test(src) || window.ImageResultStore?.getStorageModePreference?.() !== "speed") return null;
+  if (!/^https?:\/\//i.test(src) || window.ImageResultStore?.getStorageModePreference?.() !== "fast") return null;
   try {
     const response = await window.ClassicImageRuntime.withTimeout(
       () => fetch(src, { signal, mode: "cors", credentials: "omit", referrerPolicy: "no-referrer" }), 8000);
@@ -1410,13 +1410,13 @@ function getClassicGptSettings() {
   try {
     const quality = String(localStorage.getItem(GPT_IMAGE_QUALITY_KEY) || GPT_IMAGE_DEFAULTS.quality).trim().toLowerCase();
     const supportedQualities = getClassicSupportedGptQualities();
-    const outputFormat = String(localStorage.getItem(GPT_IMAGE_OUTPUT_FORMAT_KEY) || GPT_IMAGE_DEFAULTS.outputFormat).trim().toLowerCase();
-    const moderation = String(localStorage.getItem(GPT_IMAGE_MODERATION_KEY) || GPT_IMAGE_DEFAULTS.moderation).trim().toLowerCase();
+    // Format, compression and moderation are no longer user options:
+    // always PNG, no compression, automatic moderation.
     return {
       quality: supportedQualities.includes(quality) ? quality : GPT_IMAGE_DEFAULTS.quality,
-      outputFormat: ["png", "jpeg", "webp"].includes(outputFormat) ? outputFormat : GPT_IMAGE_DEFAULTS.outputFormat,
-      outputCompression: readClassicGptOutputCompression(),
-      moderation: ["auto", "low"].includes(moderation) ? moderation : GPT_IMAGE_DEFAULTS.moderation,
+      outputFormat: GPT_IMAGE_DEFAULTS.outputFormat,
+      outputCompression: null,
+      moderation: GPT_IMAGE_DEFAULTS.moderation,
     };
   } catch (_) {
     return { ...GPT_IMAGE_DEFAULTS };
@@ -1532,6 +1532,8 @@ function updateClassicGptSettingsUi() {
     compressionInput.value = settings.outputCompression === null ? "" : String(settings.outputCompression);
   }
   updateClassicGptCompressionState();
+  // Fast transfer availability follows the selected line.
+  window.syncClassicTransferToggle?.();
 }
 
 window.getClassicGptSettings = getClassicGptSettings;

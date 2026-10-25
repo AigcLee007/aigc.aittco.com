@@ -4,7 +4,7 @@
   const DB_NAME = 'keyval-store', STORE_NAME = 'keyval';
   const PREF_KEY = 'image-auto-download-v1';
   const STORAGE_MODE_KEY = 'image-storage-mode-v1';
-  const STORAGE_MODES = ['auto', 'stable', 'speed'];
+  const STORAGE_MODES = ['standard', 'fast'];
   const isBlob = value => value instanceof root.Blob && value.size > 0 && (!value.type || value.type.startsWith('image/'));
   const resultId = (ownerId, jobId, outputIndex = 0) => {
     if (!String(ownerId || '').trim() || !String(jobId || '').trim()) throw new Error('Result owner and job are required');
@@ -232,14 +232,19 @@
       setAutoDownloadPreference(enabled) {
         try { root.localStorage?.setItem(PREF_KEY, String(!!enabled)); root.dispatchEvent?.(new root.CustomEvent('image-auto-download-change', { detail: !!enabled })); } catch {}
       },
-      // auto: server copy with upstream fallback; stable: always server;
-      // speed: upstream link first, server keeps only the preview.
+      // standard: the server keeps the original for 5 hours;
+      // fast: link lines download straight from the upstream, server keeps a preview.
       getStorageModePreference() {
-        try { const value = root.localStorage?.getItem(STORAGE_MODE_KEY); if (STORAGE_MODES.includes(value)) return value; } catch {}
-        return 'auto';
+        try {
+          const value = root.localStorage?.getItem(STORAGE_MODE_KEY);
+          // Earlier builds stored auto / stable / speed.
+          if (value === 'speed') return 'fast';
+          if (STORAGE_MODES.includes(value)) return value;
+        } catch {}
+        return 'standard';
       },
       setStorageModePreference(mode) {
-        const value = STORAGE_MODES.includes(mode) ? mode : 'auto';
+        const value = mode === 'speed' ? 'fast' : STORAGE_MODES.includes(mode) ? mode : 'standard';
         try { root.localStorage?.setItem(STORAGE_MODE_KEY, value); root.dispatchEvent?.(new root.CustomEvent('image-storage-mode-change', { detail: value })); } catch {}
       },
       close() { connection?.close(); connection = undefined; },

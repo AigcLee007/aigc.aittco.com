@@ -1,7 +1,7 @@
 // The same browser module is loaded by classic HTML and bundled into canvas.
 import '../../public/shared/image-result-store.js';
 
-export type ImageStorageMode = 'auto' | 'stable' | 'speed';
+export type ImageStorageMode = 'standard' | 'fast';
 export interface ImageResultIdentity { ownerId: string; jobId: string; outputIndex?: number }
 export interface ImageResultInput extends ImageResultIdentity {
   originalUrl?: string; previewUrl?: string; createdAt?: number;

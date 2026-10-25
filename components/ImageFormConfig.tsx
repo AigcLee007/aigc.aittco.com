@@ -4,6 +4,7 @@ import DropUpSelect from './DropUpSelect';
 import ModelSelector from './ModelSelector';
 import ImageModelIcon from './ImageModelIcon';
 import CoinIcon from './CoinIcon';
+import { TransferModeToggle } from '../src/components/StorageModeSelector';
 import {
   DEFAULT_IMAGE_MODEL_ID,
   getDefaultImageSizeForModel,
@@ -69,12 +70,8 @@ export const ImageFormConfig: React.FC<ImageFormConfigProps> = ({
     setImageLine,
     gptImageQuality,
     setGptImageQuality,
-    gptImageOutputFormat,
-    setGptImageOutputFormat,
-    gptImageOutputCompression,
-    setGptImageOutputCompression,
-    gptImageModeration,
-    setGptImageModeration,
+    autoDownloadOnSuccess,
+    setAutoDownloadOnSuccess,
   } = useSelectionStore();
   const lastAutoPricedModelRef = useRef<string | null>(null);
 
@@ -139,17 +136,6 @@ export const ImageFormConfig: React.FC<ImageFormConfigProps> = ({
     };
     return supportedQualities.map((value) => ({ value, label: labels[value] }));
   }, [supportedQualities]);
-
-  const commitGptCompression = (value: string) => {
-    const trimmed = value.trim();
-    if (!trimmed) {
-      setGptImageOutputCompression(null);
-      return;
-    }
-    const parsed = Number(trimmed);
-    if (!Number.isFinite(parsed)) return;
-    setGptImageOutputCompression(Math.max(0, Math.min(100, Math.round(parsed))));
-  };
 
   useEffect(() => {
     if (visibleImageModels.length === 0) return;
@@ -349,53 +335,6 @@ export const ImageFormConfig: React.FC<ImageFormConfigProps> = ({
           </div>
         )}
 
-        {isGptImage2 && (
-          <div>
-            <label className="mb-1 block text-[10px] text-gray-500">格式</label>
-            <DropUpSelect
-              value={gptImageOutputFormat}
-              onChange={(value) =>
-                setGptImageOutputFormat(value as 'png' | 'jpeg' | 'webp')
-              }
-              options={[
-                { value: 'png', label: 'PNG' },
-                { value: 'jpeg', label: 'JPEG' },
-                { value: 'webp', label: 'WebP' },
-              ]}
-            />
-          </div>
-        )}
-
-        {isGptImage2 && (
-          <div>
-            <label className="mb-1 block text-[10px] text-gray-500">压缩率</label>
-            <input
-              type="number"
-              min={0}
-              max={100}
-              disabled={gptImageOutputFormat === 'png'}
-              value={gptImageOutputCompression ?? ''}
-              onChange={(event) => commitGptCompression(event.target.value)}
-              placeholder="0-100"
-              className="w-full rounded border border-gray-700 bg-gray-900 px-2 py-2 text-xs text-white disabled:cursor-not-allowed disabled:opacity-45"
-            />
-          </div>
-        )}
-
-        {isGptImage2 && (
-          <div>
-            <label className="mb-1 block text-[10px] text-gray-500">审核强度</label>
-            <DropUpSelect
-              value={gptImageModeration}
-              onChange={(value) => setGptImageModeration(value as 'auto' | 'low')}
-              options={[
-                { value: 'auto', label: '自动' },
-                { value: 'low', label: '低' },
-              ]}
-            />
-          </div>
-        )}
-
         <div>
           <label className="mb-1 block text-[10px] text-gray-500">数量</label>
           <DropUpSelect
@@ -410,6 +349,19 @@ export const ImageFormConfig: React.FC<ImageFormConfigProps> = ({
             ]}
           />
         </div>
+      </div>
+
+      <div className="mt-2 flex items-center justify-between gap-2">
+        <TransferModeToggle supported={selectedRoute.resultKind === 'url'} />
+        <label className="flex shrink-0 cursor-pointer items-center gap-1.5 text-[11px] text-gray-400" title="生成成功后保存到浏览器默认下载目录">
+          <input
+            type="checkbox"
+            checked={autoDownloadOnSuccess}
+            onChange={(event) => setAutoDownloadOnSuccess(event.target.checked)}
+            className="h-3.5 w-3.5 accent-blue-500"
+          />
+          自动下载
+        </label>
       </div>
 
       <div className="mt-3 rounded-xl border border-yellow-400/[0.18] bg-yellow-400/[0.06] px-3 py-2.5">

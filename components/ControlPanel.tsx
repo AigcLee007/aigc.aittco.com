@@ -149,9 +149,6 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
     imageModel, setImageModel,
     imageLine, setImageLine,
     gptImageQuality,
-    gptImageOutputFormat,
-    gptImageOutputCompression,
-    gptImageModeration,
     grokReferenceMode,
     thinkingLevel, setThinkingLevel
   } = useSelectionStore();
@@ -985,15 +982,12 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
         size: calculateGptImageSize(imageSize, effectiveRatio),
         image_size: imageSize,
         quality: gptImageQuality,
-        output_format: gptImageOutputFormat,
-        moderation: gptImageModeration,
+        // Format and moderation are fixed: PNG with automatic moderation.
+        output_format: 'png',
+        moderation: 'auto',
         n,
         routeId: selectedImageRoute.id,
       };
-
-      if (gptImageOutputFormat !== 'png' && gptImageOutputCompression !== null) {
-        payload.output_compression = Math.max(0, Math.min(100, gptImageOutputCompression));
-      }
 
       return payload;
     };

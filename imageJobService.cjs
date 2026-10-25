@@ -33,8 +33,8 @@ const collectImages = value => {
 };
 const safeUrlList = (payload,key) => (Array.isArray(payload?.[key]) ? payload[key] : Array.isArray(payload?.payload?.[key]) ? payload.payload[key] : [])
   .slice(0,12).map(url => typeof url === 'string' && url.length <= 8192 && /^(https?:\/\/|\/(?!\/))/i.test(url) && !/\[truncated\]/i.test(url) ? url : null);
-const STORAGE_MODES = ['auto','stable','speed'];
-const normalizeStorageMode = value => STORAGE_MODES.includes(value) ? value : 'auto';
+// Clients send standard / fast; earlier builds sent auto / stable / speed.
+const normalizeStorageMode = value => value==='fast'||value==='speed' ? 'speed' : 'auto';
 const smallPayload = (payload, urls) => ({
   ...(payload?.billing ? {billing:payload.billing} : {}),
   images:urls,results:urls,data:urls.map(url=>({url})),

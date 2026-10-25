@@ -126,6 +126,19 @@ const hasLegacyRollDekSizeModels = (value) =>
     /gpt-image-2\.5-sunburst-(?:2k|4k)$/i.test(trimToString(entry.upstreamModel || "")),
   );
 
+// Whether a line returns upstream image links (eligible for direct download)
+// or inline image bytes. Seeded from the known upstreams; admins can change it.
+const RESULT_KINDS = new Set(["url", "inline"]);
+const LINK_RESULT_HOSTS = /(^|\.)(mouxihub\.com|visionary\.beer)$/i;
+const inferResultKind = (baseUrl) => {
+  try { return LINK_RESULT_HOSTS.test(new URL(String(baseUrl || "")).hostname) ? "url" : "inline"; }
+  catch (_) { return "inline"; }
+};
+const normalizeResultKind = (value, baseUrl) => {
+  const kind = trimToString(value).toLowerCase();
+  return RESULT_KINDS.has(kind) ? kind : inferResultKind(baseUrl);
+};
+
 const normalizeStaticRoute = (route, index) => ({
   route_id: trimToString(route.id),
   label: trimToString(route.label || route.id),
@@ -147,6 +160,7 @@ const normalizeStaticRoute = (route, index) => ({
   point_cost: parsePoint(route.pointCost, 0),
   size_overrides: stringifySizeOverrides(route.sizeOverrides),
   supported_qualities: stringifySupportedQualities(route.supportedQualities),
+  result_kind: normalizeResultKind(route.resultKind, route.baseUrl),
   sort_order: index,
   is_active: true,
   is_default_route:
@@ -199,6 +213,7 @@ const mapRowToRoute = (row, { includeSecrets = false } = {}) =>
     pointCost: parsePoint(row.point_cost, 0),
     sizeOverrides: getMergedSizeOverrides(row),
     supportedQualities: getMergedSupportedQualities(row),
+    resultKind: normalizeResultKind(row.result_kind, row.base_url),
     sortOrder: parseInteger(row.sort_order, 0),
     isActive: parseBoolean(row.is_active, true),
     isDefaultRoute: parseBoolean(row.is_default_route, false),
@@ -334,6 +349,16 @@ const ensureImageRouteSchema = async () => {
           ALTER TABLE image_routes
           ADD COLUMN supported_qualities LONGTEXT NULL
             AFTER size_overrides
+        `);
+      }
+      const [resultKindColumns] = await pool.execute(
+        "SHOW COLUMNS FROM image_routes LIKE 'result_kind'",
+      );
+      if (!resultKindColumns?.length) {
+        await pool.execute(`
+          ALTER TABLE image_routes
+          ADD COLUMN result_kind VARCHAR(16) NULL
+            AFTER supported_qualities
         `);
       }
       await withTransaction(async (connection) => {
@@ -611,6 +636,11 @@ const validateRoutePayload = (input = {}, { partial = false } = {}) => {
     next.size_overrides = stringifySizeOverrides(input.sizeOverrides);
   }
 
+  if (Object.prototype.hasOwnProperty.call(input, "resultKind")) {
+    const kind = trimToString(input.resultKind).toLowerCase();
+    if (kind && !RESULT_KINDS.has(kind)) throw new Error("Result kind must be url or inline");
+    next.result_kind = kind || null;
+  }
   if (!partial || Object.prototype.hasOwnProperty.call(input, "supportedQualities")) {
     next.supported_qualities = stringifySupportedQualities(input.supportedQualities);
   }
@@ -743,9 +773,9 @@ const createManagedImageRoute = async (input = {}) => {
           transport, mode, base_url, generate_path, task_path,
           edit_path, chat_path, upstream_model, use_request_model,
           allow_user_api_key_without_login,
-          api_key, api_key_env, point_cost, size_overrides, supported_qualities, sort_order, is_active,
+          api_key, api_key_env, point_cost, size_overrides, supported_qualities, result_kind, sort_order, is_active,
           is_default_route, is_default_nano_banana_line, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `,
       [
         payload.route_id,
@@ -768,6 +798,7 @@ const createManagedImageRoute = async (input = {}) => {
         payload.point_cost || 0,
         payload.size_overrides || null,
         payload.supported_qualities || null,
+        payload.result_kind || null,
         payload.sort_order || 0,
         payload.is_active ?? 1,
         payload.is_default_route || 0,
@@ -933,6 +964,7 @@ const deleteManagedImageRoute = async (routeId) => {
 };
 
 module.exports = {
+  normalizeResultKind,
   createManagedImageRoute,
   deleteManagedImageRoute,
   ensureImageRouteSchema,
