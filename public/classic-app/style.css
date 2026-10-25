@@ -3248,37 +3248,41 @@ html.classic-vip-mode .classic-live-empty {
   z-index: 2;
 }
 
+/* 缓存状态：小圆形图标。正常时低调，需要处理时才有颜色；完整说明在悬停提示里 */
 .history-cache-badge {
   position: absolute;
   top: 8px;
   right: 8px;
-  padding: 3px 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
   border-radius: 999px;
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.2px;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1;
   z-index: 3;
-  pointer-events: none;
-  border: 1px solid transparent;
+  cursor: help;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(8px);
 }
+.history-cache-badge .history-cache-label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+.history-cache-badge.local { color: rgba(255, 255, 255, 0.55); }
+.history-cache-badge.cloud { color: #fde68a; border-color: rgba(250, 204, 21, 0.45); background: rgba(60, 45, 0, 0.6); }
+.history-cache-badge.alert { color: #fecaca; border-color: rgba(248, 113, 113, 0.6); background: rgba(90, 20, 20, 0.7); }
+.history-cache-badge.syncing { color: rgba(255, 255, 255, 0.7); }
 
-.history-cache-badge.local {
-  color: #062b19;
-  background: rgba(108, 255, 188, 0.92);
-  border-color: rgba(108, 255, 188, 0.95);
-}
-
-.history-cache-badge.cloud {
-  color: #edf1ff;
-  background: rgba(87, 98, 124, 0.76);
-  border-color: rgba(186, 195, 219, 0.24);
-}
-
-.history-cache-badge.syncing {
-  color: #2a1f00;
-  background: rgba(255, 214, 10, 0.92);
-  border-color: rgba(255, 214, 10, 0.95);
-}
+.classic-live-meta-end { display: inline-flex; align-items: center; gap: 6px; }
+.classic-live-meta-end .history-cache-badge { position: static; width: 26px; height: 26px; pointer-events: auto; }
 
 .classic-download-settings {
   display: flex;
@@ -3350,8 +3354,7 @@ html.classic-vip-mode .classic-live-empty {
   accent-color: #facc15;
 }
 .classic-live-action-btn[hidden] { display: none !important; }
-.classic-live-media > .history-cache-badge { top: 42px; left: 10px; max-width: calc(100% - 20px); white-space: normal; }
-.history-cache-badge { max-width: calc(100% - 12px); white-space: normal; pointer-events: none; }
+.history-cache-badge { pointer-events: auto; }
 .classic-gallery-pagination { display: flex; align-items: center; justify-content: center; gap: 12px; padding: 16px 0; }
 
 .history-prompt-tip {
@@ -5749,4 +5752,137 @@ html.classic-vip-mode .classic-live-empty {
   .params-row.has-quality {
     grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
   }
+}
+
+/* 创作卡片：参考图在上、提示词在下，参照画布版 */
+.compose-module {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.compose-section { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.compose-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 26px;
+}
+.compose-title {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--text-sub);
+}
+.compose-module .ref-count-badge {
+  min-width: 0;
+  height: 20px;
+  padding: 0 7px;
+  border-radius: 6px;
+  font-size: 11px;
+}
+.compose-actions { display: inline-flex; align-items: center; gap: 6px; }
+.compose-text-btn {
+  width: auto;
+  padding: 3px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #7cc4ff;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.compose-text-btn:hover:not(:disabled) { background: rgba(124, 196, 255, 0.1); }
+.compose-module .classic-inline-tool-btn {
+  border: 0;
+  background: transparent;
+  color: var(--text-sub);
+  box-shadow: none;
+}
+.compose-module .classic-inline-tool-btn:hover:not(:disabled) { color: #fde68a; background: rgba(250, 204, 21, 0.1); }
+.compose-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--text-sub);
+  cursor: pointer;
+}
+.compose-icon-btn:hover { color: #fca5a5; border-color: rgba(248, 113, 113, 0.4); }
+.compose-icon-btn[hidden] { display: none; }
+
+/* 参考图：没有图时只有一个小方块，有图后横向排开 */
+.compose-module .upload-box {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 10px;
+  min-height: 0;
+  max-height: none;
+  padding: 10px;
+  border: 1px dashed rgba(255, 255, 255, 0.14);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.02);
+  opacity: 1;
+  text-align: left;
+  cursor: default;
+  transform: none;
+}
+.compose-module .upload-box:hover { transform: none; background: rgba(255, 255, 255, 0.03); }
+.compose-module .upload-box.drag-over {
+  border-color: var(--accent-blue);
+  background: rgba(0, 198, 255, 0.08);
+  transform: none;
+}
+.compose-module #thumbGrid {
+  display: contents;
+}
+.compose-module .thumb-wrapper { width: 72px; height: 72px; border-radius: 12px; }
+.ref-add-tile {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  width: 72px;
+  height: 72px;
+  flex: 0 0 auto;
+  border: 1px dashed rgba(255, 255, 255, 0.22);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--text-sub);
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+  transition: 0.2s;
+}
+.ref-add-tile:hover { border-color: rgba(124, 196, 255, 0.6); color: #7cc4ff; }
+.ref-add-tile[hidden] { display: none !important; }
+.ref-add-hint { font-size: 10px; line-height: 1.2; }
+
+/* 提示词 */
+.compose-module .prompt-area {
+  height: 112px;
+  min-height: 88px;
+  padding: 12px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  resize: vertical;
+}
+.compose-module .prompt-area:focus { border-color: rgba(124, 196, 255, 0.45); }
+.compose-tip { font-size: 11px; color: var(--text-sub); opacity: 0.75; }
+
+@media (max-width: 768px) {
+  .compose-module { gap: 14px; }
+  .compose-module .thumb-wrapper,
+  .ref-add-tile { width: 64px !important; height: 64px !important; }
+  .compose-module .prompt-area { height: 96px !important; }
 }

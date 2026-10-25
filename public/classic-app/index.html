@@ -23,7 +23,7 @@
         document.documentElement.classList.add("classic-vip-mode");
       }
     </script>
-    <link rel="stylesheet" href="/classic-app/style.css?v=classic_transfer_v4" />
+    <link rel="stylesheet" href="/classic-app/style.css?v=classic_compose_v1" />
   </head>
   <body>
     <div class="top-controls">
@@ -194,72 +194,55 @@
           <div class="classic-compose-column">
         <!-- Header removed as requested (Duplicate) -->
 
-        <!-- 顶部通栏: 提示词 -->
-        <div class="tech-module prompt-module">
-          <div class="module-header">
-            <span>创意提示词 (PROMPT)</span>
-            <div class="prompt-header-actions">
-              <button
-                id="classicOptimizePromptBtn"
-                class="classic-inline-tool-btn"
-                onclick="optimizeClassicPrompt()"
-                title="优化提示词"
-              >
-                ✨ 优化
-              </button>
-              <span
-                class="trash-icon"
-                onclick="clearPrompt()"
-                title="清空提示词"
-                >🗑️</span
-              >
+        <!-- 创作卡片：参考图 + 提示词 -->
+        <div class="tech-module compose-module prompt-module">
+          <div class="compose-section">
+            <div class="compose-header">
+              <div class="ref-header-main">
+                <span class="compose-title">参考图</span>
+                <span id="refCountBadge" class="ref-count-badge">0/10</span>
+              </div>
+              <div class="compose-actions">
+                <button type="button" class="compose-text-btn" onclick="triggerUpload(event)" title="上传参考图">⤒ 上传</button>
+                <button type="button" class="compose-icon-btn" onclick="clearRefImages()" title="清空参考图" aria-label="清空参考图">
+                  <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3m-8 0 1 13h8l1-13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                </button>
+              </div>
+            </div>
+            <div class="upload-box" id="dropZone">
+              <input type="file" id="fileInput" accept="image/*" multiple hidden onclick="event.stopPropagation()" />
+              <div id="thumbGrid"></div>
+              <div id="uploadPlaceholder" class="ref-add-tile" onclick="triggerUpload(event)" title="点击、拖拽或粘贴图片">
+                <span aria-hidden="true">＋</span>
+                <span id="uploadHintText" class="ref-add-hint">最多10张</span>
+              </div>
             </div>
           </div>
-          <div class="prompt-input-wrap">
-            <textarea
+
+          <div class="compose-section">
+            <div class="compose-header">
+              <span class="compose-title">提示词</span>
+              <div class="compose-actions">
+                <button id="classicOptimizePromptBtn" type="button" class="compose-text-btn classic-inline-tool-btn" onclick="optimizeClassicPrompt()" title="优化提示词">✨ 优化</button>
+                <button type="button" class="compose-icon-btn" id="classicClearPromptBtn" onclick="clearPrompt()" title="清空提示词" aria-label="清空提示词" hidden>
+                  <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+                </button>
+              </div>
+            </div>
+            <div class="prompt-input-wrap">
+              <textarea
               id="prompt"
               class="prompt-area"
-              placeholder="描述画面内容、光影、风格... (支持中文，支持 @图1 @图2 引用参考图)"
+              placeholder="描述你想要生成的图片…"
             ></textarea>
-            <div id="promptMentionMenu" class="prompt-mention-menu" style="display:none;"></div>
+              <div id="promptMentionMenu" class="prompt-mention-menu" style="display:none;"></div>
+            </div>
+            <div id="refMentionSummary" class="ref-mention-summary" style="display:none;"></div>
+            <div class="compose-tip">可用 @图1 @图2 指定参考图</div>
           </div>
-          <div id="refMentionSummary" class="ref-mention-summary" style="display:none;"></div>
         </div>
 
         <div class="settings-grid">
-          <!-- 左列: 视觉参考图 -->
-          <div class="tech-module ref-module">
-            <div class="module-header">
-              <div class="ref-header-main">
-                <span>视觉参考图 (REF)</span>
-                <span id="refCountBadge" class="ref-count-badge">0/10</span>
-              </div>
-              <span
-                class="trash-icon"
-                onclick="clearRefImages()"
-                title="清空参考图"
-                >🗑️</span
-              >
-            </div>
-            <div class="upload-box" id="dropZone">
-              <input
-                type="file"
-                id="fileInput"
-                accept="image/*"
-                multiple
-                hidden
-                onclick="event.stopPropagation()"
-              />
-              <div id="uploadPlaceholder" onclick="triggerUpload(event)">
-                <div style="font-size: 24px; margin-bottom: 5px">📷</div>
-                <div id="uploadHintText" style="font-size: 12px; color: var(--text-sub)">
-                  点击或拖拽图片到此处（最多10张）
-                </div>
-              </div>
-              <div id="thumbGrid"></div>
-            </div>
-          </div>
-
           <!-- 右列: 模型与参数 -->
           <div class="right-column">
             <!-- 模型选择 -->
@@ -1118,8 +1101,8 @@
     <script src="/shared/image-result-store.js?v=classic_transfer_v2"></script>
     <script src="/classic-app/image-runtime.js?v=classic_gallery_v2"></script>
     <script src="/classic-app/image-job-client.js?v=classic_transfer_v2"></script>
-    <script src="/classic-app/script.js?v=classic_transfer_v3"></script>
-    <script src="/classic-app/result-assets.js?v=classic_transfer_v4"></script>
+    <script src="/classic-app/script.js?v=classic_compose_v1"></script>
+    <script src="/classic-app/result-assets.js?v=classic_compose_v1"></script>
     <script src="/classic-app/unified-bridge.js?v=classic_transfer_v2"></script>
   </body>
 </html>

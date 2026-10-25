@@ -1015,7 +1015,7 @@ function patchClassicLiveMedia(card, task, selector = ".classic-live-media") {
 function patchClassicLiveCard(card, task, primary) {
   if (!card) {
     card = document.createElement("div");
-    card.innerHTML = '<div class="classic-live-media"><div class="classic-live-meta"><span class="classic-live-chip"></span><span class="classic-live-time"></span></div><div class="history-cache-badge cloud"></div></div><div class="classic-live-info"><div><div class="classic-live-prompt"></div><div class="classic-live-config"></div></div><div class="classic-live-actions"></div></div>';
+    card.innerHTML = '<div class="classic-live-media"><div class="classic-live-meta"><span class="classic-live-chip"></span><span class="classic-live-meta-end"><span class="classic-live-time"></span><span class="history-cache-badge cloud"></span></span></div></div><div class="classic-live-info"><div><div class="classic-live-prompt"></div><div class="classic-live-config"></div></div><div class="classic-live-actions"></div></div>';
     const actions = card.querySelector(".classic-live-actions");
     for (const [action, label] of [["zoom", "放大"], ["download", "下载原图"], ["fast", "快速下载"], ["regen", "重生"], ["ref", "参考"], ["copy", "链接"], ["recover", "从本地恢复"], ["delete", "删除"]]) {
       const button = document.createElement("button"); button.type = "button"; button.className = "classic-live-action-btn"; button.dataset.action = action; button.textContent = label;
@@ -1467,8 +1467,9 @@ function updateClassicRefUploadHint() {
   const limit = getCurrentRefImageLimit();
   const hint = document.getElementById("uploadHintText");
   if (hint) {
-    hint.textContent = `点击或拖拽图片到此处（最多${limit}张）`;
+    hint.textContent = `最多${limit}张`;
   }
+  if (typeof syncRefAddTile === "function") syncRefAddTile();
   updateRefCountBadge();
 }
 
@@ -1583,17 +1584,14 @@ function setHistoryCacheBadge(cardEl, status) {
   if (!cardEl) return;
   const badge = cardEl.querySelector(".history-cache-badge");
   if (!badge) return;
-  badge.classList.remove("local", "cloud", "syncing");
-  if (status === "local") {
-    badge.classList.add("local");
-    badge.textContent = "已本地保存";
-  } else if (status === "cloud") {
-    badge.classList.add("cloud");
-    badge.textContent = "云端链接";
-  } else {
-    badge.classList.add("syncing");
-    badge.textContent = "缓存中";
+  const tone = status === "local" || status === "cloud" ? status : "syncing";
+  const label = tone === "local" ? "已本地保存" : tone === "cloud" ? "云端链接" : "缓存中";
+  if (typeof window.renderClassicCacheBadge === "function") {
+    window.renderClassicCacheBadge(badge, tone, label);
+    return;
   }
+  badge.className = "history-cache-badge " + tone;
+  badge.textContent = label;
 }
 
 // 并发控制变量
@@ -1851,6 +1849,12 @@ function initPromptTagUi() {
   };
 
   prompt.addEventListener("input", syncUi);
+  // The clear button is only shown when there is something to clear.
+  const clearBtn = document.getElementById("classicClearPromptBtn");
+  const syncClearBtn = () => { if (clearBtn) clearBtn.hidden = !prompt.value; };
+  prompt.addEventListener("input", syncClearBtn);
+  syncClearBtn();
+  window.syncClassicClearPromptBtn = syncClearBtn;
   prompt.addEventListener("click", syncUi);
   prompt.addEventListener("keyup", syncUi);
   prompt.addEventListener("blur", () => setTimeout(hidePromptMentionMenu, 120));
@@ -2665,6 +2669,7 @@ function clearPrompt() {
     action: "custom",
     onPrimary: () => {
       promptArea.value = "";
+      window.syncClassicClearPromptBtn?.();
       closeApiGuideModal();
     },
   });
@@ -2683,7 +2688,7 @@ function clearRefImages() {
       smartRatio = null;
       updateRatioOptions();
       renderThumbs();
-      document.getElementById("uploadPlaceholder").style.display = "block";
+      syncRefAddTile();
       closeApiGuideModal();
     },
   });
@@ -2939,7 +2944,8 @@ function openFilePicker(e) {
 dropZone.addEventListener("click", (e) => {
   const target = e.target;
   // Avoid opening file picker when user is interacting with existing thumbnails.
-  if (target.closest(".thumb-close") || target.closest(".thumb-wrapper")) return;
+  // The add tile opens the picker itself, so it is skipped here too.
+  if (target.closest(".thumb-close") || target.closest(".thumb-wrapper") || target.closest(".ref-add-tile")) return;
   openFilePicker(e);
 });
 
@@ -3037,7 +3043,7 @@ async function handleFiles(files) {
     console.log("Current refImages count:", refImages.length);
     renderThumbs();
     if (placeholder) {
-      placeholder.style.display = refImages.length > 0 ? "none" : "block";
+      syncRefAddTile();
     }
   } catch (err) {
     console.error("handleFiles Error:", err);
@@ -3128,6 +3134,14 @@ function updateRatioOptions(forceSelectSmart = false) {
 }
 
 // --- 更新：参考图渲染 (支持点击放大) ---
+function syncRefAddTile() {
+  const tile = document.getElementById("uploadPlaceholder");
+  if (!tile) return;
+  tile.hidden = refImages.length >= getCurrentRefImageLimit();
+  tile.style.display = "";
+  document.getElementById("dropZone")?.classList.toggle("has-refs", refImages.length > 0);
+}
+
 function renderThumbs() {
   console.log("renderThumbs -> count:", refImages.length);
   const grid = document.getElementById("thumbGrid");
@@ -3251,7 +3265,7 @@ function renderThumbs() {
       }
 
       renderThumbs();
-      if (refImages.length === 0) placeholder.style.display = "block";
+      syncRefAddTile();
     };
     wrapper.onclick = () => {
       if (Date.now() < suppressThumbPreviewUntil) return;
@@ -3316,14 +3330,8 @@ function renderThumbs() {
     suppressThumbPreviewUntil = Date.now() + 180;
   };
   
-  // 自动处理占位符显示 (受控模式)
-  if (refImages.length > 0) {
-    placeholder.style.display = "none";
-    console.log("renderThumbs: Hiding placeholder, displaying thumbnails.");
-  } else {
-    placeholder.style.display = "block";
-    console.log("renderThumbs: Showing placeholder (no images).");
-  }
+  // The add tile stays beside the thumbnails until the reference limit.
+  syncRefAddTile();
 }
 
 // --- 并发生成逻辑 ---
@@ -4211,7 +4219,7 @@ async function useAsRef(url, btnElement) {
 
     // 更新 UI
     renderThumbs();
-    document.getElementById("uploadPlaceholder").style.display = "none";
+    syncRefAddTile();
 
     // 视觉反馈
     if (hasBtn) {

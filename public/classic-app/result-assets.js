@@ -115,10 +115,34 @@
     if (cacheError) label += cacheError === 'QUOTA' || cacheError.name === 'QuotaExceededError' ? ' · 缓存空间不足' : ' · 缓存暂不可读';
     if (state?.downloadState === 'started') label += ' · 已发起下载';
     if (state?.downloadState === 'claimed') label += ' · 请核对下载记录，可手动下载';
-    badge.textContent = label;
-    badge.className = 'history-cache-badge ' + (state?.originalCached ? 'local' : 'cloud');
-    badge.title = '浏览器缓存可能被清理；已发起下载不代表浏览器已完成文件保存，请检查下载记录。';
+    // A small icon: quiet when the original is safe, coloured only when the
+    // user should act. The full sentence stays as accessible text and tooltip.
+    const expired = !state?.originalCached && info?.cloudExpiresAt && info.cloudExpiresAt <= Date.now();
+      const tone = cacheError || expired ? 'alert' : state?.originalCached ? 'local' : 'cloud';
+    renderBadge(badge, tone, label, '浏览器缓存可能被清理；已发起下载不代表浏览器已完成文件保存，请检查下载记录。');
   }
+  const BADGE_ICONS = { local: '✓', cloud: '☁', alert: '!', syncing: '…' };
+  function renderBadge(badge, tone, label, note = '') {
+    badge.className = 'history-cache-badge ' + tone;
+    badge.textContent = '';
+    const icon = root.document.createElement('span');
+    icon.className = 'history-cache-icon'; icon.setAttribute('aria-hidden', 'true'); icon.textContent = BADGE_ICONS[tone] || '•';
+    const text = root.document.createElement('span');
+    text.className = 'history-cache-label'; text.textContent = label;
+    badge.append(icon, text);
+    badge.title = note ? `${label}\n${note}` : label;
+    badge.setAttribute('role', 'img');
+    badge.setAttribute('aria-label', label);
+  }
+  root.renderClassicCacheBadge = renderBadge;
+  // Touch screens have no hover tooltip; a tap shows the full status instead.
+  root.document.addEventListener('click', event => {
+    const badge = event.target?.closest?.('.history-cache-badge');
+    if (!badge) return;
+    event.stopPropagation();
+    const label = badge.querySelector('.history-cache-label')?.textContent || badge.textContent;
+    if (label) root.showSoftToast?.(label);
+  }, true);
   function refreshCards(id) {
     root.document.querySelectorAll('[data-asset-id]').forEach(card => { if (card.dataset.assetId === id) void refreshBadge(card, id); });
   }
