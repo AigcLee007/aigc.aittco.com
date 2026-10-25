@@ -2588,6 +2588,9 @@
           // Completed task receipts outlive an explicit history deletion. Only
           // an existing account history row may restore one to the gallery.
           if (!retainedJobIds.has(id)) continue;
+          // Results older than the live window belong to the gallery only.
+          const finishedAt = Date.parse(job.completed_at || job.completedAt || job.created_at || '') || 0;
+          if (finishedAt && window.isClassicLiveTaskCurrent && !window.isClassicLiveTaskCurrent({ status: 'success', completedAt: finishedAt })) continue;
           if (job.images?.length || job.results?.length) {
             await applyManagedJobResults(job, { ...meta, session, isCurrent });
             if (!isCurrent()) return;
@@ -2595,6 +2598,8 @@
           }
           else window.promoteClassicLiveTask?.(liveId, id, { ...meta, status: 'result-unavailable', connectionMessage: '生成已完成，但图片保存失败，请联系管理员核对' });
         } else if (String(job.status).toLowerCase() === 'failed') {
+          const failedAt = Date.parse(job.completed_at || job.completedAt || job.created_at || '') || 0;
+          if (failedAt && window.isClassicLiveTaskCurrent && !window.isClassicLiveTaskCurrent({ status: 'failed', completedAt: failedAt })) continue;
           window.failClassicLiveTask?.(liveId, extractClassicApiError(job, '生成失败'), meta);
         } else {
           window.promoteClassicLiveTask?.(liveId, id, { ...meta, connectionMessage: '', status: 'running' });

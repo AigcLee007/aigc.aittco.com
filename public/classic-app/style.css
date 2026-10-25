@@ -5886,3 +5886,19 @@ html.classic-vip-mode .classic-live-empty {
   .ref-add-tile { width: 64px !important; height: 64px !important; }
   .compose-module .prompt-area { height: 96px !important; }
 }
+
+/* 实时生成区：通往画廊的入口 */
+.classic-live-gallery-link {
+  width: auto;
+  padding: 5px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #7cc4ff;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.classic-live-gallery-link:hover { background: rgba(124, 196, 255, 0.1); }
+.classic-live-empty .classic-live-gallery-link { margin-top: 10px; }

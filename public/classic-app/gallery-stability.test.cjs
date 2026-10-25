@@ -605,3 +605,23 @@ test('a stalled original retry cannot block restoring the next managed job', asy
   assert.equal(returned, true);
   assert.equal(result.completed, 2, 'next task restoration proceeds while previous cache fetch remains stalled');
 });
+
+test('the live area keeps running work and results from the last 4 hours only', () => {
+  const now = 10 * 60 * 60 * 1000;
+  const scope = { Date, window: {}, CLASSIC_LIVE_TTL_MS: 4 * 60 * 60 * 1000 };
+  vm.createContext(scope);
+  vm.runInContext(between('function isClassicLiveTaskCurrent(', 'function readClassicLiveTasks('), scope);
+  const hour = 60 * 60 * 1000;
+  assert.equal(scope.isClassicLiveTaskCurrent({ status: 'success', completedAt: now - 3 * hour }, now), true);
+  assert.equal(scope.isClassicLiveTaskCurrent({ status: 'success', completedAt: now - 5 * hour }, now), false, 'older results belong to the gallery');
+  assert.equal(scope.isClassicLiveTaskCurrent({ status: 'failed', completedAt: now - 5 * hour }, now), false);
+  assert.equal(scope.isClassicLiveTaskCurrent({ status: 'running', createdAt: now - 9 * hour }, now), true, 'unfinished work stays visible');
+});
+
+test('server recovery and limits follow the 4-hour, 12-result live window', () => {
+  const bridge = fs.readFileSync('public/classic-app/unified-bridge.js', 'utf8');
+  assert.ok(bridge.includes("isClassicLiveTaskCurrent({ status: 'success', completedAt: finishedAt })"), 'recovered successes respect the window');
+  assert.ok(bridge.includes("isClassicLiveTaskCurrent({ status: 'failed', completedAt: failedAt })"), 'recovered failures respect the window');
+  assert.ok(source.includes('const CLASSIC_LIVE_TTL_MS = 4 * 60 * 60 * 1000;'));
+  assert.ok(source.includes('const CLASSIC_LIVE_MAX_TASKS = 12;'));
+});

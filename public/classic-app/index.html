@@ -23,7 +23,7 @@
         document.documentElement.classList.add("classic-vip-mode");
       }
     </script>
-    <link rel="stylesheet" href="/classic-app/style.css?v=classic_compose_v1" />
+    <link rel="stylesheet" href="/classic-app/style.css?v=classic_live_v2" />
   </head>
   <body>
     <div class="top-controls">
@@ -471,10 +471,18 @@
               </div>
               <button
                 type="button"
+                class="classic-live-gallery-link"
+                onclick="switchTab('gallery')"
+                title="实时生成区只保留 4 小时内的结果，全部作品在画廊"
+              >
+                查看全部 →
+              </button>
+              <button
+                type="button"
                 class="classic-live-clear-btn"
                 id="classicLiveClearBtn"
                 onclick="clearClassicLiveTasks()"
-                title="清空创作页列表"
+                title="只清空实时生成区，画廊不受影响"
               >
                 清空列表
               </button>
@@ -493,9 +501,9 @@
           <div class="image-container classic-live-container" id="imgContainer">
             <div id="classicLiveGrid" class="classic-live-grid">
               <div id="classicLiveEmpty" class="classic-live-empty">
-                <div class="classic-live-empty-icon">✦</div>
-                <div class="classic-live-empty-title">提交后会在这里显示大图</div>
-                <div class="classic-live-empty-sub">任务生成期间，你可以继续修改参数并提交下一组。</div>
+                <div class="classic-live-empty-title">暂无进行中的任务</div>
+                <div class="classic-live-empty-sub">这里只显示 4 小时内的生成结果，更早的作品在画廊。</div>
+                <button type="button" class="classic-live-gallery-link" onclick="switchTab('gallery')">去画廊查看 →</button>
               </div>
             </div>
             <div
@@ -1101,8 +1109,8 @@
     <script src="/shared/image-result-store.js?v=classic_transfer_v2"></script>
     <script src="/classic-app/image-runtime.js?v=classic_gallery_v2"></script>
     <script src="/classic-app/image-job-client.js?v=classic_transfer_v2"></script>
-    <script src="/classic-app/script.js?v=classic_compose_v1"></script>
+    <script src="/classic-app/script.js?v=classic_live_v2"></script>
     <script src="/classic-app/result-assets.js?v=classic_compose_v1"></script>
-    <script src="/classic-app/unified-bridge.js?v=classic_transfer_v2"></script>
+    <script src="/classic-app/unified-bridge.js?v=classic_live_v2"></script>
   </body>
 </html>

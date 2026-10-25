@@ -487,8 +487,10 @@ function getClassicOriginalAsset(src, retry = false) {
 }
 
 const CLASSIC_LIVE_TASKS_KEY = "nb_classic_live_tasks_v1";
-const CLASSIC_LIVE_MAX_TASKS = isClassicMobileViewport() ? 8 : 30;
-const CLASSIC_LIVE_TTL_MS = 72 * 60 * 60 * 1000;
+// The live area holds work in progress plus results finished in the last
+// 4 hours (the cloud original's lifetime); older results live in the gallery.
+const CLASSIC_LIVE_MAX_TASKS = 12;
+const CLASSIC_LIVE_TTL_MS = 4 * 60 * 60 * 1000;
 const CLASSIC_LIVE_STALE_RUNNING_MS = 30 * 60 * 1000;
 let classicLiveTasks = [];
 let classicLiveSelectedId = "";
@@ -563,13 +565,22 @@ function normalizeClassicLiveTask(task = {}) {
   };
 }
 
+// Finished tasks age out by completion time; unfinished ones stay so their
+// progress survives a reload (stale ones are marked failed below).
+function isClassicLiveTaskCurrent(task, now = Date.now()) {
+  if (["submitting", "running"].includes(String(task.status || ""))) return true;
+  const finishedAt = Number(task.completedAt || task.updatedAt || task.createdAt || now);
+  return now - finishedAt < CLASSIC_LIVE_TTL_MS;
+}
+window.isClassicLiveTaskCurrent = isClassicLiveTaskCurrent;
+
 function readClassicLiveTasks() {
   try {
     const raw = JSON.parse(localStorage.getItem(getClassicLiveStorageKey()) || "[]");
     const now = Date.now();
     classicLiveTasks = (Array.isArray(raw) ? raw : [])
       .map(normalizeClassicLiveTask)
-      .filter((task) => now - Number(task.createdAt || now) < CLASSIC_LIVE_TTL_MS)
+      .filter((task) => isClassicLiveTaskCurrent(task, now))
       .map((task) => {
         const status = String(task.status || "");
         const lastTouchedAt = Number(task.updatedAt || task.createdAt || now);
@@ -763,8 +774,10 @@ async function migrateLocalStorageHistoryToIndexedDB() {
 
 function persistClassicLiveTasks() {
   try {
+    const now = Date.now();
     classicLiveTasks = classicLiveTasks
       .map(normalizeClassicLiveTask)
+      .filter((task) => isClassicLiveTaskCurrent(task, now))
       .sort((a, b) => Number(b.createdAt) - Number(a.createdAt) || Number(a.outputIndex || 0) - Number(b.outputIndex || 0) || String(a.id).localeCompare(String(b.id)))
       .slice(0, CLASSIC_LIVE_MAX_TASKS);
     localStorage.setItem(getClassicLiveStorageKey(), JSON.stringify(classicLiveTasks));
@@ -939,7 +952,11 @@ function renderClassicLiveTasks() {
   if (!classicLiveTasks.length) {
     const empty = grid.querySelector("#classicLiveEmpty") || document.createElement("div");
     empty.id = "classicLiveEmpty"; empty.className = "classic-live-empty";
-    empty.textContent = "提交后会在这里显示图片，生成期间可以继续创作下一组。";
+    if (!empty.querySelector(".classic-live-empty-title")) {
+      empty.innerHTML = '<div class="classic-live-empty-title">暂无进行中的任务</div>'
+        + '<div class="classic-live-empty-sub">这里只显示 4 小时内的生成结果，更早的作品在画廊。</div>'
+        + '<button type="button" class="classic-live-gallery-link" onclick="switchTab(\'gallery\')">去画廊查看 →</button>';
+    }
     patchClassicChildren(grid, [empty]); return;
   }
   if (!desktop) {
@@ -1328,6 +1345,14 @@ function reconcileClassicLiveTasksWithGenerationRecords(records = []) {
 }
 
 window.reconcileClassicLiveTasksWithGenerationRecords = reconcileClassicLiveTasksWithGenerationRecords;
+
+// A page left open must also let results age out into the gallery.
+setInterval(() => {
+  const before = classicLiveTasks.length;
+  const now = Date.now();
+  classicLiveTasks = classicLiveTasks.filter(task => isClassicLiveTaskCurrent(task, now));
+  if (classicLiveTasks.length !== before) { persistClassicLiveTasks(); renderClassicLiveTasks(); }
+}, 5 * 60 * 1000);
 
 if (document.readyState === "loading") {
   document.addEventListener("DOMContentLoaded", () => {
