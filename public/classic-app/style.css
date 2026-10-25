@@ -1604,7 +1604,7 @@ html.classic-vip-mode .right-column > .line-selector-module {
 html.classic-vip-mode .right-column > .params-row,
 html.classic-vip-mode .right-column > .current-price-card,
 html.classic-vip-mode .right-column > .gpt-settings-row,
-html.classic-vip-mode .right-column > .classic-transfer-row,
+html.classic-vip-mode .right-column > .classic-transfer-line,
 html.classic-vip-mode .right-column > .grok-ref-mode-module {
   grid-column: 1 / -1;
 }
@@ -3254,33 +3254,47 @@ html.classic-vip-mode .classic-live-empty {
   font-size: 12px;
 }
 .classic-download-settings label { display: flex; align-items: center; gap: 6px; cursor: pointer; }
-/* 传输方式：放在生成参数区，跟随所选线路 */
-.classic-transfer-row { grid-template-columns: minmax(0, 1fr) !important; }
-.classic-transfer-module { gap: 8px; }
-.classic-transfer-toggle {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 6px;
+/* 参数行：GPT 模型多一格"质量" */
+.params-row.has-quality { grid-template-columns: repeat(4, minmax(0, 1fr)) !important; }
+.classic-quality-module .trigger-prefix {
+  margin-right: 6px;
+  color: var(--text-sub);
+  font-size: 12px;
+  font-weight: 600;
 }
-.classic-transfer-option {
+.classic-quality-module .pill-trigger { justify-content: flex-start; }
+.classic-quality-module .pill-trigger .arrow { margin-left: auto; }
+
+/* 传输：参数下面一行轻量控件，跟随所选线路 */
+.classic-transfer-line {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  padding: 0 4px;
+}
+.classic-fast-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   width: auto;
-  padding: 8px 10px;
+  padding: 5px 12px;
   border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 10px;
+  border-radius: 99px;
   background: rgba(255, 255, 255, 0.04);
   color: var(--text-sub);
-  font-size: 13px;
-  font-weight: 700;
+  font-size: 12px;
+  font-weight: 600;
   cursor: pointer;
   transition: 0.2s;
 }
-.classic-transfer-option.active {
-  border-color: rgba(250, 204, 21, 0.7);
+.classic-fast-toggle:hover:not(:disabled) { background: rgba(255, 255, 255, 0.08); }
+.classic-fast-toggle.active {
+  border-color: rgba(250, 204, 21, 0.6);
   background: rgba(250, 204, 21, 0.14);
-  color: var(--text-main, #fff);
+  color: #fde68a;
 }
-.classic-transfer-option:disabled { opacity: 0.4; cursor: not-allowed; }
-.classic-transfer-hint { font-size: 12px; color: var(--text-sub); }
+.classic-fast-toggle:disabled { opacity: 0.45; cursor: not-allowed; }
 .classic-transfer-autodl {
   display: flex;
   align-items: center;
@@ -5692,4 +5706,11 @@ html.classic-vip-mode .classic-live-empty {
   color: #101312;
   font-weight: 700;
   cursor: pointer;
+}
+
+/* 手机端：参数行有"质量"时改为 2×2，避免第 4 格单独换行 */
+@media (max-width: 1024px) {
+  .params-row.has-quality {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
 }

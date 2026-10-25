@@ -1485,10 +1485,12 @@ function enforceCurrentRefImageLimit() {
 }
 
 function updateClassicGptSettingsUi() {
-  const row = document.getElementById("gptImageSettingsRow");
+  // Quality is a GPT-only fourth cell in the main parameter row.
+  const qualityModule = document.getElementById("gptImageSettingsRow");
   const isVisible = isClassicGptImageModel();
-  if (row) {
-    row.style.display = isVisible ? "grid" : "none";
+  if (qualityModule) {
+    qualityModule.style.display = isVisible ? "" : "none";
+    qualityModule.closest(".params-row")?.classList.toggle("has-quality", isVisible);
   }
 
   const settings = getClassicGptSettings();

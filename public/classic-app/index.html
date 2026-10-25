@@ -23,7 +23,7 @@
         document.documentElement.classList.add("classic-vip-mode");
       }
     </script>
-    <link rel="stylesheet" href="/classic-app/style.css?v=classic_transfer_v2" />
+    <link rel="stylesheet" href="/classic-app/style.css?v=classic_transfer_v3" />
   </head>
   <body>
     <div class="top-controls">
@@ -431,22 +431,11 @@
                   </div>
                 </div>
               </div>
-            </div>
 
-            <div class="current-price-card" id="currentPriceCard">
-              <div>
-                <div class="current-price-label">当前配置消耗</div>
-                <div class="current-price-meta" id="currentPriceMeta">Nano Banana Pro / 1K / 1 张</div>
-              </div>
-              <div class="current-price-total" id="currentPriceTotal">-- 🪙</div>
-            </div>
-
-            <div class="params-row gpt-settings-row" id="gptImageSettingsRow" style="display:none;">
-              <div class="tech-module" title="质量">
-                <div class="module-header">质量</div>
+              <div class="tech-module classic-quality-module" id="gptImageSettingsRow" title="质量" style="display:none;">
                 <div class="pill-dropdown" id="gptQualityPill" data-selected-value="auto">
                   <div class="pill-trigger" onclick="togglePill(event, 'gptQualityPill')">
-                    <span class="trigger-label">自动</span>
+                    <span class="trigger-prefix">质量</span><span class="trigger-label">自动</span>
                     <span class="arrow">▼</span>
                   </div>
                   <div class="dropdown-menu">
@@ -461,16 +450,19 @@
               </div>
             </div>
 
-            <div class="params-row classic-transfer-row">
-              <div class="tech-module classic-transfer-module" title="图片传输方式">
-                <div class="module-header">传输</div>
-                <div class="classic-transfer-toggle" role="radiogroup" aria-label="图片传输方式">
-                  <button type="button" class="classic-transfer-option" data-mode="standard" role="radio" aria-checked="true">标准</button>
-                  <button type="button" class="classic-transfer-option" data-mode="fast" role="radio" aria-checked="false">⚡ 极速</button>
-                </div>
-                <div class="classic-transfer-hint" id="classicTransferHint">经本站传输，原图暂存 5 小时</div>
-                <label class="classic-transfer-autodl"><input id="classicAutoDownload" type="checkbox" checked> 生成后自动下载</label>
+            <div class="classic-transfer-line">
+              <button type="button" class="classic-fast-toggle" id="classicFastToggle" role="switch" aria-checked="false" aria-label="极速传输">
+                <span aria-hidden="true">⚡</span> 极速 · <span class="classic-fast-state">关</span>
+              </button>
+              <label class="classic-transfer-autodl"><input id="classicAutoDownload" type="checkbox" checked> 生成后自动下载</label>
+            </div>
+
+            <div class="current-price-card" id="currentPriceCard">
+              <div>
+                <div class="current-price-label">当前配置消耗</div>
+                <div class="current-price-meta" id="currentPriceMeta">Nano Banana Pro / 1K / 1 张</div>
               </div>
+              <div class="current-price-total" id="currentPriceTotal">-- 🪙</div>
             </div>
           </div>
         </div>
@@ -1126,8 +1118,8 @@
     <script src="/shared/image-result-store.js?v=classic_transfer_v2"></script>
     <script src="/classic-app/image-runtime.js?v=classic_gallery_v2"></script>
     <script src="/classic-app/image-job-client.js?v=classic_transfer_v2"></script>
-    <script src="/classic-app/script.js?v=classic_transfer_v2"></script>
-    <script src="/classic-app/result-assets.js?v=classic_transfer_v2"></script>
+    <script src="/classic-app/script.js?v=classic_transfer_v3"></script>
+    <script src="/classic-app/result-assets.js?v=classic_transfer_v3"></script>
     <script src="/classic-app/unified-bridge.js?v=classic_transfer_v2"></script>
   </body>
 </html>

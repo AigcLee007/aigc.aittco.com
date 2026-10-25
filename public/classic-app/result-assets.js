@@ -338,19 +338,18 @@
   }
   // Fast transfer only changes anything on lines that return upstream links.
   function syncTransferToggle() {
-    const route = root.getClassicSubmitRoute?.();
-    const supported = route?.resultKind === 'url';
-    const mode = store.getStorageModePreference?.() || 'standard';
-    const effective = supported ? mode : 'standard';
-    root.document.querySelectorAll('.classic-transfer-option').forEach(button => {
-      const isFast = button.dataset.mode === 'fast';
-      button.disabled = isFast && !supported;
-      button.setAttribute('aria-checked', String(button.dataset.mode === effective));
-      button.classList.toggle('active', button.dataset.mode === effective);
-      if (isFast) button.title = supported ? '从上游直接下载原图，本站只保留预览' : '此线路返回图片数据，固定经本站传输';
-    });
-    const hint = root.document.getElementById('classicTransferHint');
-    if (hint) hint.textContent = !supported ? '此线路固定经本站传输' : effective === 'fast' ? '从上游直接下载，本站仅保留预览' : '经本站传输，原图暂存 5 小时';
+    const toggle = root.document.getElementById('classicFastToggle');
+    if (!toggle) return;
+    const supported = root.getClassicSubmitRoute?.()?.resultKind === 'url';
+    const active = supported && store.getStorageModePreference?.() === 'fast';
+    toggle.disabled = !supported;
+    toggle.setAttribute('aria-checked', String(active));
+    toggle.classList.toggle('active', active);
+    const state = toggle.querySelector('.classic-fast-state');
+    if (state) state.textContent = !supported ? '此线路不支持' : active ? '开' : '关';
+    toggle.title = !supported
+      ? '此线路返回图片数据，固定经本站传输'
+      : '从上游直接下载原图，本站只保留预览；关闭时经本站传输，原图暂存 5 小时';
   }
   root.syncClassicTransferToggle = syncTransferToggle;
   root.downloadClassicUnprocessed = async () => {
@@ -368,10 +367,12 @@
   root.document.addEventListener('DOMContentLoaded', () => {
     syncPreference();
     root.document.getElementById('classicAutoDownload')?.addEventListener('change', event => store.setAutoDownloadPreference(event.target.checked));
-    // Shares the canvas preference; a disabled option cannot be chosen.
-    root.document.querySelectorAll('.classic-transfer-option').forEach(button => button.addEventListener('click', () => {
-      if (!button.disabled) store.setStorageModePreference?.(button.dataset.mode);
-    }));
+    // Shares the canvas preference; disabled on lines without upstream links.
+    root.document.getElementById('classicFastToggle')?.addEventListener('click', event => {
+      const toggle = event.currentTarget;
+      if (toggle.disabled) return;
+      store.setStorageModePreference?.(toggle.getAttribute('aria-checked') === 'true' ? 'standard' : 'fast');
+    });
   });
   root.addEventListener('storage', syncPreference);
   root.addEventListener('image-auto-download-change', syncPreference);
