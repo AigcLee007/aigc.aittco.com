@@ -10,6 +10,7 @@ const crypto = require("crypto");
 const { createImageJobStore } = require("./imageJobStore.cjs");
 const { createImageJobService, imageJobContext } = require("./imageJobService.cjs");
 const { createImageJobAssets, STORAGE_ROOT: IMAGE_JOB_STORAGE_ROOT } = require("./imageJobAssets.cjs");
+const upscaleService = require("./upscaleService.cjs");
 const { createOperationsDashboardStore } = require('./operationsDashboardStore.cjs');
 const { createOperationsRuntimeMetrics } = require('./operationsRuntimeMetrics.cjs');
 const { createOperationsDashboard, registerOperationsRoutes } = require('./operationsDashboard.cjs');
@@ -5321,6 +5322,100 @@ app.get("/api/proxy/image", async (req, res) => {
   }
 });
 
+// Image upscaling. Runs inside the durable image job queue (same as /api/edit): the
+// job reserves points here, and the queue refunds them if this handler throws.
+const defaultUpscaleEngine = upscaleService.createFalRunner();
+// app.upscaleEngine lets tests swap the provider call; production always uses fal.
+const runUpscaleEngine = (args) => (app.upscaleEngine || defaultUpscaleEngine)(args);
+const upscaleImageHandler = async (req, res) => {
+  let billingAccount = null;
+  let billingCharge = null;
+  let generationRecord = null;
+  try {
+    const body = { ...(req.body || {}) };
+    const uiMode = normalizeGenerationUiMode(body.uiMode);
+    const clientLiveTaskIds = normalizeClientLiveTaskIds(body.clientLiveTaskIds || body.clientLiveTaskId);
+    const plan = await upscaleService.planUpscale({
+      imageDataUrl: body.image,
+      engineId: body.engine,
+      factor: body.factor,
+      format: body.format,
+    });
+    billingAccount = await requireBillingAccount(req);
+    const route = { id: `upscale-${plan.engine.id}`, label: plan.engine.label, transport: "upscale", mode: "sync" };
+    billingCharge = await reservePoints(billingAccount.accountId, plan.points, {
+      action: "upscale",
+      routeId: route.id,
+      mode: route.mode,
+      engine: plan.engine.id,
+      outputPixels: plan.outputPixels,
+    });
+    generationRecord = await buildGenerationRecordPayload({
+      req, billingAccount, mediaType: "IMAGE", actionName: "upscale",
+      prompt: `高清放大 ${plan.factor}x · ${plan.engine.label}`,
+      modelId: plan.engine.id, modelName: plan.engine.label, route,
+      quantity: 1, outputSize: `${plan.outputWidth}x${plan.outputHeight}`, uiMode, status: "PENDING",
+      meta: { transport: route.transport, clientLiveTaskIds, chargeId: billingCharge?.chargeId || null },
+    });
+
+    const signal = imageJobContext.getStore()?.signal;
+    const output = await runUpscaleEngine({ plan, signal });
+    const payload = {
+      status: "succeeded",
+      images: [output.url],
+      results: [output.url],
+      data: [{ url: output.url }],
+      billing: { deductedPoints: plan.points, remainingPoints: billingCharge?.account?.points },
+    };
+    // Inside the job queue this only marks success; the queue downloads and stores the file.
+    const persisted = await persistImageResultPayloadSafe({
+      payload, resultUrls: [output.url], req, billingAccount, generationRecord, route, modelId: plan.engine.id,
+    });
+    await completeGenerationRecordSuccessSafe({
+      recordId: generationRecord?.id, resultUrls: persisted.resultUrls, previewUrl: persisted.previewUrl,
+      outputSize: `${plan.outputWidth}x${plan.outputHeight}`,
+      meta: mergeGeneratedAssetMeta({ transport: route.transport, clientLiveTaskIds, chargeId: billingCharge?.chargeId || null }, persisted),
+    });
+    return res.json({ ...persisted.payload, billing: payload.billing });
+  } catch (error) {
+    if (billingCharge?.chargeId && billingAccount?.accountId) {
+      await refundPoints(billingAccount.accountId, billingCharge.chargeId, { reason: "upscale_failed" });
+    }
+    await completeGenerationRecordFailureSafe({
+      recordId: generationRecord?.id,
+      errorMessage: normalizeGenerationError(error).error,
+    });
+    logger.error({ type: "Upscale Error", message: error.message, status: error.status || error.response?.status, requestId: error.requestId });
+    if (error instanceof upscaleService.UpscaleError) {
+      return res.status(error.status).json({ error: error.message, code: error.code, status: error.status });
+    }
+    if (error instanceof BillingError || error instanceof AuthError) {
+      return respondWithUserFacingGenerationError(res, error, 400);
+    }
+    // Anything else comes from the upscaling provider; its wording stays in the server log.
+    return res.status(502).json({ error: "图片放大失败，本次费用已退回，请稍后重试", code: "UPSCALE_FAILED", status: 502 });
+  }
+};
+// Price list for the picker. Takes image size only, so no upload is needed to see a price.
+app.get("/api/upscale/options", pollingLimiter, (req, res) => {
+  const width = Number(req.query.width);
+  const height = Number(req.query.height);
+  const hasSize = Number.isFinite(width) && Number.isFinite(height) && width >= 1 && height >= 1;
+  res.json({
+    enabled: upscaleService.isUpscaleConfigured(),
+    engines: hasSize ? upscaleService.describeEnginesForImage({ width, height }) : upscaleService.listEngines(),
+  });
+});
+app.post("/api/upscale/quote", pollingLimiter, (req, res) => {
+  try {
+    const { engine, factor, format, width, height } = req.body || {};
+    const plan = upscaleService.planFromDimensions({ engineId: engine, factor, format, width, height });
+    return res.json(upscaleService.toPublicQuote(plan));
+  } catch (error) {
+    if (error instanceof upscaleService.UpscaleError) return res.status(error.status).json({ error: error.message, code: error.code });
+    return res.status(400).json({ error: "无法计算价格" });
+  }
+});
 app.get("/api/proxy/video", async (req, res) => {
   const videoUrl = req.query.url;
   if (!videoUrl) return res.status(400).send("Url is required");
@@ -5868,7 +5963,7 @@ const makeWorkerRequest = (body, context) => ({
   authUser: context.identity || { userId: context.userId },
 });
 const executeLegacyImageHandler = async (job, body, context) => {
-  const handlers = { "/api/generate": legacyImageGenerateHandler, "/api/edit": legacyImageEditHandler, "/api/gemini/generate": legacyGeminiGenerateHandler };
+  const handlers = { "/api/generate": legacyImageGenerateHandler, "/api/edit": legacyImageEditHandler, "/api/gemini/generate": legacyGeminiGenerateHandler, "/api/upscale": upscaleImageHandler };
   const req = makeWorkerRequest(body, context);
   let result, statusCode = 200;
   const capture = {
@@ -6002,6 +6097,46 @@ const imageRouteAdapter = (endpoint, legacy) => async (req, res) => {
 app.post("/api/generate", generateLimiter, imageRouteAdapter("/api/generate", legacyImageGenerateHandler));
 app.post("/api/edit", generateLimiter, imageRouteAdapter("/api/edit", legacyImageEditHandler));
 app.post("/api/gemini/generate", generateLimiter, imageRouteAdapter("/api/gemini/generate", legacyGeminiGenerateHandler));
+// Upscaling always needs a signed-in account (it is billed) and always runs as a durable job.
+app.post("/api/upscale", generateLimiter, async (req, res) => {
+  try {
+    if (!req.body || typeof req.body !== "object" || Array.isArray(req.body)) {
+      return res.status(415).json({ error: "请求必须使用 application/json", code: "UPSCALE_JSON_REQUIRED" });
+    }
+    if (!upscaleService.isUpscaleConfigured()) {
+      return res.status(503).json({ error: "高清放大暂未开通，请联系管理员", code: "UPSCALE_NOT_CONFIGURED" });
+    }
+    const user = await requireAuthUser(req);
+    // Refuse early with a clear reason instead of queueing a job that is bound to fail.
+    const plan = await upscaleService.planUpscale({ imageDataUrl: req.body.image, engineId: req.body.engine, factor: req.body.factor, format: req.body.format });
+    const account = await requireBillingAccount(req);
+    if (Number(account.points) < plan.points) {
+      return res.status(400).json({ error: `金币不足，当前 ${toPointNumber(account.points, 0)}，需 ${plan.points}`, code: "INSUFFICIENT_POINTS" });
+    }
+    const body = {
+      ...req.body,
+      engine: plan.engine.id,
+      factor: plan.factor,
+      format: plan.format,
+      // Fields the job list shows; the image itself stays in the stored request.
+      prompt: `高清放大 ${plan.factor}x · ${plan.engine.label}`,
+      modelId: plan.engine.id,
+      model: plan.engine.label,
+      routeId: `upscale-${plan.engine.id}`,
+      size: `${plan.outputWidth}x${plan.outputHeight}`,
+    };
+    await ensureImageJobsStarted();
+    const acknowledgement = await imageJobService.submit({ userId: user.userId, endpoint: "/api/upscale", body, identity: user, headers: req.headers });
+    return res.status(202).json({ ...acknowledgement, billing: { quotedPoints: plan.points } });
+  } catch (error) {
+    if (sendAuthError(res, error)) return;
+    if (error instanceof upscaleService.UpscaleError) return res.status(error.status).json({ error: error.message, code: error.code });
+    if (error instanceof BillingError) return respondWithUserFacingGenerationError(res, error, 400);
+    if ([400, 409, 413, 429].includes(error.status)) return res.status(error.status).json({ error: error.message, ...(error.code ? { code: error.code } : {}) });
+    logger.error({ type: "Upscale submit error", message: error.message });
+    return res.status(500).json({ error: "提交失败，请稍后重试", code: "UPSCALE_SUBMIT_FAILED" });
+  }
+});
 app.get("/api/image-jobs/request/:requestId", pollingLimiter, async (req, res) => {
   try { const user = await requireAuthUser(req); return res.json(await imageJobService.lookupRequest(req.params.requestId, user.userId)); }
   catch (error) { if (sendAuthError(res,error)) return; return res.status(error.status || 500).json({ error: error.message }); }

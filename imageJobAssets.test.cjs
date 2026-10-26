@@ -351,3 +351,53 @@ test('malformed images and private remote addresses are not cached as valid resu
     assert.equal(api.isPublicImageUrl(url), false);
   }
 });
+
+test('forceKeep keeps the original for the full five hours even under disk pressure and in speed mode', async t => {
+  let now = Date.now(), usedRatio = 0.5;
+  const statfs = async () => ({ bsize: 1, blocks: 1000, bavail: Math.round(1000 * (1 - usedRatio)) });
+  const f = await fixture(t, { now: () => now, statfs, download: async () => f.buffer });
+  const keepContext = { userId: 'usr_test', taskId: 'job-keep00000000000000000000000000000' };
+  const plainContext = { userId: 'usr_test', taskId: 'job-plain0000000000000000000000000000' };
+  // Inline bytes, as upscales and generations both arrive.
+  const kept = await f.service.prepare({ resultUrls: [f.source], context: keepContext, storageMode: 'speed', forceKeep: true });
+  const plain = await f.service.prepare({ resultUrls: [f.source], context: plainContext });
+  await f.service.drain();
+  const keptFile = await f.service.resolveAsset(assetArgs(kept.resultUrls[0]));
+  const plainFile = await f.service.resolveAsset(assetArgs(plain.resultUrls[0]));
+  // Speed mode would normally leave only a 30 minute delivery copy; forceKeep ignores it.
+  assert.ok(new URL(kept.resultUrls[0], 'https://x').searchParams.get('token').split('.')[0] > String(now + 4 * 3600000), 'link is valid for the full retention, not 30 minutes');
+  // Heavy disk pressure shrinks other originals to 15 minutes, but not a kept one.
+  usedRatio = 0.95;
+  now += 2 * 3600000;
+  const swept = await f.service.cleanup();
+  await assert.rejects(fs.access(plainFile), 'an ordinary original is shortened under pressure');
+  await fs.access(keptFile);
+  assert.equal(swept.removedOriginals, 1, 'only the ordinary original was removed');
+  // Still there just before five hours, gone after.
+  now += 2.9 * 3600000;
+  await f.service.cleanup();
+  await fs.access(keptFile);
+  now += 0.2 * 3600000;
+  await f.service.cleanup();
+  await assert.rejects(fs.access(keptFile), 'a kept original is removed once the five hours are over');
+});
+
+test('forceKeep leaves a marker that is cleaned up with the folder and never served', async t => {
+  const f = await fixture(t);
+  await f.service.prepare({ resultUrls: [f.source], context, forceKeep: true });
+  await f.service.drain();
+  const files = await fs.readdir(path.join(f.root, 'assets', context.userId, context.taskId));
+  assert.ok(files.includes('.keep'));
+  await assert.rejects(f.service.resolveAsset({ ...context, filename: '.keep', token: 'preview.' + '0'.repeat(64) }), error => error.status === 404);
+});
+
+test('a result of 100 megapixels can be saved and previewed', async t => {
+  const f = await fixture(t, { maxBytes: 80 * 1024 * 1024 });
+  // 10000 x 10000, flat color, so the file stays small while the pixel count is at the limit.
+  const big = await sharp({ create: { width: 10000, height: 10000, channels: 3, background: '#556677' } }).jpeg({ quality: 40 }).toBuffer();
+  let saved;
+  const result = await f.service.prepare({ resultUrls: [`data:image/jpeg;base64,${big.toString('base64')}`], context, forceKeep: true, onSaved: value => { saved = value; } });
+  await settleUntil(() => saved?.storageStatus === 'saved' || result.storageStatus === 'saved');
+  assert.ok(result.resultUrls[0].startsWith('/api/image-job-assets/'));
+  await fs.access(await f.service.resolveAsset(assetArgs(result.resultUrls[0])));
+});

@@ -22,6 +22,7 @@ import { useVideoModelCatalog } from '../../src/hooks/useVideoModelCatalog';
 import { useVideoRouteCatalog } from '../../src/hooks/useVideoRouteCatalog';
 import { readOriginalBlob } from '../../src/services/imageAssetCache';
 import { blobToDataUrl } from '../../src/services/imageBlobUtils';
+import { useUpscaleFlow } from '../../src/hooks/useUpscaleFlow';
 
 interface SatelliteLayerProps {
   onInitGenerations: (count: number, prompt: string, aspectRatio?: string, baseNode?: NodeData, type?: 'IMAGE' | 'VIDEO') => string[];
@@ -46,6 +47,8 @@ export const SatelliteLayer: React.FC<SatelliteLayerProps> = ({ onInitGeneration
   const defaultVideoAspectRatio = getDefaultVideoAspectRatioForModel(defaultVideoModel.id);
   const defaultVideoResolution = getDefaultVideoResolutionForModel(defaultVideoModel.id);
   const defaultVideoDuration = getDefaultVideoDurationForModel(defaultVideoModel.id);
+
+  const upscale = useUpscaleFlow({ onInitGenerations, onUpdateGeneration });
 
   // Identify selection
   const selectedNodes = nodes.filter(n => selectedIds.includes(n.id));
@@ -115,6 +118,11 @@ export const SatelliteLayer: React.FC<SatelliteLayerProps> = ({ onInitGeneration
     // Implement I2I, Animate, etc. actions here
     // For now, logging to console
     console.log("Satellite Action:", action, "on node", primaryNode?.id);
+
+    if (action === 'upscale' && primaryNode && primaryNode.type === 'IMAGE' && (primaryNode.src || primaryNode.assetId)) {
+        void upscale.start(primaryNode);
+        return;
+    }
     
     if (action === 'animate' && primaryNode && primaryNode.type === 'IMAGE' && (primaryNode.src || primaryNode.assetId)) {
         // Quick Animate Logic
@@ -149,6 +157,8 @@ export const SatelliteLayer: React.FC<SatelliteLayerProps> = ({ onInitGeneration
           onAction={handleSatelliteAction} 
         />
       )}
+
+      {upscale.ui}
     </>
   );
 };

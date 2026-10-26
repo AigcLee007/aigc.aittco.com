@@ -122,7 +122,7 @@ export async function submitImageJob(endpoint: string, payload: any, headers: Re
     catch (error) {
       if (!isTransientJobError(error)) { await removeImageRequest(owner, clientRequestId).catch(() => {}); throw error; }
       try {
-        const result = await queryImageJob(`${REQUEST_TASK_PREFIX}${clientRequestId}`, headers, endpoint.replace(/\/(generate|edit|gemini\/generate)$/, ''));
+        const result = await queryImageJob(`${REQUEST_TASK_PREFIX}${clientRequestId}`, headers, endpoint.replace(/\/(generate|edit|upscale|gemini\/generate)$/, ''));
         if (result.connection_status !== 'unconfirmed') return accepted(result);
         // Only resend after an online lookup confirms no admission; reuse the exact request.
         if (getStoredAuthSessionToken() && session !== getStoredAuthSessionToken()) throw new AppError('登录账号已切换', { status: 401 });

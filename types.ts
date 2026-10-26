@@ -78,6 +78,8 @@ export interface NodeData {
 
   // Derived image-edit results
   sourceNodeId?: string;
+  // Set on an upscale result: which engine made it and the source node it can be compared with.
+  upscaleOf?: { sourceNodeId: string; engineLabel: string; factor: number };
 }
 
 export enum ToolMode {

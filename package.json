@@ -12,11 +12,12 @@
     "migrate:mysql": "node scripts/migrate-json-to-mysql.cjs",
     "migrate:pixelhub-video": "node scripts/activate-pixelhub-video-models.cjs",
     "test": "vitest --run",
-    "test:node": "node --test --test-concurrency=1 appVersion.test.cjs imageCatalogInitialization.test.cjs imageRouteResolution.test.cjs productionImageRouteConfig.test.cjs classicImageJobs.test.cjs imageHistoryRetention.test.cjs imageJobAssets.test.cjs imageJobService.test.cjs server.image-jobs.test.cjs server.native-image-results.test.cjs scripts/repair-inline-image-result.test.cjs public/classic-app/gallery-stability.test.cjs public/classic-app/result-assets.test.cjs operationsDashboardStore.test.cjs operationsRuntimeMetrics.test.cjs operationsDashboard.test.cjs server.admin-operations.test.cjs operationsDeployment.test.cjs promptToolResponse.node.cjs",
+    "test:node": "node --test --test-concurrency=1 appVersion.test.cjs imageCatalogInitialization.test.cjs imageRouteResolution.test.cjs productionImageRouteConfig.test.cjs classicImageJobs.test.cjs imageHistoryRetention.test.cjs imageJobAssets.test.cjs imageJobService.test.cjs server.image-jobs.test.cjs upscaleService.test.cjs server.upscale.test.cjs server.native-image-results.test.cjs scripts/repair-inline-image-result.test.cjs public/classic-app/gallery-stability.test.cjs public/classic-app/result-assets.test.cjs operationsDashboardStore.test.cjs operationsRuntimeMetrics.test.cjs operationsDashboard.test.cjs server.admin-operations.test.cjs operationsDeployment.test.cjs promptToolResponse.node.cjs",
     "test:watch": "vitest"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1037.0",
+    "@fal-ai/client": "1.10.1",
     "@google/genai": "^1.33.0",
     "@tanstack/react-query": "^5.90.20",
     "@tanstack/react-query-devtools": "^5.91.3",

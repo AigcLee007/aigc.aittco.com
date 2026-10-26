@@ -15,8 +15,10 @@ import {
   Link,
   Eraser,
   CheckCircle2,
+  Maximize2,
+  GitCompare,
 } from 'lucide-react';
-import { ToolMode } from '../types';
+import { ToolMode, type NodeData } from '../types';
 import { readOriginalBlob } from '../src/services/imageAssetCache';
 import { assetActionSource } from '../src/services/imageAssetActions';
 
@@ -26,6 +28,8 @@ interface ContextMenuProps {
   onDownload: () => void;
   onFastDownload?: () => void;
   onCopyLink: () => void;
+  onUpscale?: (node: NodeData) => void;
+  onCompare?: (result: NodeData, source: NodeData) => void;
 }
 
 const ContextMenu: React.FC<ContextMenuProps> = ({
@@ -34,6 +38,8 @@ const ContextMenu: React.FC<ContextMenuProps> = ({
   onDownload,
   onFastDownload,
   onCopyLink,
+  onUpscale,
+  onCompare,
 }) => {
   const {
     contextMenu,
@@ -156,6 +162,22 @@ const ContextMenu: React.FC<ContextMenuProps> = ({
     closeContextMenu();
   };
 
+  const handleUpscale = () => {
+    const target = node;
+    closeContextMenu();
+    if (target && target.type === 'IMAGE' && (target.src || target.assetId) && !target.loading) onUpscale?.(target);
+  };
+
+  // The comparison needs both pictures, so it only appears while the source node is still on the canvas.
+  const compareSource = node?.upscaleOf ? nodes.find((item) => item.id === node.upscaleOf!.sourceNodeId) : undefined;
+  const canCompare = !!(onCompare && node && node.type === 'IMAGE' && !node.loading && !node.error && (node.src || node.assetId)
+    && compareSource && compareSource.type === 'IMAGE' && (compareSource.src || compareSource.assetId));
+  const handleCompare = () => {
+    const result = node;
+    closeContextMenu();
+    if (result && compareSource) onCompare?.(result, compareSource);
+  };
+
   const handleReorder = (direction: 'up' | 'down' | 'top' | 'bottom') => {
     if (!nodeId) return;
     addToHistory();
@@ -196,6 +218,20 @@ const ContextMenu: React.FC<ContextMenuProps> = ({
           <button onClick={handleOpenImageEdit} className="flex items-center gap-2 px-4 py-2 hover:bg-gray-800 text-left text-gray-200">
             <Eraser size={14} className="text-purple-400" />
             <span>{'\u56FE\u7247\u7F16\u8F91'}</span>
+          </button>
+        )}
+
+        {canCompare && (
+          <button onClick={handleCompare} className="flex items-center gap-2 px-4 py-2 hover:bg-gray-800 text-left text-gray-200">
+            <GitCompare size={14} className="text-sky-400" />
+            <span>{'对比放大前后'}</span>
+          </button>
+        )}
+
+        {isImageNode && onUpscale && !node?.loading && (node?.src || node?.assetId) && (
+          <button onClick={handleUpscale} className="flex items-center gap-2 px-4 py-2 hover:bg-gray-800 text-left text-gray-200">
+            <Maximize2 size={14} className="text-sky-400" />
+            <span>{'高清放大'}</span>
           </button>
         )}
 

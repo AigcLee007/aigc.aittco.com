@@ -31,6 +31,8 @@ export default defineConfig({
       'imageJobAssets.test.cjs',
       'imageJobService.test.cjs',
       'server.image-jobs.test.cjs',
+      'server.upscale.test.cjs',
+      'upscaleService.test.cjs',
       'server.native-image-results.test.cjs',
       'scripts/repair-inline-image-result.test.cjs',
       'public/classic-app/gallery-stability.test.cjs',

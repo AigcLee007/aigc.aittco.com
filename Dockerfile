@@ -56,6 +56,7 @@ COPY billingStore.mysql.cjs ./
 COPY billingReportUtils.cjs ./
 COPY redeemCodePolicy.cjs ./
 COPY pointMath.cjs ./
+COPY upscaleService.cjs ./
 COPY generatedAssetService.cjs ./
 COPY imageJobStore.cjs ./
 COPY imageJobService.cjs ./

@@ -77,6 +77,11 @@ export const sanitizePersistedNode = (node: NodeData): NodeData => {
   if (node.historyIndex !== undefined) sanitized.historyIndex = Math.min(node.historyIndex, (sanitized.history?.length || 1) - 1);
   if (node.groupId) sanitized.groupId = String(node.groupId);
   if (node.sourceNodeId) sanitized.sourceNodeId = String(node.sourceNodeId);
+  if (node.upscaleOf?.sourceNodeId) sanitized.upscaleOf = {
+    sourceNodeId: String(node.upscaleOf.sourceNodeId),
+    engineLabel: String(node.upscaleOf.engineLabel || '').slice(0, 40),
+    factor: Number(node.upscaleOf.factor) || 0,
+  };
   return sanitized;
 };
 

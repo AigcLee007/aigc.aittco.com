@@ -558,6 +558,8 @@ function normalizeClassicLiveTask(task = {}) {
     originalUrl: String(task.originalUrl || task.fullUrl || task.resultUrl || task.url || ""),
     previewUrl: String(task.previewUrl || task.thumbnailUrl || ""),
     fastUrl: String(task.fastUrl || ""),
+    compareUrl: String(task.compareUrl || ""),
+    compareLabel: String(task.compareLabel || ""),
     errorMessage: String(task.errorMessage || ""),
     createdAt,
     completedAt: task.completedAt ? Number(task.completedAt) : 0,
@@ -1048,7 +1050,7 @@ function patchClassicLiveCard(card, task, primary) {
     card = document.createElement("div");
     card.innerHTML = '<div class="classic-live-media"><div class="classic-live-meta"><span class="classic-live-chip"></span><span class="classic-live-meta-end"><span class="classic-live-time"></span><span class="history-cache-badge cloud"></span></span></div></div><div class="classic-live-info"><div><div class="classic-live-prompt"></div><div class="classic-live-config"></div></div><div class="classic-live-actions"></div></div>';
     const actions = card.querySelector(".classic-live-actions");
-    for (const [action, label] of [["zoom", "放大"], ["download", "下载原图"], ["folder", "📂"], ["fast", "快速下载"], ["regen", "重生"], ["ref", "参考"], ["copy", "复制图片"], ["recover", "从本地恢复"], ["delete", "删除"]]) {
+    for (const [action, label] of [["zoom", "放大"], ["download", "下载原图"], ["upscale", "高清"], ["compare", "对比"], ["folder", "📂"], ["fast", "快速下载"], ["regen", "重生"], ["ref", "参考"], ["copy", "复制图片"], ["recover", "从本地恢复"], ["delete", "删除"]]) {
       const button = document.createElement("button"); button.type = "button"; button.className = "classic-live-action-btn"; button.dataset.action = action; button.textContent = label;
       if (action === "fast") button.title = "高质量 JPEG，体积更小，适合网络较慢时下载";
       if (action === "folder") { button.title = "下载的图片在哪里"; button.setAttribute("aria-label", "下载的图片在哪里"); }
@@ -1056,6 +1058,8 @@ function patchClassicLiveCard(card, task, primary) {
         event.stopPropagation(); const src = card.dataset.fullUrl;
         if (action === "zoom") openLightbox(src);
         if (action === "download") downloadSingleImg(src);
+        if (action === "upscale") window.openClassicUpscale?.(src, card.dataset.prompt || "");
+        if (action === "compare") window.openClassicCompare?.(card.dataset.compareUrl, src, card.dataset.compareLabel);
         if (action === "folder") window.openClassicFolderBrowser?.();
         if (action === "fast" && card.dataset.fastUrl) {
           const link = document.createElement("a");
@@ -1082,8 +1086,10 @@ function patchClassicLiveCard(card, task, primary) {
   const showName = typeof classicDisplayName === "function" ? classicDisplayName : (kind, value) => String(value || "");
   card.querySelector(".classic-live-config").textContent = [showName("model", task.modelLabel), showName("route", task.routeLabel), task.size, task.ratio].filter(Boolean).join(" / ");
   card.dataset.fastUrl = task.fastUrl || "";
+  card.dataset.compareUrl = task.compareUrl || "";
+  card.dataset.compareLabel = task.compareLabel || "";
   card.querySelectorAll("[data-action]").forEach(button => {
-    button.hidden = (button.dataset.action !== "delete" && task.status !== "success") || (button.dataset.action === "fast" && !task.fastUrl);
+    button.hidden = (button.dataset.action !== "delete" && task.status !== "success") || (button.dataset.action === "fast" && !task.fastUrl) || (button.dataset.action === "compare" && !task.compareUrl);
   });
   window.refreshClassicCacheBadge?.(card, task.assetId || task.id);
   return card;
@@ -4572,7 +4578,7 @@ function renderClassicHistoryRecords(records = [], options = {}) {
     if (!card) {
       card = document.createElement("div"); card.className = "result-item history-item"; card.dataset.recordId = record.id;
       card.innerHTML = `<img loading="lazy" decoding="async"><div class="history-time-tag"></div><div class="history-cache-badge cloud"></div><div class="history-prompt-tip"></div><div class="item-overlay"></div>`;
-      const actions = [["zoom", "放大", "🔍"], ["download", "下载原图", "💾"], ["regenerate", "重生", "♻️"], ["reference", "垫图", "🧩"], ["copy", "复制图片", "📋"], ["restore", "从本地恢复", "📂"]];
+      const actions = [["zoom", "放大", "🔍"], ["download", "下载原图", "💾"], ["upscale", "高清放大", "✨"], ["regenerate", "重生", "♻️"], ["reference", "垫图", "🧩"], ["copy", "复制图片", "📋"], ["restore", "从本地恢复", "📂"]];
       for (const [action, label, icon] of actions) {
         const button = document.createElement("button"); button.className = "overlay-btn history-icon-btn";
         button.dataset.action = action; button.dataset.label = label; button.textContent = icon; button.title = label;
@@ -4583,6 +4589,7 @@ function renderClassicHistoryRecords(records = [], options = {}) {
         const row = card.classicHistoryRecord;
         if (kind === "zoom") openLightbox(row.fullUrl);
         if (kind === "download") downloadSingleImg(row.fullUrl, row.assetId || row.id);
+        if (kind === "upscale") window.openClassicUpscale?.(row.fullUrl, row.prompt || "");
         if (kind === "regenerate") regenerateFromHistory(encodeURIComponent(row.prompt));
         if (kind === "reference") useAsRef(row.fullUrl);
         if (kind === "copy") copyClassicImage(row.fullUrl);

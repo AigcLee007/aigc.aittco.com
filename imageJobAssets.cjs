@@ -12,6 +12,9 @@ const STORAGE_ROOT = path.join(__dirname, 'storage', 'image-jobs');
 const TTL_MS = 5 * 60 * 60 * 1000;
 const PREVIEW_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const DELIVERY_TTL_MS = 30 * 60 * 1000;
+// Decode ceiling for saving, previews and fast copies. Upscaled results can reach 100 megapixels.
+const MAX_IMAGE_PIXELS = 120_000_000;
+const KEEP_MARKER = '.keep';
 const MIME = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', avif: 'image/avif', gif: 'image/gif' };
 const statusError = (message, status = 404) => Object.assign(new Error(message), { status });
 function publicAddress(address) {
@@ -118,7 +121,7 @@ function createImageJobAssets(options = {}) {
   async function metadata(buffer) {
     if (!Buffer.isBuffer(buffer)) buffer = Buffer.from(buffer);
     if (buffer.length > maxBytes) throw new Error('Generated image exceeds save size limit');
-    const meta = await sharp(buffer, { limitInputPixels: 80_000_000 }).metadata();
+    const meta = await sharp(buffer, { limitInputPixels: MAX_IMAGE_PIXELS }).metadata();
     if (meta.format === 'heif' && meta.compression === 'av1') meta.format = 'avif';
     if (!MIME[meta.format] || !meta.width || !meta.height) throw new Error('Generated result is not a supported image');
     return meta;
@@ -136,14 +139,14 @@ function createImageJobAssets(options = {}) {
   async function saveFastCopy(asset, context, expires) {
     if (/\.jpe?g$/i.test(asset.absolute)) return null;
     const filename = `${asset.hash}.fast.jpg`;
-    const buffer = await sharp(asset.absolute, { limitInputPixels: 80_000_000 }).rotate().flatten({ background: '#ffffff' }).jpeg({ quality: 92, mozjpeg: true }).toBuffer();
+    const buffer = await sharp(asset.absolute, { limitInputPixels: MAX_IMAGE_PIXELS }).rotate().flatten({ background: '#ffffff' }).jpeg({ quality: 92, mozjpeg: true }).toBuffer();
     if (buffer.length >= (await fs.stat(asset.absolute)).size * 0.8) return null;
     await atomicWrite(path.join(asset.directory, filename), buffer);
     return makeUrl(context, filename, expires);
   }
   async function savePreview(asset, context) {
     const filename = `${asset.hash}.preview.webp`;
-    const buffer = await sharp(asset.absolute, { limitInputPixels: 80_000_000 }).rotate().resize({ width: 720, height: 720, fit: 'inside', withoutEnlargement: true }).webp({ quality: 80 }).toBuffer();
+    const buffer = await sharp(asset.absolute, { limitInputPixels: MAX_IMAGE_PIXELS }).rotate().resize({ width: 720, height: 720, fit: 'inside', withoutEnlargement: true }).webp({ quality: 80 }).toBuffer();
     await atomicWrite(path.join(asset.directory, filename), buffer);
     const user = safeSegment(context.userId), task = safeSegment(context.taskId);
     return `/api/image-job-assets/${user}/${task}/${filename}?token=preview.${await previewSignature(user, task, filename)}`;
@@ -201,16 +204,21 @@ function createImageJobAssets(options = {}) {
   // storageMode: 'auto' | 'stable' keep a server original; 'speed' keeps only a
   // preview and leaves upstream links (or a short delivery copy for inline
   // bytes). Severe disk pressure applies speed handling to every request.
-  async function prepare({ payload = null, resultUrls = [], context, onSaved, storageMode = 'auto' } = {}) {
+  async function prepare({ payload = null, resultUrls = [], context, onSaved, storageMode = 'auto', forceKeep = false } = {}) {
     safeSegment(context?.userId); safeSegment(context?.taskId);
     const sources = [...new Set(resultUrls.filter(value => typeof value === 'string' && value.trim()).map(value => value.trim()))];
     if (!sources.length || sources.length > 12) throw new Error('Invalid generated image count');
-    const speed = storageMode === 'speed' || Boolean(health.disk && health.disk.usedRatio >= 0.92);
+    // forceKeep (upscales) always stores the original for the full retention time. Fast
+    // transfer and disk-pressure handling, which keep only a preview, do not apply to it.
+    const speed = !forceKeep && (storageMode === 'speed' || Boolean(health.disk && health.disk.usedRatio >= 0.92));
     // Inline bytes have no upstream link, so speed mode still needs a brief copy to deliver them.
     const expires = now() + (speed ? Math.min(ttl, DELIVERY_TTL_MS) : ttl);
     const info = { model: payload?.model, text: payload?.text };
     const entries = [];
     const remote = [];
+    // A marker in the task folder tells cleanup to keep these originals for the full period,
+    // even when the disk is under pressure and other originals are shortened.
+    if (forceKeep) await atomicWrite(path.join(assetRoot, safeSegment(context.userId), safeSegment(context.taskId), KEEP_MARKER), '1');
     for (const source of sources) {
       const match = source.match(/^data:image\/(png|jpe?g|webp|gif|avif);base64,([A-Za-z0-9+/=\s]+)$/i);
       if (match) {
@@ -340,9 +348,11 @@ function createImageJobAssets(options = {}) {
       // Originals left more than an hour past their period mean cleanup is not keeping up.
       const overdueCutoff = originalCutoff - 60 * 60 * 1000;
       let removedOriginals = 0, removedPreviews = 0, overdueOriginals = 0;
+      const fullCutoff = now() - ttl;
       async function visit(directory) {
         let children; try { children = await fs.readdir(directory, { withFileTypes: true }); } catch (error) { if (error.code === 'ENOENT') return; throw error; }
-        for (const child of children) {
+        const keepFull = children.some(child => child.isFile() && child.name === KEEP_MARKER);
+        for (const child of children.sort((a, b) => (a.name === KEEP_MARKER) - (b.name === KEEP_MARKER))) {
           const full = path.join(directory, child.name);
           if (child.isDirectory()) {
             await visit(full);
@@ -352,7 +362,7 @@ function createImageJobAssets(options = {}) {
           } else if (child.isFile()) {
             const isPreview = /^[a-f0-9]{64}\.preview\.webp$/.test(child.name);
             const stat = await fs.stat(full).catch(() => null);
-            if (!stat || stat.mtimeMs >= (isPreview ? previewCutoff : originalCutoff)) continue;
+            if (!stat || stat.mtimeMs >= (isPreview ? previewCutoff : keepFull ? fullCutoff : originalCutoff)) continue;
             const removed = await fs.unlink(full).then(() => true, () => false);
             if (removed) isPreview ? removedPreviews++ : removedOriginals++;
             else if (!isPreview && stat.mtimeMs < overdueCutoff) overdueOriginals++;

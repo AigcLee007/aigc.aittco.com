@@ -4,6 +4,8 @@ import ReversePromptModal from '../../components/ReversePromptModal';
 import BatchProcessModal from '../../components/BatchProcessModal';
 import InstructionsModal from '../../components/InstructionsModal';
 import ContextMenu from '../../components/ContextMenu';
+import { useUpscaleFlow } from '../hooks/useUpscaleFlow';
+import { openNodeComparison } from '../services/compareSlider';
 import AnnouncementPopup from '../../components/AnnouncementPopup';
 import { X } from 'lucide-react';
 import type { ImageAssetRef } from '../services/imageAssetTypes';
@@ -82,6 +84,8 @@ export const ModalsContainer: React.FC<ModalsContainerProps> = ({
   onOpenClassicMode,
   onCopyLink
 }) => {
+  const upscale = useUpscaleFlow({ onInitGenerations, onUpdateGeneration });
+
   return (
     <>
       <AnnouncementPopup onOpenSettings={onOpenSettings} onOpenClassicMode={onOpenClassicMode} />
@@ -163,7 +167,10 @@ export const ModalsContainer: React.FC<ModalsContainerProps> = ({
         onDownload={onDownloadNode}
         onFastDownload={onFastDownloadNode}
         onCopyLink={onCopyLink}
+        onUpscale={upscale.start}
+        onCompare={(result, source) => { void openNodeComparison(result, source).catch(() => window.alert('图片读取失败，请稍后重试')); }}
       />
+      {upscale.ui}
     </>
   );
 };

@@ -291,7 +291,7 @@ function createImageJobService(options = {}) {
     let prepared={payload:smallPayload(payload,urls),resultUrls:urls,previewUrl:null,storageStatus:'external'};
     let storageError=null;
     if(assets) {
-      try { prepared=await assets.prepare({payload,resultUrls:urls,context:{userId:known.userId,taskId:id},onSaved:callback,storageMode:known.storageMode}); }
+      try { prepared=await assets.prepare({payload,resultUrls:urls,context:{userId:known.userId,taskId:id},onSaved:callback,storageMode:known.storageMode,forceKeep:known.endpoint==='/api/upscale'}); }
       catch(error) { storageError=String(error.message||'Image save failed').slice(0,1000); prepared={payload:{},resultUrls:urls.filter(url=>!/^data:/i.test(url)),storageStatus:'failed'}; }
     } else if(urls.some(url=>/^data:/i.test(url))) {
       prepared={payload:{},resultUrls:urls.filter(url=>!/^data:/i.test(url)),storageStatus:'failed'};storageError='Image storage is unavailable';
@@ -445,7 +445,7 @@ function createImageJobService(options = {}) {
       observeOperations(job,{events:false});
       if(resumedAssetJobs.has(job.taskId))continue;resumedAssetJobs.add(job.taskId);
       try {
-        await assets.prepare({payload:job.payload,resultUrls:job.resultUrls,context:{userId:job.userId,taskId:job.taskId},storageMode:job.storageMode,onSaved:async update=>{
+        await assets.prepare({payload:job.payload,resultUrls:job.resultUrls,context:{userId:job.userId,taskId:job.taskId},storageMode:job.storageMode,forceKeep:job.endpoint==='/api/upscale',onSaved:async update=>{
           await publishAssetUpdate(job.taskId,update,job.resultUrls);
         }});
       }catch(error){warn(error);await persist(job.taskId,{storageStatus:'failed',storageError:String(error.message).slice(0,1000)});}
@@ -487,7 +487,7 @@ function createImageJobService(options = {}) {
     if(!userId)throw statusError('Login required',401);
     const requestId=String(body.clientRequestId||body.client_request_id||'').trim();
     if(!/^[a-zA-Z0-9_-]{1,128}$/.test(requestId))throw statusError('clientRequestId is required (1-128 letters, numbers, underscores or hyphens)',400);
-    if(!['/api/generate','/api/edit','/api/gemini/generate'].includes(endpoint))throw statusError('Unsupported image endpoint',400);
+    if(!['/api/generate','/api/edit','/api/gemini/generate','/api/upscale'].includes(endpoint))throw statusError('Unsupported image endpoint',400);
     const bytes=Buffer.byteLength(JSON.stringify(body));if(bytes>maxRequestBytes)throw statusError('Image request exceeds upload size limit',413);
     const fp=fingerprintBody({endpoint,body});
     const prior=admission;let release;admission=new Promise(resolve=>{release=resolve;});await prior;
@@ -499,7 +499,7 @@ function createImageJobService(options = {}) {
       if(ownPending>=userMaxQueued)throw Object.assign(statusError(`您已有 ${ownPending} 张图片在生成或排队，请等待部分完成后再提交`,429),{code:'USER_QUEUE_FULL'});
       const queued=(await store.list({status:'queued',limit:maxQueued})).length;
       if(queued>=maxQueued)throw Object.assign(statusError('图片任务队列繁忙，请稍后再试',429),{code:'GLOBAL_QUEUE_FULL'});
-      const now=Date.now();const {job}=await store.admit({taskId:`job-${crypto.randomBytes(16).toString('hex')}`,requestId,userId:String(userId),endpoint,fingerprint:fp,createdAt:new Date(now).toISOString(),deadlineAt:now+deadlineMs,uiMode:body.uiMode==='classic'?'classic':'canvas',clientLiveTaskIds:Array.isArray(body.clientLiveTaskIds)?body.clientLiveTaskIds:body.clientLiveTaskId?[body.clientLiveTaskId]:[],prompt:body.prompt,modelId:body.modelId,model:body.model,routeId:body.routeId,outputSize:body.image_size||body.size,aspectRatio:body.aspect_ratio||body.aspectRatio,storageMode:normalizeStorageMode(body.storageMode)},{body:{body,identity,headers:{authorization:headers.authorization||''}}});
+      const now=Date.now();const {job}=await store.admit({taskId:`job-${crypto.randomBytes(16).toString('hex')}`,requestId,userId:String(userId),endpoint,fingerprint:fp,createdAt:new Date(now).toISOString(),deadlineAt:now+deadlineMs,uiMode:body.uiMode==='classic'?'classic':'canvas',clientLiveTaskIds:Array.isArray(body.clientLiveTaskIds)?body.clientLiveTaskIds:body.clientLiveTaskId?[body.clientLiveTaskId]:[],prompt:body.prompt,modelId:body.modelId,model:body.model,routeId:body.routeId,outputSize:body.image_size||body.size,aspectRatio:body.aspect_ratio||body.aspectRatio,storageMode:endpoint==='/api/upscale'?'auto':normalizeStorageMode(body.storageMode)},{body:{body,identity,headers:{authorization:headers.authorization||''}}});
       const label=identity?.username||identity?.email||identity?.user?.username||identity?.user?.email;
       if(label)operationsLabels.set(job.taskId,operationsText(label,255));
       observeOperations({...job,...(label?{userLabel:operationsLabels.get(job.taskId)}:{})},{events:false});
