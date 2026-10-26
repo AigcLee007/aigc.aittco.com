@@ -1,6 +1,7 @@
 const assert = require('assert');
 const {
   normalizeImageRouteCompatibility,
+  normalizeMouxihubGptImageModelName,
 } = require('./imageRouteCompatibility.cjs');
 
 describe('normalizeImageRouteCompatibility', () => {
@@ -97,5 +98,38 @@ describe('normalizeImageRouteCompatibility', () => {
       generatePath: '/v1/images/generations',
       taskPath: '/v1/tasks/{taskId}',
     });
+  });
+});
+
+describe('normalizeMouxihubGptImageModelName', () => {
+  const route = { baseUrl: 'https://api.mouxihub.com' };
+
+  it('sends the base model when Mouxihub derives the 4K variant from image_size', () => {
+    assert.strictEqual(
+      normalizeMouxihubGptImageModelName(route, 'gpt-image-2.5-sunburst-4k', { image_size: '4k' }),
+      'gpt-image-2.5-sunburst',
+    );
+  });
+
+  it('sends the base model when Mouxihub derives the 2K variant from image_size', () => {
+    assert.strictEqual(
+      normalizeMouxihubGptImageModelName(route, 'gpt-image-2.5-sunburst-2k', { image_size: '2k' }),
+      'gpt-image-2.5-sunburst',
+    );
+  });
+
+  it('leaves correctly suffixed models and other providers unchanged', () => {
+    assert.strictEqual(
+      normalizeMouxihubGptImageModelName(route, 'gpt-image-2.5-sunburst-4k', { image_size: '4k' }),
+      'gpt-image-2.5-sunburst',
+    );
+    assert.strictEqual(
+      normalizeMouxihubGptImageModelName(route, 'gpt-image-2.5-sunburst-4k', { image_size: '2k' }),
+      'gpt-image-2.5-sunburst-4k',
+    );
+    assert.strictEqual(
+      normalizeMouxihubGptImageModelName({ baseUrl: 'https://api.example.com' }, 'gpt-image-2.5-sunburst-4k-4k', { image_size: '4k' }),
+      'gpt-image-2.5-sunburst-4k-4k',
+    );
   });
 });

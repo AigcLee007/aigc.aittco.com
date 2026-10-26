@@ -33,7 +33,10 @@ const {
   extractVisionarySubmission,
   unwrapVisionaryTask,
 } = require("./visionaryImageApi.cjs");
-const { VISION_ROUTE_IDS } = require("./imageRouteCompatibility.cjs");
+const {
+  VISION_ROUTE_IDS,
+  normalizeMouxihubGptImageModelName,
+} = require("./imageRouteCompatibility.cjs");
 const { getSeedreamSizeError } = require("./seedreamImagePolicy.cjs");
 const { isGptImageCompatibleModel } = require("./imageModelCompatibility.cjs");
 const { parseGeminiPromptOptions, parseGeminiReversePrompt } = require("./promptToolResponse.cjs");
@@ -507,13 +510,15 @@ const getRouteSizeOverride = (route, requestBody = {}) => {
 };
 const getRouteModelName = (route, requestBody = {}, fallbackModel = "") => {
   const sizeOverride = getRouteSizeOverride(route, requestBody);
+  let modelName;
   if (sizeOverride?.upstreamModel) {
-    return sizeOverride.upstreamModel;
+    modelName = sizeOverride.upstreamModel;
+  } else if (route?.useRequestModel) {
+    modelName = requestBody.model || fallbackModel;
+  } else {
+    modelName = route?.upstreamModel || requestBody.model || fallbackModel;
   }
-  if (route?.useRequestModel) {
-    return requestBody.model || fallbackModel;
-  }
-  return route?.upstreamModel || requestBody.model || fallbackModel;
+  return normalizeMouxihubGptImageModelName(route, modelName, requestBody);
 };
 const isGeminiNativeStylePath = (route) => {
   const generatePath = String(route?.generatePath || "");
