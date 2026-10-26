@@ -151,7 +151,7 @@ export const useCanvasInteraction = (
         if (!isShift) { // If not appending, clear first
            select(null, false);
         }
-      } else if (toolMode !== ToolMode.INPAINT && toolMode !== ToolMode.GENERATE) {
+      } else if (toolMode !== ToolMode.INPAINT && toolMode !== ToolMode.GENERATE && toolMode !== ToolMode.UPSCALE) {
         // Only if we aren't using other specialized tools, fallback to PAN
         select(null, false);
         setToolMode(ToolMode.PAN);

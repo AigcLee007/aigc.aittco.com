@@ -39,6 +39,10 @@ export const useGlobalShortcuts = (
         if (key === 'v') {
           setToolMode(ToolMode.VIDEO);
         }
+        // Q -> Upscale
+        if (key === 'q') {
+          setToolMode(ToolMode.UPSCALE);
+        }
         // S -> Download
         if (key === 's') {
           e.preventDefault(); // Prevent browser save

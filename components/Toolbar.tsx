@@ -3,7 +3,7 @@ import React, { useRef, useState } from 'react';
 import { ToolMode } from '../types';
 import { useSelectionStore } from '../src/store/selectionStore';
 import { useCanvasStore } from '../src/store/canvasStore';
-import { Hand, MousePointer2, Sparkles, UploadCloud, Undo2, Redo2, Trash2, Settings, History, Grid, ScanSearch, DownloadCloud, Box, Loader2, HelpCircle, Clapperboard, ImagePlus, Eye, MessageSquare, Layers, ChevronDown, ChevronUp, Eraser } from 'lucide-react';
+import { Hand, MousePointer2, Sparkles, UploadCloud, Undo2, Redo2, Trash2, Settings, History, Grid, ScanSearch, DownloadCloud, Box, Loader2, HelpCircle, Clapperboard, ImagePlus, Eye, MessageSquare, Layers, ChevronDown, ChevronUp, Eraser, Maximize2 } from 'lucide-react';
 
 interface ToolbarProps {
   onUpload: (files: FileList) => void;
@@ -161,6 +161,17 @@ const Toolbar: React.FC<ToolbarProps> = ({
             title="图片编辑 (I)"
         >
             <Eraser size={21} strokeWidth={1.6} />
+        </button>
+
+        <button
+            onClick={() => {
+              setToolMode(ToolMode.UPSCALE);
+            }}
+            className={`${dockItemClass} ${toolMode === ToolMode.UPSCALE ? 'bg-linear-to-tr from-sky-500 to-cyan-500 text-white shadow-lg shadow-sky-500/30' : ''}`}
+            title="高清放大 (Q)"
+            aria-label="高清放大"
+        >
+            <Maximize2 size={20} strokeWidth={1.6} />
         </button>
 
         {/* 5. Collection Stack (Features) */}

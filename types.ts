@@ -88,6 +88,7 @@ export enum ToolMode {
   GENERATE = 'GENERATE',
   VIDEO = 'VIDEO',
   INPAINT = 'INPAINT',
+  UPSCALE = 'UPSCALE',
 }
 
 export enum AppStatus {

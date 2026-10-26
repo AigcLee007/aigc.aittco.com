@@ -17,6 +17,7 @@ import { Wand2, Loader2, ImagePlus, X, Upload, Plus, Move, Sparkles, Minus, Maxi
 import VideoPricingModal from './VideoPricingModal';
 import CoinIcon from './CoinIcon';
 import ModelSelector from './ModelSelector';
+import { UpscalePanel } from './UpscalePanel';
 import ImageFormConfig from './ImageFormConfig';
 import VideoFormConfig from './VideoFormConfig';
 import ImageEditPanel from './ImageEditPanel';
@@ -357,6 +358,7 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
 
   const isGenerateMode = toolMode === ToolMode.GENERATE;
   const isInpaintMode = (toolMode as ToolMode) === ToolMode.INPAINT;
+  const isUpscaleMode = (toolMode as ToolMode) === ToolMode.UPSCALE;
   // Use persistent panelMode instead of transient toolMode
   const isVideoMode = panelMode === 'VIDEO';
 
@@ -1821,8 +1823,8 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
         <div className="px-4 pb-3">
            <div className="flex items-center justify-between">
               <h2 className="text-sm font-bold text-gray-200 flex items-center gap-2 select-none">
-                {isVideoMode ? <MonitorPlay size={20} className="text-blue-400" /> : titleIcon}
-                {isVideoMode ? videoTitleText : imagePanelTitle}
+                {isUpscaleMode ? <Maximize2 size={20} className="text-sky-400" /> : isVideoMode ? <MonitorPlay size={20} className="text-blue-400" /> : titleIcon}
+                {isUpscaleMode ? '高清放大' : isVideoMode ? videoTitleText : imagePanelTitle}
               </h2>
                <div className="flex items-center gap-1">
                  <button
@@ -1853,8 +1855,8 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
         {panelMinimized && (
           <div className="px-4 pb-3 flex items-center justify-between">
              <div className="text-xs font-bold text-white flex items-center gap-2 select-none">
-               {isVideoMode ? <MonitorPlay size={16} className="text-blue-400" /> : titleIcon}
-               {isVideoMode ? videoPanelTitle : imagePanelTitle}
+               {isUpscaleMode ? <Maximize2 size={16} className="text-sky-400" /> : isVideoMode ? <MonitorPlay size={16} className="text-blue-400" /> : titleIcon}
+               {isUpscaleMode ? '高清放大' : isVideoMode ? videoPanelTitle : imagePanelTitle}
              </div>
              <div className="flex items-center gap-1">
                <button
@@ -1890,7 +1892,23 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
               <button type="button" onClick={() => setAccessRetryVersion(version => version + 1)} className="mt-2 text-cyan-300 hover:text-cyan-100">重新验证</button>
             </div>
           )}
-          {toolMode === ToolMode.INPAINT ? (
+          {isUpscaleMode ? (
+            hasUnlockedGenerationAccess && generationAccessState !== 'valid_api_key' ? (
+              <UpscalePanel
+                onInitGenerations={onInitGenerations}
+                onUpdateGeneration={onUpdateGeneration}
+                selectedNode={primaryNode}
+                readNode={(node) => readOriginalBlob(node)}
+              />
+            ) : (
+              <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4 text-xs leading-5 text-gray-300">
+                <div className="mb-1 text-sm font-semibold text-white">
+                  {isCheckingGenerationAccess ? '正在验证访问权限' : '请先登录账户'}
+                </div>
+                高清放大按账户金币计费，需要登录后使用。
+              </div>
+            )
+          ) : toolMode === ToolMode.INPAINT ? (
             <>
               {hasUnlockedGenerationAccess ? (
                 <ImageEditPanel

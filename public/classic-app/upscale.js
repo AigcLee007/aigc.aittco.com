@@ -85,21 +85,10 @@
     }
   }
 
-  async function openClassicUpscale(url, prompt = "") {
-    if (!root.localStorage?.getItem(SESSION_KEY)) { toast("请先登录后再使用高清放大"); return; }
-    if (open) return;
-    toast("正在读取原图…");
-    let blob, dims, dataUrl, options;
-    try {
-      blob = await Promise.race([
-        readOriginal(url),
-        new Promise((_, reject) => root.setTimeout(() => reject(new Error("读取原图超时，请稍后重试")), MAX_DIALOG_WAIT_MS)),
-      ]);
-      dims = await measure(blob);
-      [dataUrl, options] = await Promise.all([toDataUrl(blob), ask(`/api/upscale/options?width=${dims.width}&height=${dims.height}`)]);
-    } catch (error) { toast(error.message || "读取原图失败"); return; }
-    if (!options.enabled || !options.engines.length) { toast("高清放大暂未开通，请联系管理员"); return; }
-
+  // The engine / scale / format picker with its live price, shared by the dialog and the page.
+  // `options` comes from /api/upscale/options?width&height. It calls onChange(choice|null) whenever
+  // the selection or its price changes, and has no buttons of its own.
+  function buildForm(dims, options, onChange) {
     const LABELS = { png: "PNG", jpg: "JPG", webp: "WebP" };
     const canTake = (engine) => (engine.usableFactors ? engine.usableFactors.length > 0 : true);
     const factorsOf = (engine) => engine.usableFactors || engine.factors;
@@ -114,24 +103,17 @@
       if (!allowed.includes(state.format)) state.format = allowed[0] || null;
     };
 
-    const dialog = el("div", { class: "api-guide-modal", role: "dialog", "aria-modal": "true", "aria-labelledby": "upscaleTitle", style: "display:flex" });
-    const card = el("div", { class: "api-guide-card", style: "max-width:420px;text-align:left" });
-    const title = el("div", { class: "api-guide-title", id: "upscaleTitle", text: "高清放大" });
-    const info = el("div", { class: "api-guide-desc", text: `当前图片 ${dims.width} × ${dims.height}` });
     const engineBox = el("div", { role: "radiogroup", "aria-label": "放大方式", style: "display:grid;gap:8px;margin:12px 0" });
     const factorBox = el("div", { role: "radiogroup", "aria-label": "放大倍数", style: "display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin:8px 0" });
     const formatBox = el("div", { role: "radiogroup", "aria-label": "输出格式", style: "display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin:8px 0" });
     const priceBox = el("div", { "aria-live": "polite", style: "min-height:40px;padding:8px 12px;border-radius:10px;background:rgba(255,255,255,.06);margin:8px 0" });
     const note = el("div", { class: "api-guide-desc", style: "font-size:11px", text: "图片将发送到云端处理，结果在服务器保留 5 小时，请及时下载。失败会自动退回金币。" });
-    const cancel = el("button", { class: "api-guide-btn ghost", type: "button", text: "取消", onclick: close });
-    const confirm = el("button", { class: "api-guide-btn", type: "button", text: "确认放大", disabled: "" });
-    const actions = el("div", { class: "api-guide-actions" }, [cancel, confirm]);
-    card.append(title, info, engineBox, factorBox, formatBox, priceBox, note, actions);
-    dialog.append(card);
-    dialog.addEventListener("click", (event) => { if (event.target === dialog) close(); });
-    dialog.addEventListener("keydown", (event) => { if (event.key === "Escape") close(); });
+    const container = el("div", {}, [engineBox, factorBox, formatBox, priceBox, note]);
 
     let quoteToken = 0;
+    const emit = () => onChange(state.quote && !state.error
+      ? { engine: state.engine.id, factor: state.factor, format: state.format, label: state.engine.label, quote: state.quote, size: `${state.quote.outputWidth}x${state.quote.outputHeight}` }
+      : null);
     const refreshQuote = async () => {
       const token = ++quoteToken;
       syncFormat();
@@ -180,20 +162,53 @@
       if (state.error) priceBox.textContent = state.error;
       else if (!state.quote) priceBox.textContent = "正在计算价格…";
       else priceBox.textContent = `输出 ${state.quote.outputWidth} × ${state.quote.outputHeight}　·　${state.quote.points} 金币`;
-      confirm.disabled = !state.quote || Boolean(state.error);
-      confirm.textContent = state.quote ? `确认放大 · ${state.quote.points} 金币` : "确认放大";
+      emit();
     };
+    void refreshQuote();
+    return container;
+  }
+
+  async function openClassicUpscale(url, prompt = "") {
+    if (!root.localStorage?.getItem(SESSION_KEY)) { toast("请先登录后再使用高清放大"); return; }
+    if (open) return;
+    toast("正在读取原图…");
+    let blob, dims, dataUrl, options;
+    try {
+      blob = await Promise.race([
+        readOriginal(url),
+        new Promise((_, reject) => root.setTimeout(() => reject(new Error("读取原图超时，请稍后重试")), MAX_DIALOG_WAIT_MS)),
+      ]);
+      dims = await measure(blob);
+      [dataUrl, options] = await Promise.all([toDataUrl(blob), ask(`/api/upscale/options?width=${dims.width}&height=${dims.height}`)]);
+    } catch (error) { toast(error.message || "读取原图失败"); return; }
+    if (!options.enabled || !options.engines.length) { toast("高清放大暂未开通，请联系管理员"); return; }
+
+    let choice = null;
+    const dialog = el("div", { class: "api-guide-modal", role: "dialog", "aria-modal": "true", "aria-labelledby": "upscaleTitle", style: "display:flex" });
+    const card = el("div", { class: "api-guide-card", style: "max-width:420px;text-align:left" });
+    const title = el("div", { class: "api-guide-title", id: "upscaleTitle", text: "高清放大" });
+    const info = el("div", { class: "api-guide-desc", text: `当前图片 ${dims.width} × ${dims.height}` });
+    const cancel = el("button", { class: "api-guide-btn ghost", type: "button", text: "取消", onclick: close });
+    const confirm = el("button", { class: "api-guide-btn", type: "button", text: "确认放大", disabled: "" });
+    const form = buildForm(dims, options, (next) => {
+      choice = next;
+      confirm.disabled = !next;
+      confirm.textContent = next ? `确认放大 · ${next.quote.points} 金币` : "确认放大";
+    });
+    card.append(title, info, form, el("div", { class: "api-guide-actions" }, [cancel, confirm]));
+    dialog.append(card);
+    dialog.addEventListener("click", (event) => { if (event.target === dialog) close(); });
+    dialog.addEventListener("keydown", (event) => { if (event.key === "Escape") close(); });
     confirm.addEventListener("click", () => {
-      if (!state.quote) return;
-      const choice = { dataUrl, blob, engine: state.engine.id, factor: state.factor, format: state.format, prompt, size: `${state.quote.outputWidth}x${state.quote.outputHeight}`, label: state.engine.label };
+      if (!choice) return;
+      const chosen = { dataUrl, blob, ...choice, prompt };
       close();
-      void submit(choice);
+      void submit(chosen);
     });
 
     open = dialog;
     doc.body.append(dialog);
     confirm.focus();
-    void refreshQuote();
   }
 
   // Opens the before / after slider. `beforeId` is the cache id written by keepBeforeCopy.
@@ -220,6 +235,143 @@
     }
   }
 
+  // ===== 高清放大 page (the second mode of the create tab) =====
+  // Works on any picture: dropped, chosen from the computer, pasted, or sent here from a result card.
+  const MAX_FILE_BYTES = 30 * 1024 * 1024;
+  const ACCEPTED_TYPES = ["image/png", "image/jpeg", "image/webp"];
+  const page = { picked: null, choice: null, busy: false, token: 0, ready: false };
+  const $ = (id) => doc.getElementById(id);
+
+  function showPageError(message) {
+    const box = $("classicUpscaleError");
+    if (!box) return;
+    box.textContent = message || "";
+    box.hidden = !message;
+  }
+
+  function refreshGo() {
+    const go = $("classicUpscaleGo");
+    if (!go) return;
+    go.disabled = !(page.picked && page.choice) || page.busy;
+    go.textContent = page.choice ? `开始放大 · ${page.choice.quote.points} 金币` : "开始放大";
+  }
+
+  function resetPage() {
+    page.token++;
+    page.picked = null;
+    page.choice = null;
+    $("classicUpscaleForm")?.replaceChildren();
+    $("classicUpscaleFormModule").hidden = true;
+    $("classicUpscalePreview").hidden = true;
+    $("classicUpscalePreview").replaceChildren();
+    $("classicUpscalePlaceholder").hidden = false;
+    $("classicUpscaleChange").hidden = true;
+    showPageError("");
+    refreshGo();
+  }
+
+  async function loadIntoPage(blob, name) {
+    showPageError("");
+    if (!root.localStorage?.getItem(SESSION_KEY)) { showPageError("请先登录后再使用高清放大"); return; }
+    if (blob.type && !ACCEPTED_TYPES.includes(blob.type)) { showPageError("请使用 PNG、JPG 或 WebP 格式的图片"); return; }
+    if (blob.size > MAX_FILE_BYTES) { showPageError("图片文件超过 30MB，请压缩后再试"); return; }
+    const token = ++page.token;
+    page.busy = true;
+    refreshGo();
+    try {
+      const dims = await measure(blob);
+      const [dataUrl, options] = await Promise.all([toDataUrl(blob), ask(`/api/upscale/options?width=${dims.width}&height=${dims.height}`)]);
+      if (token !== page.token) return;
+      if (!options.enabled || !options.engines.length) { showPageError("高清放大暂未开通，请联系管理员"); return; }
+      page.picked = { blob, dataUrl, dims, name };
+      page.choice = null;
+      const preview = $("classicUpscalePreview");
+      const thumb = el("img", { alt: "待放大的图片预览", src: dataUrl });
+      preview.replaceChildren(thumb, el("div", { class: "meta" }, [el("b", { text: name || "图片" }), el("span", { text: `${dims.width} × ${dims.height}` })]));
+      preview.hidden = false;
+      $("classicUpscalePlaceholder").hidden = true;
+      $("classicUpscaleChange").hidden = false;
+      $("classicUpscaleFormModule").hidden = false;
+      $("classicUpscaleForm").replaceChildren(buildForm(dims, options, (next) => { if (token === page.token) { page.choice = next; refreshGo(); } }));
+    } catch (error) {
+      if (token === page.token) showPageError(error.message || "图片读取失败，请重试");
+    } finally {
+      if (token === page.token) { page.busy = false; refreshGo(); }
+    }
+  }
+
+  function pickFromFiles(files) {
+    const file = Array.from(files || []).find((item) => item.type && item.type.startsWith("image/"));
+    if (!file) { showPageError("请选择一张图片"); return; }
+    void loadIntoPage(file, file.name);
+  }
+
+  function setClassicMode(mode) {
+    const upscale = mode === "upscale";
+    $("classicGenerateArea").hidden = upscale;
+    $("classicUpscaleArea").hidden = !upscale;
+    for (const [id, active] of [["classicModeGenerate", !upscale], ["classicModeUpscale", upscale]]) {
+      const tab = $(id);
+      tab.classList.toggle("active", active);
+      tab.setAttribute("aria-selected", String(active));
+    }
+    // The settings column on the right belongs to generation only.
+    const right = doc.querySelector(".classic-create-layout > .right-column, .classic-create-layout .right-column");
+    if (right) right.hidden = upscale;
+    try { root.localStorage?.setItem("classic-create-mode", mode); } catch (_) { /* private mode */ }
+  }
+
+  // A result card can hand its picture to the page instead of the quick dialog.
+  async function sendToUpscalePage(url, name = "") {
+    setClassicMode("upscale");
+    try { await loadIntoPage(await readOriginal(url), name || "生成结果"); }
+    catch (error) { showPageError(error.message || "原图读取失败，请稍后重试"); }
+  }
+
+  function initPage() {
+    if (page.ready || !$("classicUpscaleArea")) return;
+    page.ready = true;
+    const drop = $("classicUpscaleDrop"), file = $("classicUpscaleFile");
+    drop.addEventListener("click", () => { if (!page.picked) file.click(); });
+    drop.addEventListener("keydown", (event) => { if ((event.key === "Enter" || event.key === " ") && !page.picked) { event.preventDefault(); file.click(); } });
+    file.addEventListener("change", () => { pickFromFiles(file.files); file.value = ""; });
+    drop.addEventListener("dragover", (event) => { event.preventDefault(); drop.classList.add("is-dragging"); });
+    drop.addEventListener("dragleave", () => drop.classList.remove("is-dragging"));
+    drop.addEventListener("drop", (event) => { event.preventDefault(); event.stopPropagation(); drop.classList.remove("is-dragging"); pickFromFiles(event.dataTransfer?.files); });
+    doc.addEventListener("paste", (event) => {
+      if ($("classicUpscaleArea").hidden) return;
+      const active = doc.activeElement;
+      if (active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA" || active.isContentEditable)) return;
+      const item = Array.from(event.clipboardData?.items || []).find((entry) => entry.type && entry.type.startsWith("image/"));
+      const pasted = item?.getAsFile();
+      if (!pasted) return;
+      event.preventDefault();
+      void loadIntoPage(pasted, "粘贴的图片");
+    });
+    $("classicUpscaleGo").addEventListener("click", async () => {
+      const { picked, choice } = page;
+      if (!picked || !choice || page.busy) return;
+      page.busy = true;
+      refreshGo();
+      try {
+        await submit({ dataUrl: picked.dataUrl, blob: picked.blob, ...choice, prompt: picked.name });
+      } finally {
+        page.busy = false;
+        refreshGo();
+      }
+      // The picture stays, so another engine or scale can be tried without choosing it again.
+    });
+    let remembered = "";
+    try { remembered = root.localStorage?.getItem("classic-create-mode") || ""; } catch (_) { /* ignore */ }
+    setClassicMode(remembered === "upscale" ? "upscale" : "generate");
+  }
+
+  root.setClassicMode = setClassicMode;
+  root.classicUpscalePage = { reset: resetPage, load: loadIntoPage, sendHere: sendToUpscalePage };
+  if (doc.readyState === "loading") doc.addEventListener("DOMContentLoaded", initPage);
+  else initPage();
+
   root.openClassicUpscale = openClassicUpscale;
+  root.ClassicUpscaleInternals = { buildForm, submit, ask, measure, toDataUrl, toast, sessionHeaders, el };
   root.openClassicCompare = openClassicCompare;
 })(typeof window === "undefined" ? globalThis : window);

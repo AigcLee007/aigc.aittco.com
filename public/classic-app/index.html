@@ -23,7 +23,7 @@
         document.documentElement.classList.add("classic-vip-mode");
       }
     </script>
-    <link rel="stylesheet" href="/classic-app/style.css?v=classic_private_v1" />
+    <link rel="stylesheet" href="/classic-app/style.css?v=classic_private_v2" />
   </head>
   <body>
     <div class="top-controls">
@@ -192,6 +192,12 @@
       <div class="dashboard classic-create-dashboard">
         <div class="classic-create-layout">
           <div class="classic-compose-column">
+        <!-- 模式切换：生图 / 高清放大。只是显示哪一块，生图区域本身不变。 -->
+        <div class="classic-mode-switch" role="tablist" aria-label="创作模式">
+          <button type="button" role="tab" id="classicModeGenerate" class="classic-mode-tab active" aria-selected="true" onclick="setClassicMode('generate')">✨ 生图</button>
+          <button type="button" role="tab" id="classicModeUpscale" class="classic-mode-tab" aria-selected="false" onclick="setClassicMode('upscale')">🔍 高清放大</button>
+        </div>
+        <div id="classicGenerateArea" class="classic-generate-area">
         <!-- Header removed as requested (Duplicate) -->
 
         <!-- 创作卡片：参考图 + 提示词 -->
@@ -454,6 +460,31 @@
           <button class="start-btn" id="genBtn" onclick="runGen()">
             INITIATE // 开始生产
           </button>
+        </div>
+
+        </div><!-- /classicGenerateArea -->
+
+        <div id="classicUpscaleArea" class="classic-upscale-area" hidden>
+          <div class="tech-module classic-upscale-module">
+            <div class="compose-header"><span class="compose-title">要放大的图片</span>
+              <div class="compose-actions"><button type="button" class="compose-text-btn" id="classicUpscaleChange" hidden onclick="classicUpscalePage.reset()">更换</button></div>
+            </div>
+            <div class="upload-box classic-upscale-drop" id="classicUpscaleDrop" tabindex="0" role="button" aria-label="选择或拖入要放大的图片">
+              <input type="file" id="classicUpscaleFile" accept="image/png,image/jpeg,image/webp" hidden onclick="event.stopPropagation()" />
+              <div id="classicUpscalePreview" class="classic-upscale-preview" hidden></div>
+              <div id="classicUpscalePlaceholder" class="ref-add-tile classic-upscale-placeholder">
+                <span aria-hidden="true">＋</span>
+                <span class="ref-add-hint">点击、拖入或粘贴一张图片<br /><small>PNG / JPG / WebP，30MB 以内</small></span>
+              </div>
+            </div>
+            <div id="classicUpscaleError" class="classic-upscale-error" role="alert" hidden></div>
+          </div>
+          <div class="tech-module classic-upscale-module" id="classicUpscaleFormModule" hidden>
+            <div id="classicUpscaleForm"></div>
+          </div>
+          <div class="action-section">
+            <button class="start-btn" id="classicUpscaleGo" type="button" disabled>开始放大</button>
+          </div>
         </div>
 
           </div>
@@ -1128,10 +1159,10 @@
     <script src="/shared/local-folder-save.js?v=classic_storage_v2"></script>
     <script src="/classic-app/image-runtime.js?v=classic_gallery_v2"></script>
     <script src="/classic-app/image-job-client.js?v=classic_transfer_v2"></script>
-    <script src="/classic-app/script.js?v=classic_private_v1"></script>
+    <script src="/classic-app/script.js?v=classic_private_v2"></script>
     <script src="/classic-app/result-assets.js?v=classic_private_v1"></script>
     <script src="/shared/compare-slider.js?v=compare_v1"></script>
-    <script src="/classic-app/upscale.js?v=classic_upscale_v2"></script>
+    <script src="/classic-app/upscale.js?v=classic_upscale_v3"></script>
     <script src="/classic-app/unified-bridge.js?v=classic_live_v2"></script>
   </body>
 </html>

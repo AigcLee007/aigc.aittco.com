@@ -4,6 +4,7 @@ import ReversePromptModal from '../../components/ReversePromptModal';
 import BatchProcessModal from '../../components/BatchProcessModal';
 import InstructionsModal from '../../components/InstructionsModal';
 import ContextMenu from '../../components/ContextMenu';
+import SingleImageToolbar from '../../components/SingleImageToolbar';
 import { useUpscaleFlow } from '../hooks/useUpscaleFlow';
 import { openNodeComparison } from '../services/compareSlider';
 import AnnouncementPopup from '../../components/AnnouncementPopup';
@@ -167,6 +168,10 @@ export const ModalsContainer: React.FC<ModalsContainerProps> = ({
         onDownload={onDownloadNode}
         onFastDownload={onFastDownloadNode}
         onCopyLink={onCopyLink}
+        onUpscale={upscale.start}
+        onCompare={(result, source) => { void openNodeComparison(result, source).catch(() => window.alert('图片读取失败，请稍后重试')); }}
+      />
+      <SingleImageToolbar
         onUpscale={upscale.start}
         onCompare={(result, source) => { void openNodeComparison(result, source).catch(() => window.alert('图片读取失败，请稍后重试')); }}
       />

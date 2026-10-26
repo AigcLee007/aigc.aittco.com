@@ -208,7 +208,7 @@ const InfiniteCanvas: React.FC<InfiniteCanvasProps> = ({
     e.cancelBubble = true;
 
     // Always switch to SELECT mode when clicking a node ONLY if not in special modes like INPAINT/GENERATE
-    if (toolMode !== ToolMode.SELECT && toolMode !== ToolMode.INPAINT && toolMode !== ToolMode.GENERATE) {
+    if (toolMode !== ToolMode.SELECT && toolMode !== ToolMode.INPAINT && toolMode !== ToolMode.GENERATE && toolMode !== ToolMode.UPSCALE) {
       setToolMode(ToolMode.SELECT);
     }
 

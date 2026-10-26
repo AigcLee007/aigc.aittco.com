@@ -438,7 +438,7 @@ export const useSelectionStore = create<SelectionStore>()(
           } else if (mode === ToolMode.GENERATE) {
               state.panelMode = 'IMAGE';
               state.isControlPanelOpen = true; // Auto-open panel
-          } else if (mode === ToolMode.INPAINT) {
+          } else if (mode === ToolMode.INPAINT || mode === ToolMode.UPSCALE) {
               state.panelMode = 'IMAGE';
               state.isControlPanelOpen = true;
           }
