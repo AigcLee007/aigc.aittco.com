@@ -396,7 +396,7 @@ const App: React.FC = () => {
   );
 
   const [mobileViewMode, setMobileViewMode] = useState<'grid' | 'canvas'>('grid');
-  const localReadNotice=localReadError && <div className="fixed top-3 left-1/2 -translate-x-1/2 z-[100] w-max max-w-[95vw] rounded-xl bg-amber-950 px-4 py-3 text-sm text-amber-100">
+  const localReadNotice=localReadError && <div className="fixed top-3 canvas-center-x -translate-x-1/2 z-[100] w-max max-w-[95vw] rounded-xl bg-amber-950 px-4 py-3 text-sm text-amber-100">
     本地缓存暂时无法读取，图片记录已保留。
     <button className="ml-3 underline" onClick={()=>void retryLocalReads()}>重新读取</button>
   </div>;
@@ -573,7 +573,7 @@ const App: React.FC = () => {
       >
         <AppVersionNotice />
         <AppVersionBadge />
-        <div className="flex-1 relative z-0">
+        <div className="flex-1 relative z-0" data-canvas-viewport style={{ marginLeft: 'var(--sidebar-inset, 0px)' }}>
           <InfiniteCanvas
             onContextMenu={handleContextMenu}
             onNodeDoubleClick={handleDoubleClickNode}
@@ -663,7 +663,7 @@ const App: React.FC = () => {
         />
 
         {nodes.length === 0 && status === AppStatus.IDLE && !isAccountAuthenticated && (
-          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 pointer-events-none flex flex-col items-center justify-center select-none w-full max-w-2xl mt-[-5vh]">
+          <div className="absolute top-1/2 canvas-center-x -translate-x-1/2 -translate-y-1/2 pointer-events-none flex flex-col items-center justify-center select-none w-full max-w-2xl mt-[-5vh]">
             <h1 className="text-3xl font-light text-white tracking-[0.3em] uppercase opacity-40 mb-12 flex items-center justify-center font-sans">
               Nano Banana Pro
             </h1>

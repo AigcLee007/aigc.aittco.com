@@ -8,6 +8,7 @@ import { AddNodeCommand, DeleteNodeCommand, UpdateNodeCommand, SetNodesCommand, 
 import { bounded } from '../services/imageAssetTypes';
 import { resolveGenerationStartedAt } from '../utils/generationProgress';
 import { beginLocalRead, deferLocalRecoveryWrite, finishLocalRead, localStoreWritable, mergeRecoveredLocalState, setLocalReadFailed } from '../services/localHydrationSafety';
+import { defaultSidebarInset, getCanvasCenter } from '../utils/canvasViewport';
 
 // Simple UUID generator
 const generateId = () => Math.random().toString(36).substring(2, 11);
@@ -92,7 +93,7 @@ const sanitizePersistedNodes = (nodes: NodeData[] = []): NodeData[] =>
 
 const sanitizePersistedCanvasState = (canvasState?: Partial<CanvasState>): CanvasState => ({
   offset: {
-    x: Number.isFinite(canvasState?.offset?.x) ? Number(canvasState?.offset?.x) : (typeof window !== 'undefined' ? window.innerWidth / 2 : 500),
+    x: Number.isFinite(canvasState?.offset?.x) ? Number(canvasState?.offset?.x) : (typeof window !== 'undefined' ? (window.innerWidth - defaultSidebarInset(window.innerWidth)) / 2 : 500),
     y: Number.isFinite(canvasState?.offset?.y) ? Number(canvasState?.offset?.y) : (typeof window !== 'undefined' ? window.innerHeight / 2 : 400),
   },
   scale: Number.isFinite(canvasState?.scale) && Number(canvasState?.scale) > 0 ? Number(canvasState?.scale) : 1,
@@ -194,7 +195,7 @@ export const useCanvasStore = create<CanvasStore>()(
       // Initial State
       nodes: [],
       canvasState: {
-        offset: { x: typeof window !== 'undefined' ? window.innerWidth / 2 : 500, y: typeof window !== 'undefined' ? window.innerHeight / 2 : 400 },
+        offset: { x: typeof window !== 'undefined' ? (window.innerWidth - defaultSidebarInset(window.innerWidth)) / 2 : 500, y: typeof window !== 'undefined' ? window.innerHeight / 2 : 400 },
         scale: 1,
       },
 
@@ -274,7 +275,7 @@ export const useCanvasStore = create<CanvasStore>()(
       resetCanvasView: () =>
         set((state) => {
           state.canvasState = {
-            offset: { x: window.innerWidth / 2, y: window.innerHeight / 2 },
+            offset: getCanvasCenter(),
             scale: 1,
           };
         }),

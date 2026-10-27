@@ -58,7 +58,7 @@ export const AppVersionNotice = () => {
 
   if (!updateAvailable) return null;
   return (
-    <div className="fixed top-3 left-1/2 z-[120] flex max-w-[calc(100vw-24px)] -translate-x-1/2 items-center gap-3 border border-emerald-300/30 bg-neutral-950 px-4 py-3 text-sm text-white shadow-xl">
+    <div className="fixed top-3 canvas-center-x z-[120] flex max-w-[calc(100vw-24px)] -translate-x-1/2 items-center gap-3 border border-emerald-300/30 bg-neutral-950 px-4 py-3 text-sm text-white shadow-xl">
       <span>发现新版本，刷新后生效</span>
       <button className="bg-emerald-400 px-3 py-1.5 font-semibold text-neutral-950" onClick={() => window.location.reload()}>
         立即更新

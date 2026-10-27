@@ -5,6 +5,7 @@ import { assetStorage } from '../services/assetStorage';
 import { cacheImageSource } from '../services/imageAssetCache';
 import { NodeData, ToolMode, Point } from '../../types';
 import { useToast } from '../context/ToastContext';
+import { clientToStage, getCanvasCenter } from '../utils/canvasViewport';
 
 export const useImageProcessor = () => {
     const { addNode, generateId, canvasState } = useCanvasStore();
@@ -65,8 +66,8 @@ export const useImageProcessor = () => {
     
         const count = loadedNodes.length; const cols = Math.ceil(Math.sqrt(count)); const gap = 40; const cellSize = 512;
         let cx, cy;
-        if (centerPoint) { cx = (centerPoint.x - canvasState.offset.x) / canvasState.scale; cy = (centerPoint.y - canvasState.offset.y) / canvasState.scale; }
-        else { cx = -canvasState.offset.x / canvasState.scale + (window.innerWidth / 2 / canvasState.scale); cy = -canvasState.offset.y / canvasState.scale + (window.innerHeight / 2 / canvasState.scale); }
+        if (centerPoint) { const dropAt = clientToStage(centerPoint); cx = (dropAt.x - canvasState.offset.x) / canvasState.scale; cy = (dropAt.y - canvasState.offset.y) / canvasState.scale; }
+        else { const middle = getCanvasCenter(); cx = -canvasState.offset.x / canvasState.scale + (middle.x / canvasState.scale); cy = -canvasState.offset.y / canvasState.scale + (middle.y / canvasState.scale); }
         const totalGridW = cols * cellSize + (cols - 1) * gap; const rows = Math.ceil(count / cols); const totalGridH = rows * cellSize + (rows - 1) * gap;
         const startX = cx - totalGridW / 2; const startY = cy - totalGridH / 2;
         const positionedNodes = loadedNodes.map((node, idx) => {

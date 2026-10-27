@@ -9,7 +9,7 @@ const formatBuiltAt = (value: string) => {
 };
 
 // Shows which build the page is running, so operators can match it to a commit.
-export const AppVersionBadge = ({ className = 'bottom-14 left-4' }: { className?: string }) => {
+export const AppVersionBadge = ({ className = 'bottom-14 sidebar-offset-left' }: { className?: string }) => {
   const commit = typeof __APP_COMMIT__ === 'string' ? __APP_COMMIT__ : 'unknown';
   const builtAt = typeof __APP_BUILT_AT__ === 'string' ? formatBuiltAt(__APP_BUILT_AT__) : '';
   const label = builtAt ? `版本 ${commit} · 构建于 ${builtAt}` : `版本 ${commit}`;

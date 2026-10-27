@@ -1,6 +1,7 @@
 import React, { useRef, useState, useEffect, useCallback, useMemo } from 'react';
 import { Stage, Layer, Group, Line, Transformer, Rect } from 'react-konva';
 import Konva from 'konva';
+import { CANVAS_VIEWPORT_ATTRIBUTE, clientToStage, getCanvasViewport } from '../src/utils/canvasViewport';
 import { NodeData, Point, ToolMode } from '../types';
 import { useCanvasStore } from '../src/store/canvasStore';
 import { useSelectionStore } from '../src/store/selectionStore';
@@ -76,7 +77,10 @@ const InfiniteCanvas: React.FC<InfiniteCanvasProps> = ({
   const stageRef = useRef<Konva.Stage>(null);
   const transformerRef = useRef<Konva.Transformer>(null);
 
-  const [stageSize, setStageSize] = useState({ width: window.innerWidth, height: window.innerHeight });
+  const [stageSize, setStageSize] = useState(() => {
+    const viewport = getCanvasViewport();
+    return { width: viewport.width, height: viewport.height };
+  });
   const [hoveredNode, setHoveredNode] = useState<NodeData | null>(null);
   const [hoverPosition, setHoverPosition] = useState<{ x: number; y: number } | null>(null);
   const [isDrawingMask, setIsDrawingMask] = useState(false);
@@ -175,13 +179,25 @@ const InfiniteCanvas: React.FC<InfiniteCanvasProps> = ({
      }
   }, [hoveredNode]);
 
-  // Resize stage on window resize
+  // The stage fills the canvas area, which is narrower than the window while the sidebar is open.
   useEffect(() => {
-    const handleResize = () => {
-      setStageSize({ width: window.innerWidth, height: window.innerHeight });
+    const measure = () => {
+      const viewport = getCanvasViewport();
+      setStageSize((previous) => (
+        previous.width === viewport.width && previous.height === viewport.height
+          ? previous
+          : { width: viewport.width, height: viewport.height }
+      ));
     };
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
+    measure();
+    window.addEventListener('resize', measure);
+    const area = document.querySelector<HTMLElement>('[' + CANVAS_VIEWPORT_ATTRIBUTE + ']') || containerRef.current;
+    const observer = typeof ResizeObserver !== 'undefined' && area ? new ResizeObserver(measure) : null;
+    if (observer && area) observer.observe(area);
+    return () => {
+      window.removeEventListener('resize', measure);
+      observer?.disconnect();
+    };
   }, []);
 
   // Update transformer when selection changes
@@ -380,8 +396,8 @@ const InfiniteCanvas: React.FC<InfiniteCanvasProps> = ({
 
     if (touch1 && touch2) {
       // Logic for 2 fingers
-      const p1 = { x: touch1.clientX, y: touch1.clientY };
-      const p2 = { x: touch2.clientX, y: touch2.clientY };
+      const p1 = clientToStage({ x: touch1.clientX, y: touch1.clientY });
+      const p2 = clientToStage({ x: touch2.clientX, y: touch2.clientY });
 
       lastCenterRef.current = getCenter(p1, p2);
       lastDistRef.current = getDistance(p1, p2);
@@ -402,8 +418,8 @@ const InfiniteCanvas: React.FC<InfiniteCanvasProps> = ({
        const stage = stageRef.current;
        if (!stage) return;
 
-       const p1 = { x: touch1.clientX, y: touch1.clientY };
-       const p2 = { x: touch2.clientX, y: touch2.clientY };
+       const p1 = clientToStage({ x: touch1.clientX, y: touch1.clientY });
+       const p2 = clientToStage({ x: touch2.clientX, y: touch2.clientY });
 
        if (!lastCenterRef.current || lastDistRef.current === 0) {
           return;

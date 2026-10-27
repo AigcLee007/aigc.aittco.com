@@ -118,3 +118,8 @@
 .sleek-scroll-x::-webkit-scrollbar-thumb:hover {
   background: linear-gradient(to right, rgba(167, 182, 204, 0.8), rgba(124, 138, 157, 0.8));
 }
+
+/* The control sidebar sits on the left. --sidebar-inset is its width (0 on phones), set by the sidebar
+   itself, so things that were centred on the window are centred on the visible canvas instead. */
+.canvas-center-x { left: calc(50% + var(--sidebar-inset, 0px) / 2); }
+.sidebar-offset-left { left: calc(var(--sidebar-inset, 0px) + 16px); }

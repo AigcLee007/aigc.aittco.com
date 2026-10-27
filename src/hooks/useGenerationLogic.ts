@@ -14,6 +14,7 @@ import { getStoredAuthSessionToken, buildBillingIdentityHeaders } from '../servi
 import { imageResultStore, type ImageResultInput } from '../services/imageResultStore';
 import { canvasResultIdentity, registerCanvasResult } from '../services/canvasResultIdentity';
 import { saveToLocalFolder } from '../services/localFolderSave';
+import { getCanvasCenter } from '../utils/canvasViewport';
 
 type AutoDownloadItem = {
     src: string;
@@ -217,8 +218,7 @@ export const useGenerationLogic = () => {
             const centerX = (minX + maxX) / 2;
             const centerY = (minY + maxY) / 2;
 
-            const screenCenterX = window.innerWidth / 2;
-            const screenCenterY = window.innerHeight / 2;
+            const { x: screenCenterX, y: screenCenterY } = getCanvasCenter();
 
             // Offset = ScreenCenter - CanvasCenter * Scale
             const newOffsetX = screenCenterX - centerX * canvasState.scale;

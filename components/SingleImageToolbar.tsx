@@ -30,7 +30,7 @@ const SingleImageToolbar: React.FC<SingleImageToolbarProps> = ({ onUpscale, onCo
     <div
       role="toolbar"
       aria-label="图片快捷操作"
-      className="fixed bottom-8 left-1/2 z-50 flex -translate-x-1/2 items-center gap-1 rounded-2xl border border-white/10 bg-[#1e1e1e]/90 p-2 shadow-[0_20px_40px_rgba(0,0,0,0.5)] backdrop-blur-xl"
+      className="fixed bottom-8 canvas-center-x z-50 flex -translate-x-1/2 items-center gap-1 rounded-2xl border border-white/10 bg-[#1e1e1e]/90 p-2 shadow-[0_20px_40px_rgba(0,0,0,0.5)] backdrop-blur-xl"
     >
       <button
         type="button"

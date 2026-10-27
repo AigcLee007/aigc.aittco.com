@@ -13,7 +13,7 @@ import { AssetImage } from '../src/components/AssetImage';
 import { ImageRetentionNotice } from '../src/components/ImageRetentionNotice';
 import { fetchPromptToolConfig, optimizePrompt, PromptOption } from '../services/promptService';
 import { useHistoryStore } from '../src/store/historyStore';
-import { Wand2, Loader2, ImagePlus, X, Upload, Plus, Move, Sparkles, Minus, Maximize2, ChevronLeft, ChevronRight, Check, Clapperboard, Film, HelpCircle, LayoutGrid, MonitorPlay, Zap, Pin, PinOff, Eraser, Trash2, ShieldCheck } from 'lucide-react';
+import { Wand2, Loader2, ImagePlus, X, Upload, Plus, Sparkles, Minus, Maximize2, ChevronLeft, ChevronRight, Check, Clapperboard, Film, HelpCircle, LayoutGrid, MonitorPlay, Zap, Pin, PinOff, Eraser, Trash2, ShieldCheck, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 import VideoPricingModal from './VideoPricingModal';
 import CoinIcon from './CoinIcon';
 import ModelSelector from './ModelSelector';
@@ -104,6 +104,11 @@ type GenerationAccessState =
   | 'access_error'
   | 'missing_credentials'
   | 'invalid_api_key';
+
+const SIDEBAR_WIDTH = 360;
+const SIDEBAR_COLLAPSED_WIDTH = 52;
+// Below this window width a 360px sidebar leaves too little canvas, so it starts folded.
+const NARROW_DESKTOP_WIDTH = 900;
 
 const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGenerations, onUpdateGeneration, onUpdateProgress, onOpenBatchModal }) => {
   useImageRouteCatalog();
@@ -202,8 +207,6 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
     optimizeCost: 0.5,
     reverseCost: 1,
   });
-  const [panelMinimized, setPanelMinimized] = useState(false);
-  const [panelVisible, setPanelVisible] = useState(true);
   const [showPricingModal, setShowPricingModal] = useState(false);
 
   useEffect(() => {
@@ -339,11 +342,6 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
     }
   }, [generationAccessState]);
 
-  // Auto-collapse states
-  const [isHovered, setIsHovered] = useState(false);
-  const [autoCollapsed, setAutoCollapsed] = useState(false);
-  const [isPinned, setIsPinned] = useState(true);
-  const hoverTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   // Prompt option selector state
   const [promptOptions, setPromptOptions] = useState<PromptOption[]>([]);
@@ -422,124 +420,6 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
         return () => clearTimeout(t);
     }
   }, [pendingPrompt, setPendingPrompt]);
-
-  // 閹锋牗瀚块惄绋垮彠 Refs - UNIFIED POSITIONING
-  const panelRef = useRef<HTMLDivElement>(null);
-  const posRef = useRef({ x: 20, y: 80 });
-
-  const dragStartPos = useRef({ x: 0, y: 0 });
-  const [isDragging, setIsDragging] = useState(false);
-
-  const updatePanelTransform = (x: number, y: number) => {
-    if (panelRef.current) {
-      panelRef.current.style.transform = `translate3d(${x}px, ${y}px, 0)`;
-    }
-  };
-
-  // Initialize panel position on mount (top-left anchor)
-  useEffect(() => {
-    const initialX = 20; // left margin
-    const initialY = 20; // top margin
-    
-    posRef.current = { x: initialX, y: initialY };
-    updatePanelTransform(posRef.current.x, posRef.current.y);
-  }, []);
-
-  const handleDragStart = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsDragging(true);
-    dragStartPos.current = {
-      x: e.clientX - posRef.current.x,
-      y: e.clientY - posRef.current.y
-    };
-
-    // Prevent accidental text selection while dragging
-    document.body.style.userSelect = 'none';
-  }, []);
-
-  const handleDragMove = useCallback((e: MouseEvent) => {
-    // Native event drag handling for smoother movement
-    const panel = panelRef.current;
-    if (!panel) return;
-
-    let newX = e.clientX - dragStartPos.current.x;
-    let newY = e.clientY - dragStartPos.current.y;
-
-    // Clamp inside viewport bounds
-    const maxX = window.innerWidth - panel.offsetWidth - 10;
-    const maxY = window.innerHeight - panel.offsetHeight - 10;
-    newX = Math.max(10, Math.min(newX, maxX));
-    newY = Math.max(10, Math.min(newY, maxY));
-
-    posRef.current = { x: newX, y: newY };
-    updatePanelTransform(newX, newY);
-  }, []);
-
-  const handleDragEnd = useCallback(() => {
-    setIsDragging(false);
-    document.body.style.userSelect = '';
-  }, []);
-
-  // Touch handlers for mobile drag
-  const handleTouchMove = useCallback((e: TouchEvent) => {
-    const panel = panelRef.current;
-    if (!panel) return;
-
-    if (e.cancelable) e.preventDefault(); // Prevent scrolling while dragging panel
-
-    const touch = e.touches[0];
-    let newX = touch.clientX - dragStartPos.current.x;
-    let newY = touch.clientY - dragStartPos.current.y;
-
-    const maxX = window.innerWidth - panel.offsetWidth - 10;
-    const maxY = window.innerHeight - panel.offsetHeight - 10;
-    
-    // On Mobile, we might want to constrain to Y axis only if it's a bottom sheet?
-    // user said "Canvas or Video window cannot be dragged", implying they want to move it.
-    // Let's allow free drag but keep bounds.
-    
-    newX = Math.max(10, Math.min(newX, maxX));
-    newY = Math.max(10, Math.min(newY, maxY));
-
-    posRef.current = { x: newX, y: newY };
-    updatePanelTransform(newX, newY);
-  }, []);
-
-  const handleTouchEnd = useCallback(() => {
-    setIsDragging(false);
-    document.body.style.overflow = ''; // Restore scrolling
-  }, []);
-
-  const handleTouchStartRaw = useCallback((e: React.TouchEvent) => {
-    // e.preventDefault(); // Do not prevent default here immediately or clicks fail, but for a drag handle it's fine
-    setIsDragging(true);
-    const touch = e.touches[0];
-    dragStartPos.current = {
-      x: touch.clientX - posRef.current.x,
-      y: touch.clientY - posRef.current.y
-    };
-    document.body.style.overflow = 'hidden'; // Lock scrolling
-  }, []);
-
-
-  useEffect(() => {
-    if (isDragging) {
-      window.addEventListener('mousemove', handleDragMove, { passive: true });
-      window.addEventListener('mouseup', handleDragEnd);
-      
-      // Add non-passive listener for touch move to prevent scroll
-      window.addEventListener('touchmove', handleTouchMove, { passive: false });
-      window.addEventListener('touchend', handleTouchEnd);
-      
-      return () => {
-        window.removeEventListener('mousemove', handleDragMove);
-        window.removeEventListener('mouseup', handleDragEnd);
-        window.removeEventListener('touchmove', handleTouchMove);
-        window.removeEventListener('touchend', handleTouchEnd);
-      };
-    }
-  }, [isDragging, handleDragMove, handleDragEnd, handleTouchMove, handleTouchEnd]);
 
   // findClosestRatio and extractRatioFromPrompt moved to imageUtils.ts
 
@@ -1697,43 +1577,27 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
     };
   }, [prompt, referenceImages.length]);
 
-  // CRITICAL FIX: Move isMobile state BEFORE conditional return to avoid hooks rule violation
-  const [isMobile, setIsMobile] = useState(false);
+  const [isMobile, setIsMobile] = useState(() => typeof window !== 'undefined' && window.innerWidth < 640);
 
   useEffect(() => {
-    const checkMobile = () => {
-       const mobile = window.innerWidth < 640; // Match App.tsx threshold
-       setIsMobile(mobile);
-       if (mobile && panelRef.current) {
-         // Clear desktop drag transform; mobile animation uses Tailwind transform classes.
-         panelRef.current.style.transform = '';
-       } else if (panelRef.current) {
-         // Restore transform on desktop
-         updatePanelTransform(posRef.current.x, posRef.current.y);
-       }
-    };
+    const checkMobile = () => setIsMobile(window.innerWidth < 640); // Match App.tsx threshold
     checkMobile();
     window.addEventListener('resize', checkMobile);
     return () => window.removeEventListener('resize', checkMobile);
   }, []);
 
-  // Auto-collapse logic
+  // On a narrow desktop window the sidebar would cover most of the canvas, so it starts folded.
   useEffect(() => {
-    if (isMobile || isDragging || panelMinimized || isGenerating || isHovered || isPinned) {
-      setAutoCollapsed(false);
-      if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current);
-      return;
-    }
+    if (window.innerWidth >= 640 && window.innerWidth < NARROW_DESKTOP_WIDTH) setControlPanelOpen(false);
+  }, []);
 
-    // When mouse stands still outside panel for 2.5s, collapse it
-    hoverTimerRef.current = setTimeout(() => {
-       setAutoCollapsed(true);
-    }, 2500);
-
-    return () => {
-      if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current);
-    }
-  }, [isHovered, isDragging, panelMinimized, isMobile, isGenerating, isPinned]);
+  // The canvas leaves room for the sidebar through this variable; overlays that were centred on the
+  // window use it to centre on the visible canvas instead.
+  useEffect(() => {
+    const inset = isMobile ? 0 : (isControlPanelOpen ? SIDEBAR_WIDTH : SIDEBAR_COLLAPSED_WIDTH);
+    document.documentElement.style.setProperty('--sidebar-inset', inset + 'px');
+    return () => { document.documentElement.style.setProperty('--sidebar-inset', '0px'); };
+  }, [isMobile, isControlPanelOpen]);
 
   const [shouldRenderPanel, setShouldRenderPanel] = useState(isControlPanelOpen);
   useEffect(() => {
@@ -1747,145 +1611,98 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
     return () => window.clearTimeout(timer);
   }, [isControlPanelOpen]);
 
-  if (!shouldRenderPanel) return null;
+  if (isMobile && !shouldRenderPanel) return null;
 
-  // Panel layout configuration.
+  // ===== Sidebar shell =====
+  const activeTab: 'image' | 'upscale' | 'video' = isUpscaleMode ? 'upscale' : isVideoMode ? 'video' : 'image';
+  const sidebarTabs = [
+    { id: 'image' as const, label: '生图', Icon: Wand2, mode: ToolMode.GENERATE, active: 'from-purple-500 to-blue-500' },
+    { id: 'upscale' as const, label: '超清放大', Icon: Maximize2, mode: ToolMode.UPSCALE, active: 'from-sky-500 to-cyan-500' },
+    { id: 'video' as const, label: '视频', Icon: Film, mode: ToolMode.VIDEO, active: 'from-pink-500 to-orange-500' },
+  ];
+  const collapsed = !isMobile && !isControlPanelOpen;
+
   const panelStyle: React.CSSProperties = isMobile ? {
     position: 'fixed',
     bottom: 0,
     left: 0,
     width: '100%',
     maxHeight: '86dvh',
-    borderBottomLeftRadius: 0,
-    borderBottomRightRadius: 0,
     zIndex: 60,
-    willChange: 'auto'
   } : {
     position: 'fixed',
     top: 0,
+    bottom: 0,
     left: 0,
-    width: autoCollapsed ? '24px' : '320px',
+    width: collapsed ? SIDEBAR_COLLAPSED_WIDTH : SIDEBAR_WIDTH,
     zIndex: 40,
-    cursor: autoCollapsed ? 'pointer' : (isDragging ? 'grabbing' : 'default'),
-    willChange: 'transform, width',
-    transition: isDragging ? 'none' : 'width 0.3s cubic-bezier(0.4, 0, 0.2, 1)'
   };
 
-  const desktopWidthClass = autoCollapsed 
-    ? 'w-6 h-32 ml-0 rounded-r-2xl border-l-0 opacity-40 hover:opacity-100 overflow-hidden' 
-    : 'rounded-[28px] w-[320px] overflow-hidden';
-
-  // Remove backdrop blur during drag for performance
-  const panelAnimationClass = isControlPanelOpen
-    ? 'opacity-100 scale-100 translate-y-0 translate-x-0'
-    : (isMobile ? 'opacity-0 translate-y-full scale-[0.98]' : 'opacity-0 -translate-x-4 scale-[0.98]');
-
-  const panelClass = isDragging 
-      ? "bg-black/90 border border-white/20 rounded-[28px] shadow-none flex flex-col overflow-hidden"
-      : `bg-[#121212]/95 backdrop-blur-xl border border-white/10 ${isMobile ? 'rounded-t-[20px] w-full max-h-[86dvh] overflow-hidden' : desktopWidthClass} shadow-[0_30px_60px_rgba(0,0,0,0.6)] flex flex-col transition-all duration-200 ${panelAnimationClass} ${isControlPanelOpen ? 'pointer-events-auto' : 'pointer-events-none'}`;
-
-  const safeDragStart = (e: React.MouseEvent) => {
-    if (isMobile) return;
-    if (!autoCollapsed) handleDragStart(e);
-  };
-  const safeTouchStart = (e: React.TouchEvent) => {
-    if (isMobile) return;
-    if (!autoCollapsed) handleTouchStartRaw(e);
-  };
+  const panelClass = isMobile
+    ? `bg-[#121212]/95 backdrop-blur-xl border border-white/10 rounded-t-[20px] w-full max-h-[86dvh] overflow-hidden shadow-[0_30px_60px_rgba(0,0,0,0.6)] flex flex-col transition-all duration-200 ${isControlPanelOpen ? 'opacity-100 translate-y-0 pointer-events-auto' : 'opacity-0 translate-y-full pointer-events-none'}`
+    : 'bg-[#121212] border-r border-white/10 overflow-hidden shadow-[8px_0_30px_rgba(0,0,0,0.35)] flex flex-col transition-[width] duration-200';
 
   return (
-    <div 
-       ref={panelRef} 
-       style={panelStyle} 
-       className={panelClass}
-       onMouseEnter={() => autoCollapsed ? setAutoCollapsed(false) : setIsHovered(true)}
-       onMouseLeave={() => setIsHovered(false)}
-    >
-      {autoCollapsed && !isMobile ? (
-        <div className="w-full h-full flex flex-col items-center justify-center bg-white/5 pointer-events-none gap-1.5 transition-all">
-          <div className="w-1 h-3 bg-white/20 rounded-full"></div>
-          <div className="w-1 h-12 bg-white/40 rounded-full shadow-[0_0_8px_rgba(255,255,255,0.3)]"></div>
-          <div className="w-1 h-3 bg-white/20 rounded-full"></div>
+    <aside style={panelStyle} className={panelClass} aria-label="创作侧栏">
+      {collapsed ? (
+        <div className="flex h-full flex-col items-center gap-2 py-3">
+          <button
+            type="button"
+            onClick={() => setControlPanelOpen(true)}
+            title="展开侧栏"
+            aria-label="展开侧栏"
+            className="rounded-xl p-2.5 text-gray-300 transition-colors hover:bg-white/10 hover:text-white"
+          >
+            <PanelLeftOpen size={18} />
+          </button>
+          <div className="my-1 h-px w-6 bg-white/10" />
+          {sidebarTabs.map(({ id, label, Icon, mode, active }) => (
+            <button
+              key={id}
+              type="button"
+              onClick={() => setToolMode(mode)}
+              title={label}
+              aria-label={label}
+              className={`rounded-xl p-2.5 transition-colors ${activeTab === id ? `bg-linear-to-tr ${active} text-white shadow-lg` : 'text-gray-400 hover:bg-white/10 hover:text-white'}`}
+            >
+              <Icon size={18} />
+            </button>
+          ))}
         </div>
       ) : (
-        <>
-          {/* Unified header */}
-          <div 
-            className="border-b border-white/5 bg-white/5 backdrop-blur-md select-none touch-none"
-            onMouseDown={safeDragStart}
-            onTouchStart={safeTouchStart}
-          >
-            <div className="flex items-center justify-center py-3 cursor-grab active:cursor-grabbing hover:bg-white/5 transition-colors">
-          <div className="w-16 h-1.5 rounded-full bg-white/20"></div>
-        </div>
-        
-        {!panelMinimized && (
-        <div className="px-4 pb-3">
-           <div className="flex items-center justify-between">
-              <h2 className="text-sm font-bold text-gray-200 flex items-center gap-2 select-none">
-                {isUpscaleMode ? <Maximize2 size={20} className="text-sky-400" /> : isVideoMode ? <MonitorPlay size={20} className="text-blue-400" /> : titleIcon}
-                {isUpscaleMode ? '高清放大' : isVideoMode ? videoTitleText : imagePanelTitle}
-              </h2>
-               <div className="flex items-center gap-1">
-                 <button
-                  onClick={() => setIsPinned(!isPinned)}
-                  className={`${isMobile ? 'p-2.5' : 'p-1.5'} hover:bg-white/10 rounded-full transition-colors touch-manipulation active:scale-[0.98] ${isPinned ? 'text-blue-400 bg-blue-500/10' : 'text-gray-400 hover:text-white'}`}
-                  title={isPinned ? "取消固定" : "固定面板（取消自动隐藏）"}
-                 >
-                   {isPinned ? <Pin size={14} className="fill-current" /> : <PinOff size={14} />}
-                 </button>
-                 <button
-                  onClick={() => setPanelMinimized(true)}
-                  className={`text-gray-400 hover:text-white ${isMobile ? 'p-2.5' : 'p-1.5'} hover:bg-white/10 rounded-full transition-colors touch-manipulation active:scale-[0.98]`}
-                 >
-                   <Minus size={14} />
-                 </button>
-                 <button
-                  onClick={() => setControlPanelOpen(false)}
-                  className={`text-gray-400 hover:text-white ${isMobile ? 'p-2.5' : 'p-1.5'} hover:bg-white/10 rounded-full transition-colors touch-manipulation active:scale-[0.98]`}
-                 >
-                   <X size={14} />
-                 </button>
-               </div>
-           </div>
-        </div>
-        )}
-        
-        {/* Minimized Header */}
-        {panelMinimized && (
-          <div className="px-4 pb-3 flex items-center justify-between">
-             <div className="text-xs font-bold text-white flex items-center gap-2 select-none">
-               {isUpscaleMode ? <Maximize2 size={16} className="text-sky-400" /> : isVideoMode ? <MonitorPlay size={16} className="text-blue-400" /> : titleIcon}
-               {isUpscaleMode ? '高清放大' : isVideoMode ? videoPanelTitle : imagePanelTitle}
-             </div>
-             <div className="flex items-center gap-1">
-               <button
-                onClick={() => setIsPinned(!isPinned)}
-                className={`${isMobile ? 'p-2.5' : 'p-1.5'} hover:bg-white/10 rounded-full transition-colors touch-manipulation active:scale-[0.98] ${isPinned ? 'text-blue-400 bg-blue-500/10' : 'text-gray-400 hover:text-white'}`}
-                title={isPinned ? "取消固定" : "固定面板"}
-               >
-                 {isPinned ? <Pin size={14} className="fill-current" /> : <PinOff size={14} />}
-               </button>
-               <button
-                onClick={() => setPanelMinimized(false)}
-                className={`text-gray-400 hover:text-white ${isMobile ? 'p-2.5' : 'p-1.5'} hover:bg-white/10 rounded-full transition-colors touch-manipulation active:scale-[0.98]`}
-               >
-                 <Maximize2 size={14} />
-               </button>
-               <button
-                onClick={() => setControlPanelOpen(false)}
-                className={`text-gray-400 hover:text-white ${isMobile ? 'p-2.5' : 'p-1.5'} hover:bg-white/10 rounded-full transition-colors touch-manipulation active:scale-[0.98]`}
-               >
-                 <X size={14} />
-               </button>
-             </div>
+      <>
+        <div className="shrink-0 border-b border-white/5 bg-white/[0.03] px-3 pb-3 pt-3">
+          {isMobile && <div className="mx-auto mb-3 h-1.5 w-12 rounded-full bg-white/20" />}
+          <div className="flex items-center gap-2">
+            <div role="tablist" aria-label="创作模式" className="flex flex-1 gap-1 rounded-xl bg-white/5 p-1">
+              {sidebarTabs.map(({ id, label, Icon, mode, active }) => (
+                <button
+                  key={id}
+                  type="button"
+                  role="tab"
+                  aria-selected={activeTab === id}
+                  onClick={() => setToolMode(mode)}
+                  className={`flex flex-1 items-center justify-center gap-1.5 rounded-lg px-2 py-2 text-xs font-semibold transition-colors ${activeTab === id ? `bg-linear-to-tr ${active} text-white shadow-lg` : 'text-gray-400 hover:bg-white/10 hover:text-white'}`}
+                >
+                  <Icon size={14} aria-hidden="true" />
+                  {label}
+                </button>
+              ))}
+            </div>
+            <button
+              type="button"
+              onClick={() => setControlPanelOpen(false)}
+              title={isMobile ? '关闭' : '收起侧栏'}
+              aria-label={isMobile ? '关闭' : '收起侧栏'}
+              className="shrink-0 rounded-lg p-2 text-gray-400 transition-colors hover:bg-white/10 hover:text-white"
+            >
+              {isMobile ? <X size={16} /> : <PanelLeftClose size={16} />}
+            </button>
           </div>
-        )}
-      </div>
+        </div>
 
-              {/* Content area */}
-      {!panelMinimized && (
-        <div className={`p-4 ${isMobile ? 'pt-3' : ''} flex flex-col gap-4 overflow-y-auto overflow-x-hidden sleek-scroll-y ${isMobile ? 'max-h-[calc(86dvh-92px)] pb-[max(1rem,env(safe-area-inset-bottom))]' : 'max-h-[85vh]'}`}>
+        {/* Content area */}
+        <div className={`p-4 ${isMobile ? 'pt-3' : ''} flex flex-col gap-4 overflow-y-auto overflow-x-hidden sleek-scroll-y ${isMobile ? 'max-h-[calc(86dvh-92px)] pb-[max(1rem,env(safe-area-inset-bottom))]' : 'min-h-0 flex-1'}`}>
           {sessionVerificationError && hasUnlockedGenerationAccess && !isCheckingGenerationAccess && (
             <div className="rounded-xl border border-amber-400/25 bg-amber-500/10 p-3 text-xs text-amber-200">
               <div>{sessionVerificationError}</div>
@@ -2365,7 +2182,6 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
           </>
           )}
         </div>
-      )}
       </>
       )}
       {referenceAtMenu && (
@@ -2387,7 +2203,7 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
         </div>
       )}
       <VideoPricingModal isOpen={showPricingModal} onClose={() => setShowPricingModal(false)} />
-    </div>
+    </aside>
   );
 });
 

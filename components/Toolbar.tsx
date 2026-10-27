@@ -3,7 +3,7 @@ import React, { useRef, useState } from 'react';
 import { ToolMode } from '../types';
 import { useSelectionStore } from '../src/store/selectionStore';
 import { useCanvasStore } from '../src/store/canvasStore';
-import { Hand, MousePointer2, Sparkles, UploadCloud, Undo2, Redo2, Trash2, Settings, History, Grid, ScanSearch, DownloadCloud, Box, Loader2, HelpCircle, Clapperboard, ImagePlus, Eye, MessageSquare, Layers, ChevronDown, ChevronUp, Eraser, Maximize2 } from 'lucide-react';
+import { Hand, MousePointer2, Sparkles, UploadCloud, Undo2, Redo2, Trash2, Settings, History, Grid, ScanSearch, DownloadCloud, Box, Loader2, HelpCircle, Eye, MessageSquare, Layers, ChevronDown, ChevronUp, Eraser } from 'lucide-react';
 
 interface ToolbarProps {
   onUpload: (files: FileList) => void;
@@ -88,7 +88,7 @@ const Toolbar: React.FC<ToolbarProps> = ({
 
   return (
     <>
-      <div className={`fixed bottom-[15px] left-1/2 -translate-x-1/2 flex items-center gap-2 px-5 py-2 bg-[#121212]/90 backdrop-blur-xl border border-white/20 rounded-full shadow-2xl z-50 transition-all duration-300 hover:bg-[#121212]/95 ${isCollapsed ? 'translate-y-[200%] opacity-0 pointer-events-none' : ''}`}>
+      <div className={`fixed bottom-[15px] canvas-center-x -translate-x-1/2 flex items-center gap-2 px-5 py-2 bg-[#121212]/90 backdrop-blur-xl border border-white/20 rounded-full shadow-2xl z-50 transition-all duration-300 hover:bg-[#121212]/95 ${isCollapsed ? 'translate-y-[200%] opacity-0 pointer-events-none' : ''}`}>
         
         {/* 1. Undo/Redo Group */}
         <div className="flex items-center gap-1 border-r border-white/10 pr-2 mr-1">
@@ -132,27 +132,7 @@ const Toolbar: React.FC<ToolbarProps> = ({
 
         <div className="w-px h-6 bg-white/10 mx-2" />
 
-        {/* 4. Generators */}
-        <button 
-            onClick={() => {
-              setToolMode(ToolMode.GENERATE);
-            }} 
-            className={`${dockItemClass} ${toolMode === ToolMode.GENERATE ? 'bg-linear-to-tr from-purple-500 to-blue-500 text-white shadow-lg shadow-purple-500/30' : ''}`}
-            title="生成图片 (P)"
-        >
-            <ImagePlus size={22} strokeWidth={1.5} />
-        </button>
-
-        <button 
-            onClick={() => {
-              setToolMode(ToolMode.VIDEO);
-            }}
-            className={`${dockItemClass} ${toolMode === ToolMode.VIDEO ? 'bg-linear-to-tr from-pink-500 to-orange-500 text-white shadow-lg shadow-pink-500/30' : ''}`}
-            title="生成视频 (V)"
-        >
-            <Clapperboard size={22} strokeWidth={1.5} />
-        </button>
-
+        {/* 4. Image editing */}
         <button
             onClick={() => {
               setToolMode(ToolMode.INPAINT);
@@ -161,17 +141,6 @@ const Toolbar: React.FC<ToolbarProps> = ({
             title="图片编辑 (I)"
         >
             <Eraser size={21} strokeWidth={1.6} />
-        </button>
-
-        <button
-            onClick={() => {
-              setToolMode(ToolMode.UPSCALE);
-            }}
-            className={`${dockItemClass} ${toolMode === ToolMode.UPSCALE ? 'bg-linear-to-tr from-sky-500 to-cyan-500 text-white shadow-lg shadow-sky-500/30' : ''}`}
-            title="高清放大 (Q)"
-            aria-label="高清放大"
-        >
-            <Maximize2 size={20} strokeWidth={1.6} />
         </button>
 
         {/* 5. Collection Stack (Features) */}
@@ -235,7 +204,7 @@ const Toolbar: React.FC<ToolbarProps> = ({
       {/* Expand Button - also restored */}
       <button 
         onClick={() => setIsCollapsed(false)}
-        className={`fixed bottom-[15px] left-1/2 -translate-x-1/2 p-1.5 bg-[#121212]/90 backdrop-blur-xl border border-white/20 rounded-full shadow-xl z-50 text-gray-400 hover:text-white transition-all duration-300 ${isCollapsed ? 'translate-y-0 opacity-100' : 'translate-y-[200%] opacity-0 pointer-events-none'}`}
+        className={`fixed bottom-[15px] canvas-center-x -translate-x-1/2 p-1.5 bg-[#121212]/90 backdrop-blur-xl border border-white/20 rounded-full shadow-xl z-50 text-gray-400 hover:text-white transition-all duration-300 ${isCollapsed ? 'translate-y-0 opacity-100' : 'translate-y-[200%] opacity-0 pointer-events-none'}`}
         title="Expand Toolbar"
       >
         <ChevronUp size={20} />

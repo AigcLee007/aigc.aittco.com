@@ -33,7 +33,7 @@ const MultiSelectToolbar: React.FC = () => {
   const hasGroups = groupIds.size > 0;
 
   return (
-    <div className="fixed bottom-8 left-1/2 -translate-x-1/2 z-50 bg-[#1e1e1e]/90 backdrop-blur-xl border border-white/10 p-2 rounded-2xl shadow-[0_20px_40px_rgba(0,0,0,0.4)] flex items-center gap-2 select-none">
+    <div className="fixed bottom-8 canvas-center-x -translate-x-1/2 z-50 bg-[#1e1e1e]/90 backdrop-blur-xl border border-white/10 p-2 rounded-2xl shadow-[0_20px_40px_rgba(0,0,0,0.4)] flex items-center gap-2 select-none">
       
       <div className="flex items-center gap-1">
          <span className="text-xs font-semibold text-gray-400 px-3">{selectedNodes.length} 项</span>

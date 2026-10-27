@@ -52,7 +52,7 @@ export const useUpscaleFlow = ({ onInitGenerations, onUpdateGeneration }: Upscal
   const ui = (
     <>
       {notice && (
-        <div role="alert" className="fixed bottom-6 left-1/2 z-[70] -translate-x-1/2 rounded-full bg-neutral-900/90 px-4 py-2 text-sm text-red-300 shadow-xl">
+        <div role="alert" className="fixed bottom-6 canvas-center-x z-[70] -translate-x-1/2 rounded-full bg-neutral-900/90 px-4 py-2 text-sm text-red-300 shadow-xl">
           {notice}
         </div>
       )}
