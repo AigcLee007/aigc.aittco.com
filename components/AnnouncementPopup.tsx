@@ -2,6 +2,8 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Bell, CheckCheck, LayoutList, Megaphone, ReceiptText, UserRound, Wallet, X } from 'lucide-react';
 import { ClassicModeGuide, markClassicModeGuideSeen } from '../src/components/ClassicModeGuide';
 import PricingReferencePanel from './PricingReferencePanel';
+import AnnouncementRichText from './AnnouncementRichText';
+import { announcementToPlainText } from '../src/services/announcementMarkup';
 import { fetchBillingAccount } from '../src/services/accountService';
 import {
   AUTH_SESSION_CHANGE_EVENT,
@@ -271,7 +273,7 @@ const AnnouncementPopup: React.FC<AnnouncementPopupProps> = ({ onOpenSettings, o
                             )}
                           </div>
                         )}
-                        <div className="mt-1.5 text-xs leading-relaxed text-gray-300 line-clamp-4">{item.content}</div>
+                        <div className="mt-1.5 text-xs leading-relaxed text-gray-300 line-clamp-4">{announcementToPlainText(item.content)}</div>
                         <div className="mt-2 text-[11px] text-gray-500">{formatAnnouncementDate(item.date)}</div>
                       </div>
                       {unread && (
@@ -288,7 +290,7 @@ const AnnouncementPopup: React.FC<AnnouncementPopupProps> = ({ onOpenSettings, o
 
       {isPopupOpen && selectedAnnouncement && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center px-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="relative w-full max-w-md overflow-hidden rounded-2xl border border-yellow-500/20 bg-[#18181b] shadow-2xl animate-in zoom-in-95 duration-200">
+          <div className="relative w-full max-w-xl max-h-[88vh] overflow-y-auto rounded-2xl border border-yellow-500/20 bg-[#18181b] shadow-2xl animate-in zoom-in-95 duration-200">
             <div className="flex items-center justify-between border-b border-white/5 bg-gradient-to-r from-yellow-500/10 to-transparent p-4">
               <div className="flex items-center gap-3">
                 <div className="rounded-lg bg-yellow-500/10 p-2 text-yellow-500">
@@ -311,9 +313,11 @@ const AnnouncementPopup: React.FC<AnnouncementPopupProps> = ({ onOpenSettings, o
             </div>
 
             <div className="p-6">
-              <div className="whitespace-pre-wrap text-sm leading-relaxed text-gray-300">
-                {selectedAnnouncement.content}
-              </div>
+              <AnnouncementRichText
+                content={selectedAnnouncement.content}
+                className="text-gray-200"
+                onImageClick={(src) => window.open(src, '_blank', 'noopener,noreferrer')}
+              />
               {!!selectedAnnouncement.images?.length && (
                 <div className="mt-4 grid grid-cols-2 gap-2">
                   {selectedAnnouncement.images.map((img, idx) => (

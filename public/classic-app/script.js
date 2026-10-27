@@ -5296,6 +5296,12 @@ window.openNoticeImage = function (event, encodedUrl) {
   window.open(url, "_blank", "noopener,noreferrer");
 };
 
+window.openNoticeRichImage = function (event) {
+  const img = event?.target;
+  if (!(img instanceof HTMLImageElement) || !img.dataset.annImg) return;
+  window.openNoticeImage(event, encodeURIComponent(img.src));
+};
+
 window.openNoticeGalleryImage = function (event, galleryId) {
   const mainButton = document.getElementById(`${galleryId}_main_btn`);
   const currentUrl = String(mainButton?.dataset?.currentUrl || "").trim();
@@ -5388,12 +5394,9 @@ function renderAnnouncementBar() {
 
   const title = String(latest?.title || "更新通知").trim() || "更新通知";
   const content = String(latest?.content || "").trim();
-  const paragraphs = content
-    .split("\n")
-    .map((line) => line.trim())
-    .filter((line) => line.length > 0)
-    .map((line) => `<p>${escapeHtml(line)}</p>`)
-    .join("");
+  const richHtml = window.AnnouncementMarkup
+    ? window.AnnouncementMarkup.toHtml(content)
+    : escapeHtml(content).replace(/\n/g, "<br>");
   const imageHtml = renderNoticeImagesHtml(latest.images, "panel", latest.id);
   const timeText = formatNoticeTime(latest.time);
 
@@ -5410,7 +5413,7 @@ function renderAnnouncementBar() {
       <button type="button" class="announcement-modal-close" aria-label="关闭公告弹窗" onclick="closeAnnouncement()">×</button>
     </div>
     <div class="announcement-modal-body">
-      ${paragraphs || '<p class="announcement-modal-empty">暂无公告内容</p>'}
+      ${richHtml ? `<div class="announcement-rich" onclick="openNoticeRichImage(event)">${richHtml}</div>` : '<p class="announcement-modal-empty">暂无公告内容</p>'}
       ${imageHtml}
     </div>
   `;
@@ -5445,7 +5448,7 @@ function renderNoticeList() {
             <div class="notice-item-title">${escapeHtml(item.title)}</div>
             ${isUnread ? '<span class="notice-item-badge">未读</span>' : ""}
           </div>
-          <div class="notice-item-content">${contentHtml}</div>
+          <div class="notice-item-content announcement-rich" onclick="openNoticeRichImage(event)">${contentHtml}</div>
           ${imageHtml}
           ${timeText ? `<div class="notice-item-time">${timeText}</div>` : ""}
         </div>

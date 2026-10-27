@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ChevronLeft,
   ChevronRight,
+  Eye,
   Image as ImageIcon,
   Loader2,
   Megaphone,
@@ -18,6 +19,20 @@ import {
 } from 'lucide-react';
 import { AuthSessionPayload, getAuthorizedBillingHeaders } from '../src/services/accountIdentity';
 import { useToast } from '../src/context/ToastContext';
+import AnnouncementRichText from './AnnouncementRichText';
+import { ANNOUNCEMENT_SIZE_RANGE, announcementToPlainText } from '../src/services/announcementMarkup';
+
+const EMOJIS = ['🎉', '🔥', '✨', '🚀', '📢', '🎁', '💡', '⚠️', '✅', '❌', '👍', '❤️', '😀', '😄', '🤔', '🙏', '🆕', '💰', '🎨', '🖼️'];
+const FONT_OPTIONS = [
+  { value: 'sans', label: '默认' },
+  { value: 'hei', label: '黑体' },
+  { value: 'song', label: '宋体' },
+  { value: 'kai', label: '楷体' },
+  { value: 'mono', label: '等宽' },
+];
+const SIZE_OPTIONS = [14, 16, 18, 20, 24, 28, 32].filter(
+  (n) => n >= ANNOUNCEMENT_SIZE_RANGE.min && n <= ANNOUNCEMENT_SIZE_RANGE.max,
+);
 
 interface AnnouncementAdminPanelProps {
   session: AuthSessionPayload | null;
@@ -58,6 +73,56 @@ const AnnouncementAdminPanel: React.FC<AnnouncementAdminPanelProps> = ({ session
   const [error, setError] = useState<string | null>(null);
 
   const announcementImageInputRef = useRef<HTMLInputElement | null>(null);
+  const contentRef = useRef<HTMLTextAreaElement | null>(null);
+  const inlineImageInputRef = useRef<HTMLInputElement | null>(null);
+  const [showEmoji, setShowEmoji] = useState(false);
+  const [showPreview, setShowPreview] = useState(false);
+  const [isUploadingInline, setIsUploadingInline] = useState(false);
+  const [textColor, setTextColor] = useState('#ff6b6b');
+
+  // Wrap the current selection (or insert an empty pair) and keep the caret inside it.
+  const insertAtCursor = (before: string, after = '', placeholder = '') => {
+    const el = contentRef.current;
+    const value = announcementForm.content;
+    const start = el ? el.selectionStart : value.length;
+    const end = el ? el.selectionEnd : value.length;
+    const selected = value.slice(start, end) || placeholder;
+    const next = value.slice(0, start) + before + selected + after + value.slice(end);
+    setAnnouncementForm((prev) => ({ ...prev, content: next }));
+    requestAnimationFrame(() => {
+      if (!el) return;
+      el.focus();
+      const pos = start + before.length;
+      el.setSelectionRange(pos, pos + selected.length);
+    });
+  };
+
+  const handleInlineImage = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files || []);
+    event.target.value = '';
+    if (!files.length) return;
+    try {
+      setIsUploadingInline(true);
+      setError(null);
+      const dataUrls = await Promise.all(files.slice(0, 9).map(readFileAsDataUrl));
+      const authHeaders = await getAuthorizedBillingHeaders();
+      const res = await fetch('/api/announcement/images', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders },
+        body: JSON.stringify({ images: dataUrls }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || '图片上传失败');
+      const urls: string[] = Array.isArray(data?.urls) ? data.urls : [];
+      insertAtCursor(urls.map((u) => `
+[img]${u}[/img]
+`).join(''));
+    } catch (err) {
+      setError((err as Error).message || '图片上传失败');
+    } finally {
+      setIsUploadingInline(false);
+    }
+  };
 
   const fetchAnnouncements = useCallback(
     async ({
@@ -340,13 +405,80 @@ const AnnouncementAdminPanel: React.FC<AnnouncementAdminPanelProps> = ({ session
             </label>
           </div>
 
+          <div className="flex flex-wrap items-center gap-1.5 rounded-xl border border-white/10 bg-white/[0.03] p-2 text-xs text-gray-200">
+            <button type="button" title="加粗" onClick={() => insertAtCursor('[b]', '[/b]', '加粗文字')} className="h-8 w-8 rounded-lg border border-white/10 font-bold hover:bg-white/10">B</button>
+            <button type="button" title="斜体" onClick={() => insertAtCursor('[i]', '[/i]', '斜体文字')} className="h-8 w-8 rounded-lg border border-white/10 italic hover:bg-white/10">I</button>
+            <button type="button" title="下划线" onClick={() => insertAtCursor('[u]', '[/u]', '下划线文字')} className="h-8 w-8 rounded-lg border border-white/10 underline hover:bg-white/10">U</button>
+            <button type="button" title="小标题" onClick={() => insertAtCursor('[h]', '[/h]', '小标题')} className="h-8 rounded-lg border border-white/10 px-2 hover:bg-white/10">标题</button>
+            <button type="button" title="居中" onClick={() => insertAtCursor('[center]', '[/center]', '居中文字')} className="h-8 rounded-lg border border-white/10 px-2 hover:bg-white/10">居中</button>
+            <select
+              value=""
+              onChange={(event) => event.target.value && insertAtCursor(`[font=${event.target.value}]`, '[/font]', '文字')}
+              className="h-8 rounded-lg border border-white/10 bg-black/40 px-1.5"
+              title="字体"
+            >
+              <option value="">字体</option>
+              {FONT_OPTIONS.map((f) => (
+                <option key={f.value} value={f.value}>{f.label}</option>
+              ))}
+            </select>
+            <select
+              value=""
+              onChange={(event) => event.target.value && insertAtCursor(`[size=${event.target.value}]`, '[/size]', '文字')}
+              className="h-8 rounded-lg border border-white/10 bg-black/40 px-1.5"
+              title="字号"
+            >
+              <option value="">字号</option>
+              {SIZE_OPTIONS.map((n) => (
+                <option key={n} value={n}>{n}px</option>
+              ))}
+            </select>
+            <input
+              type="color"
+              value={textColor}
+              onChange={(event) => setTextColor(event.target.value)}
+              className="h-8 w-8 cursor-pointer rounded-lg border border-white/10 bg-transparent p-0.5"
+              title="选择颜色"
+            />
+            <button type="button" title="应用颜色" onClick={() => insertAtCursor(`[color=${textColor}]`, '[/color]', '彩色文字')} className="h-8 rounded-lg border border-white/10 px-2 hover:bg-white/10">上色</button>
+            <div className="relative">
+              <button type="button" title="表情" onClick={() => setShowEmoji((v) => !v)} className="h-8 w-8 rounded-lg border border-white/10 hover:bg-white/10">😀</button>
+              {showEmoji && (
+                <div className="absolute left-0 top-9 z-20 grid w-56 grid-cols-7 gap-1 rounded-xl border border-white/10 bg-[#161a22] p-2 shadow-xl">
+                  {EMOJIS.map((emoji) => (
+                    <button
+                      key={emoji}
+                      type="button"
+                      onClick={() => { insertAtCursor(emoji); setShowEmoji(false); }}
+                      className="h-7 w-7 rounded-md text-base hover:bg-white/10"
+                    >
+                      {emoji}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+            <input ref={inlineImageInputRef} type="file" accept="image/*" multiple className="hidden" onChange={handleInlineImage} />
+            <button
+              type="button"
+              title="在光标处插入图片"
+              onClick={() => inlineImageInputRef.current?.click()}
+              disabled={isUploadingInline}
+              className="inline-flex h-8 items-center gap-1 rounded-lg border border-white/10 px-2 hover:bg-white/10 disabled:opacity-50"
+            >
+              {isUploadingInline ? <Loader2 size={12} className="animate-spin" /> : <ImageIcon size={12} />}
+              插图
+            </button>
+          </div>
+
           <textarea
+            ref={contentRef}
             value={announcementForm.content}
             onChange={(event) =>
               setAnnouncementForm((prev) => ({ ...prev, content: event.target.value }))
             }
-            className="min-h-[140px] w-full rounded-2xl border border-white/10 bg-black/25 px-3 py-2.5 text-sm text-white placeholder:text-gray-500 focus:border-white/20 focus:outline-none"
-            placeholder="输入公告内容..."
+            className="min-h-[200px] w-full rounded-2xl border border-white/10 bg-black/25 px-3 py-2.5 text-sm text-white placeholder:text-gray-500 focus:border-white/20 focus:outline-none"
+            placeholder="输入公告内容，选中文字后点上方按钮即可设置样式..."
           />
 
           <div>
@@ -410,7 +542,16 @@ const AnnouncementAdminPanel: React.FC<AnnouncementAdminPanelProps> = ({ session
             )}
           </div>
 
-          <div className="flex justify-end">
+          <div className="flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => setShowPreview(true)}
+              disabled={!announcementForm.content.trim()}
+              className="inline-flex h-10 items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-4 text-sm text-white hover:bg-white/10 disabled:opacity-50"
+            >
+              <Eye size={14} />
+              预览
+            </button>
             <button
               type="button"
               onClick={() => void handleSaveAnnouncement()}
@@ -511,7 +652,7 @@ const AnnouncementAdminPanel: React.FC<AnnouncementAdminPanelProps> = ({ session
                         {item.date ? new Date(item.date).toLocaleString() : '-'}
                       </div>
                       <div className="mt-2 line-clamp-3 text-[12px] leading-6 text-gray-300">
-                        {item.content}
+                        {announcementToPlainText(item.content)}
                       </div>
                       {!!item.images?.length && (
                         <div className="mt-3 grid grid-cols-4 gap-2">
@@ -625,6 +766,54 @@ const AnnouncementAdminPanel: React.FC<AnnouncementAdminPanelProps> = ({ session
           </div>
         </div>
       </div>
+
+      {showPreview && (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/70 px-4 backdrop-blur-sm">
+          <div className="flex max-h-[88vh] w-full max-w-xl flex-col overflow-hidden rounded-2xl border border-yellow-500/20 bg-[#18181b] shadow-2xl">
+            <div className="flex items-center justify-between border-b border-white/5 bg-gradient-to-r from-yellow-500/10 to-transparent p-4">
+              <div>
+                <div className="text-xs text-yellow-300">预览效果，用户看到的就是这样</div>
+                <h3 className="mt-0.5 font-medium text-white">{announcementForm.title.trim() || '系统公告'}</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowPreview(false)}
+                className="rounded-lg p-1 text-gray-400 hover:bg-white/10 hover:text-white"
+                title="关闭预览"
+              >
+                <X size={20} />
+              </button>
+            </div>
+            <div className="overflow-y-auto p-6">
+              <AnnouncementRichText content={announcementForm.content} className="text-gray-200" />
+              {announcementImageDataUrls.length > 0 && (
+                <div className="mt-4 grid grid-cols-2 gap-2">
+                  {announcementImageDataUrls.map((src, idx) => (
+                    <img key={idx} src={src} alt={`预览图片${idx + 1}`} className="h-28 w-full rounded-lg border border-white/10 object-cover" />
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="flex justify-end gap-2 border-t border-white/5 p-4">
+              <button
+                type="button"
+                onClick={() => setShowPreview(false)}
+                className="rounded-lg border border-white/10 bg-white/10 px-4 py-2 text-xs text-white hover:bg-white/20"
+              >
+                继续编辑
+              </button>
+              <button
+                type="button"
+                onClick={() => { setShowPreview(false); void handleSaveAnnouncement(); }}
+                disabled={isSavingAnnouncement}
+                className="rounded-lg bg-cyan-600 px-4 py-2 text-xs font-medium text-white hover:bg-cyan-500 disabled:opacity-60"
+              >
+                确认发布
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -123,3 +123,25 @@
    itself, so things that were centred on the window are centred on the visible canvas instead. */
 .canvas-center-x { left: calc(50% + var(--sidebar-inset, 0px) / 2); }
 .sidebar-offset-left { left: calc(var(--sidebar-inset, 0px) + 16px); }
+
+/* Announcement rich text (shared markup renderer) */
+.announcement-rich {
+  font-size: 16px;
+  line-height: 1.8;
+  word-break: break-word;
+}
+.announcement-rich .ann-h {
+  font-size: 20px;
+  font-weight: 700;
+}
+.announcement-rich .ann-center {
+  display: block;
+  text-align: center;
+}
+.announcement-rich .ann-img {
+  display: block;
+  max-width: 100%;
+  margin: 8px auto;
+  border-radius: 10px;
+  cursor: zoom-in;
+}

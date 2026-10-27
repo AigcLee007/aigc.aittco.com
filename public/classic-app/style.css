@@ -3646,8 +3646,8 @@ html.classic-vip-mode .classic-live-empty {
   padding: 2px 8px;
 }
 .notice-item-content {
-  font-size: 14px;
-  line-height: 1.65;
+  font-size: 16px;
+  line-height: 1.75;
   color: var(--notice-item-content);
   white-space: normal;
   word-break: break-word;
@@ -6044,3 +6044,9 @@ html.classic-vip-mode .classic-live-empty {
   .up-chip { flex: 1 1 calc(33.333% - 8px); padding: 9px 8px; text-align: center; }
   #classicUpscaleGo { width: 100%; padding: 16px 24px; letter-spacing: 2px; }
 }
+
+/* Announcement rich text (shared markup renderer) */
+.announcement-rich { font-size: 16px; line-height: 1.8; word-break: break-word; }
+.announcement-rich .ann-h { font-size: 20px; font-weight: 700; }
+.announcement-rich .ann-center { display: block; text-align: center; }
+.announcement-rich .ann-img { display: block; max-width: 100%; margin: 8px auto; border-radius: 10px; cursor: zoom-in; }

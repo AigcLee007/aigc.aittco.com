@@ -7001,7 +7001,8 @@ app.patch("/api/announcement/:id", async (req, res) => {
     if (Array.isArray(req.body?.images)) {
       next.images = req.body.images;
     }
-    next.date = new Date().toISOString();
+    // Keep the original date on every edit: the classic layout tracks "read" by date, so bumping it
+    // would show an already-read announcement again after a pin toggle or a typo fix.
 
     const merged = [...allItems];
     merged[idx] = next;
