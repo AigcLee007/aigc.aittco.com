@@ -32,7 +32,7 @@ const formatsAt = (item: UpscaleEngine, factor: number): string[] =>
   item.formats ? (item.formatsByFactor ? item.formatsByFactor[String(factor)] ?? [] : item.formats) : [];
 
 const chip = (selected: boolean) =>
-  `rounded-full border px-3 py-1 text-xs ${selected ? 'border-white/60 bg-white/10 text-white' : 'border-white/10 text-gray-300 hover:bg-white/5'}`;
+  `min-w-[52px] rounded-full border px-3.5 py-1.5 text-xs font-semibold transition-all ${selected ? 'border-transparent bg-linear-to-r from-yellow-300 to-orange-400 font-bold text-black shadow-[0_6px_18px_rgba(250,204,21,0.25)]' : 'border-white/15 bg-white/[0.04] text-gray-200 hover:border-yellow-300/50'}`;
 
 // The engine / scale / format picker with its live price. It owns no buttons: the dialog and the
 // canvas panel each put their own "confirm" around it, so both always show the same price.
@@ -123,18 +123,23 @@ export const UpscaleForm: React.FC<UpscaleFormProps> = ({ width, height, onChang
                 aria-checked={item.id === engineId}
                 aria-disabled={!canTake(item)}
                 onClick={() => pickEngine(item)}
-                className={`w-full rounded-xl border px-3 py-2.5 text-left transition-colors ${!canTake(item) ? 'cursor-not-allowed border-white/5 opacity-40' : item.id === engineId ? 'border-white/60 bg-white/10' : 'border-white/10 hover:bg-white/5'}`}
+                className={`flex w-full items-start gap-3 rounded-2xl border px-3.5 py-3 text-left transition-all ${!canTake(item) ? 'cursor-not-allowed border-white/5 opacity-40' : item.id === engineId ? 'border-yellow-300 bg-linear-to-br from-yellow-300/15 to-orange-400/5 shadow-[0_0_0_1px_rgba(253,224,71,0.3),0_10px_26px_rgba(250,204,21,0.08)]' : 'border-white/10 bg-white/[0.03] hover:border-yellow-300/45'}`}
               >
-                <div className="text-sm font-medium text-white">{item.label}</div>
-                <div className="mt-0.5 text-xs text-gray-400">{canTake(item) ? item.description : '这张图尺寸太大，此方式暂不支持'}</div>
+                <span className={`mt-0.5 grid h-[18px] w-[18px] shrink-0 place-items-center rounded-full border-2 ${item.id === engineId ? 'border-yellow-300' : 'border-white/30'}`} aria-hidden="true">
+                  {item.id === engineId && <span className="h-2 w-2 rounded-full bg-yellow-300" />}
+                </span>
+                <span className="min-w-0">
+                  <span className="block text-sm font-bold text-white">{item.label}</span>
+                  <span className="mt-0.5 block text-xs leading-5 text-gray-400">{canTake(item) ? item.description : '这张图尺寸太大，此方式暂不支持'}</span>
+                </span>
               </button>
             ))}
           </div>
 
           {engine && factorsOf(engine).length > 1 && (
             <div className="mt-4" role="radiogroup" aria-label="放大倍数">
-              <div className="mb-1.5 text-xs text-gray-400">放大倍数</div>
-              <div className="flex flex-wrap gap-1.5">
+              <div className="mb-2 text-xs font-semibold text-gray-400">放大倍数</div>
+              <div className="flex flex-wrap gap-2">
                 {factorsOf(engine).map((value) => (
                   <button key={value} type="button" role="radio" aria-checked={value === factor} onClick={() => setFactor(value)} className={chip(value === factor)}>
                     {value === 1 ? '原尺寸增强' : `${value} 倍`}
@@ -146,8 +151,8 @@ export const UpscaleForm: React.FC<UpscaleFormProps> = ({ width, height, onChang
 
           {engine?.formats && (
             <div className="mt-4" role="radiogroup" aria-label="输出格式">
-              <div className="mb-1.5 text-xs text-gray-400">输出格式</div>
-              <div className="flex flex-wrap gap-1.5">
+              <div className="mb-2 text-xs font-semibold text-gray-400">输出格式</div>
+              <div className="flex flex-wrap gap-2">
                 {engine.formats.map((value) => {
                   const allowed = availableFormats.includes(value);
                   return (
@@ -173,13 +178,19 @@ export const UpscaleForm: React.FC<UpscaleFormProps> = ({ width, height, onChang
             </div>
           )}
 
-          <div className="mt-4 min-h-[44px] rounded-xl bg-white/5 px-3 py-2 text-sm" aria-live="polite">
+          <div className="mt-4 min-h-[58px] rounded-2xl border border-yellow-300/20 bg-linear-to-br from-yellow-300/10 to-white/[0.03] px-4 py-3 text-sm" aria-live="polite">
             {quoteError && <span className="text-red-400">{quoteError}</span>}
             {!quoteError && !quote && <span className="flex items-center gap-2 text-gray-400"><Loader2 size={14} className="animate-spin" aria-hidden="true" /> 正在计算价格…</span>}
             {quote && (
-              <div className="flex items-center justify-between">
-                <span className="text-gray-300">输出 {formatPixels(quote.outputWidth, quote.outputHeight)}</span>
-                <span className="font-semibold text-white">{quote.points} 金币</span>
+              <div className="flex items-center justify-between gap-3">
+                <span className="flex flex-col">
+                  <span className="text-[11px] font-semibold text-gray-400">输出尺寸</span>
+                  <span className="text-[15px] font-bold text-white">{formatPixels(quote.outputWidth, quote.outputHeight)}</span>
+                </span>
+                <span className="flex items-baseline gap-1 text-yellow-300">
+                  <span className="text-2xl font-black leading-none">{quote.points}</span>
+                  <span className="text-xs font-bold">金币</span>
+                </span>
               </div>
             )}
           </div>

@@ -103,12 +103,12 @@
       if (!allowed.includes(state.format)) state.format = allowed[0] || null;
     };
 
-    const engineBox = el("div", { role: "radiogroup", "aria-label": "放大方式", style: "display:grid;gap:8px;margin:12px 0" });
-    const factorBox = el("div", { role: "radiogroup", "aria-label": "放大倍数", style: "display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin:8px 0" });
-    const formatBox = el("div", { role: "radiogroup", "aria-label": "输出格式", style: "display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin:8px 0" });
-    const priceBox = el("div", { "aria-live": "polite", style: "min-height:40px;padding:8px 12px;border-radius:10px;background:rgba(255,255,255,.06);margin:8px 0" });
-    const note = el("div", { class: "api-guide-desc", style: "font-size:11px", text: "图片将发送到云端处理，结果在服务器保留 5 小时，请及时下载。失败会自动退回金币。" });
-    const container = el("div", {}, [engineBox, factorBox, formatBox, priceBox, note]);
+    const engineBox = el("div", { role: "radiogroup", "aria-label": "放大方式", class: "up-engines" });
+    const factorBox = el("div", { role: "radiogroup", "aria-label": "放大倍数", class: "up-row" });
+    const formatBox = el("div", { role: "radiogroup", "aria-label": "输出格式", class: "up-row" });
+    const priceBox = el("div", { "aria-live": "polite", class: "up-price" });
+    const note = el("div", { class: "up-note", text: "图片将发送到云端处理，结果在服务器保留 5 小时，请及时下载。失败会自动退回金币。" });
+    const container = el("div", { class: "up-form" }, [engineBox, factorBox, formatBox, priceBox, note]);
 
     let quoteToken = 0;
     const emit = () => onChange(state.quote && !state.error
@@ -130,7 +130,7 @@
         const selected = engine.id === state.engine.id;
         return el("button", {
           type: "button", role: "radio", "aria-checked": String(selected), "aria-disabled": String(!canTake(engine)),
-          class: "api-guide-btn ghost", style: `text-align:left;display:block;${selected ? "outline:2px solid currentColor;" : ""}${canTake(engine) ? "" : "opacity:.4;cursor:not-allowed;"}`,
+          class: "up-engine",
           onclick: () => {
             if (!canTake(engine)) return;
             state.engine = engine;
@@ -138,30 +138,31 @@
             if (!usable.includes(state.factor)) state.factor = engine.defaultFactor || usable[usable.length - 1];
             void refreshQuote();
           },
-        }, [el("strong", { text: engine.label }), el("div", { style: "font-size:11px;opacity:.7", text: canTake(engine) ? engine.description : "这张图尺寸太大，此方式暂不支持" })]);
+        }, [el("span", { class: "up-radio", "aria-hidden": "true" }), el("span", { class: "up-engine-text" }, [el("span", { class: "up-engine-name", text: engine.label }), el("span", { class: "up-engine-desc", text: canTake(engine) ? engine.description : "这张图尺寸太大，此方式暂不支持" })])]);
       }));
       factorBox.hidden = factorsOf(state.engine).length < 2;
-      factorBox.replaceChildren(el("span", { style: "font-size:12px;opacity:.7;margin-right:4px", text: "放大倍数" }), ...factorsOf(state.engine).map((value) => el("button", {
-        type: "button", role: "radio", "aria-checked": String(value === state.factor), class: "api-guide-btn ghost",
-        style: "padding:4px 10px;min-width:0;" + (value === state.factor ? "outline:2px solid currentColor" : ""),
+      factorBox.replaceChildren(el("span", { class: "up-row-label", text: "放大倍数" }), ...factorsOf(state.engine).map((value) => el("button", {
+        type: "button", role: "radio", "aria-checked": String(value === state.factor), class: "up-chip",
         onclick: () => { state.factor = value; void refreshQuote(); },
         text: value === 1 ? "原尺寸增强" : `${value} 倍`,
       })));
       const allowed = formatsAt(state.engine, state.factor);
       formatBox.hidden = !state.engine.formats;
-      formatBox.replaceChildren(el("span", { style: "font-size:12px;opacity:.7;margin-right:4px", text: "输出格式" }), ...(state.engine.formats || []).map((value) => {
+      formatBox.replaceChildren(el("span", { class: "up-row-label", text: "输出格式" }), ...(state.engine.formats || []).map((value) => {
         const ok = allowed.includes(value);
         return el("button", {
-          type: "button", role: "radio", "aria-checked": String(value === state.format), "aria-disabled": String(!ok), class: "api-guide-btn ghost",
+          type: "button", role: "radio", "aria-checked": String(value === state.format), "aria-disabled": String(!ok), class: "up-chip",
           title: ok ? "" : "图片放大后较大，此格式文件会超过保存上限",
-          style: "padding:4px 10px;min-width:0;" + (value === state.format ? "outline:2px solid currentColor;" : "") + (ok ? "" : "opacity:.4;cursor:not-allowed;"),
           onclick: () => { if (!ok) return; state.format = value; void refreshQuote(); },
           text: LABELS[value] || value.toUpperCase(),
         });
       }));
-      if (state.error) priceBox.textContent = state.error;
-      else if (!state.quote) priceBox.textContent = "正在计算价格…";
-      else priceBox.textContent = `输出 ${state.quote.outputWidth} × ${state.quote.outputHeight}　·　${state.quote.points} 金币`;
+      if (state.error) priceBox.replaceChildren(el("span", { class: "up-price-error", text: state.error }));
+      else if (!state.quote) priceBox.replaceChildren(el("span", { class: "up-price-wait", text: "正在计算价格…" }));
+      else priceBox.replaceChildren(
+        el("span", { class: "up-price-size" }, [el("small", { text: "输出尺寸" }), el("span", { text: `${state.quote.outputWidth} × ${state.quote.outputHeight}` })]),
+        el("span", { class: "up-price-cost" }, [el("b", { text: String(state.quote.points) }), el("small", { text: " 金币" })]),
+      );
       emit();
     };
     void refreshQuote();

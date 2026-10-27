@@ -83,7 +83,7 @@ export const UpscalePanel: React.FC<UpscalePanelProps> = ({ onInitGenerations, o
     <div className="flex flex-col gap-4">
       <div>
         <div className="mb-2 flex items-center justify-between">
-          <span className="text-xs font-semibold text-gray-300">要放大的图片</span>
+          <span className="text-xs font-bold text-gray-200">要放大的图片</span>
           {picked && (
             <button type="button" onClick={() => { setPicked(null); setChoice(null); setError(''); }} className="flex items-center gap-1 text-[11px] text-gray-400 hover:text-white">
               <X size={12} aria-hidden="true" /> 更换
@@ -96,12 +96,14 @@ export const UpscalePanel: React.FC<UpscalePanelProps> = ({ onInitGenerations, o
             onDragOver={(event) => { event.preventDefault(); setDragging(true); }}
             onDragLeave={() => setDragging(false)}
             onDrop={(event) => { event.preventDefault(); event.stopPropagation(); setDragging(false); onFiles(event.dataTransfer.files); }}
-            className={`flex flex-col items-center gap-2 rounded-xl border border-dashed px-4 py-6 text-center transition-colors ${dragging ? 'border-white/60 bg-white/10' : 'border-white/15 bg-white/[0.03]'}`}
+            className={`flex flex-col items-center gap-2.5 rounded-2xl border border-dashed px-4 py-7 text-center transition-colors ${dragging ? 'border-yellow-300 bg-yellow-300/15' : 'border-yellow-300/30 bg-linear-to-b from-yellow-300/[0.07] to-white/[0.02]'}`}
           >
-            {busy ? <Loader2 size={20} className="animate-spin text-gray-400" aria-hidden="true" /> : <ImagePlus size={22} className="text-gray-400" aria-hidden="true" />}
-            <p className="text-xs text-gray-400">把图片拖到这里，或</p>
+            <span className="grid h-14 w-14 place-items-center rounded-2xl bg-linear-to-br from-yellow-300/25 to-orange-400/5 text-yellow-300 shadow-[inset_0_0_0_1px_rgba(253,224,71,0.3),0_10px_26px_rgba(250,204,21,0.12)]">
+              {busy ? <Loader2 size={24} className="animate-spin" aria-hidden="true" /> : <ImagePlus size={26} aria-hidden="true" />}
+            </span>
+            <p className="text-sm font-bold text-white">把图片拖到这里，或</p>
             <div className="flex flex-wrap justify-center gap-2">
-              <button type="button" disabled={busy} onClick={() => inputRef.current?.click()} className="rounded-full bg-white px-4 py-1.5 text-xs font-medium text-black hover:bg-gray-200 disabled:opacity-50">从电脑选择</button>
+              <button type="button" disabled={busy} onClick={() => inputRef.current?.click()} className="rounded-full bg-linear-to-r from-yellow-300 to-orange-400 px-4 py-1.5 text-xs font-bold text-black shadow-[0_6px_18px_rgba(250,204,21,0.25)] hover:brightness-110 disabled:opacity-50">从电脑选择</button>
               {selectedNode && selectedNode.type === 'IMAGE' && (selectedNode.src || selectedNode.assetId) && !selectedNode.loading && (
                 <button type="button" disabled={busy} onClick={() => void useSelected()} className="rounded-full border border-white/20 px-4 py-1.5 text-xs text-gray-200 hover:bg-white/10 disabled:opacity-50">用画布上选中的图</button>
               )}
@@ -109,8 +111,8 @@ export const UpscalePanel: React.FC<UpscalePanelProps> = ({ onInitGenerations, o
             <p className="text-[11px] text-gray-500">支持 PNG、JPG、WebP，单张不超过 30MB</p>
           </div>
         ) : (
-          <div className="flex items-center gap-3 rounded-xl border border-white/10 bg-white/[0.04] p-2">
-            <img src={picked.dataUrl} alt="待放大的图片预览" className="h-16 w-16 shrink-0 rounded-lg object-cover" />
+          <div className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.04] p-2.5">
+            <img src={picked.dataUrl} alt="待放大的图片预览" className="h-[72px] w-[72px] shrink-0 rounded-xl object-cover shadow-lg" />
             <div className="min-w-0 text-xs">
               <div className="truncate text-gray-200">{picked.name}</div>
               <div className="mt-0.5 text-gray-400">{picked.width} × {picked.height}</div>
@@ -127,7 +129,7 @@ export const UpscalePanel: React.FC<UpscalePanelProps> = ({ onInitGenerations, o
         type="button"
         disabled={!picked || !choice}
         onClick={submit}
-        className="flex w-full items-center justify-center gap-2 rounded-xl bg-white py-3 text-sm font-semibold text-black transition-colors hover:bg-gray-200 disabled:cursor-not-allowed disabled:opacity-40"
+        className="flex w-full items-center justify-center gap-2 rounded-full bg-linear-to-r from-yellow-300 to-orange-400 py-3.5 text-sm font-black text-black shadow-[0_10px_30px_rgba(250,204,21,0.3)] transition-all hover:brightness-110 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40 disabled:shadow-none"
       >
         <Maximize2 size={16} aria-hidden="true" />
         {choice ? `开始放大 · ${choice.quote.points} 金币` : '开始放大'}
