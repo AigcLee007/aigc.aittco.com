@@ -1,8 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Bell, CheckCheck, LayoutList, Megaphone, ReceiptText, UserRound, Wallet, X } from 'lucide-react';
+import { Bell, CheckCheck, LayoutList, Megaphone, ReceiptText, UserRound, Wallet } from 'lucide-react';
 import { ClassicModeGuide, markClassicModeGuideSeen } from '../src/components/ClassicModeGuide';
 import PricingReferencePanel from './PricingReferencePanel';
-import AnnouncementRichText from './AnnouncementRichText';
+import AnnouncementModal from './AnnouncementModal';
 import { announcementToPlainText } from '../src/services/announcementMarkup';
 import { fetchBillingAccount } from '../src/services/accountService';
 import {
@@ -68,6 +68,8 @@ const AnnouncementPopup: React.FC<AnnouncementPopupProps> = ({ onOpenSettings, o
   const centerRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
+    // Runs once per page load. Reading the seen list again after a close would pop the next unread
+    // announcement, so a new user would be walked through every announcement one by one.
     fetch('/api/announcements?page=1&pageSize=50')
       .then((res) => {
         if (!res.ok) {
@@ -81,16 +83,20 @@ const AnnouncementPopup: React.FC<AnnouncementPopupProps> = ({ onOpenSettings, o
         const activeList = list.filter((item) => item?.active && item?.content);
         setAnnouncements(activeList);
 
-        const latestUnread = activeList.find((item) => !seenIds.includes(item.id));
-        if (latestUnread) {
-          setSelectedAnnouncement(latestUnread);
+        // Only the newest unread announcement pops up. Older unread ones keep the bell's red dot.
+        const seen = readSeenAnnouncementIds();
+        const newestUnread = activeList
+          .filter((item) => !seen.includes(item.id))
+          .sort((a, b) => (Date.parse(b.date) || 0) - (Date.parse(a.date) || 0))[0];
+        if (newestUnread) {
+          setSelectedAnnouncement(newestUnread);
           setIsPopupOpen(true);
         }
       })
       .catch((err) => {
         console.warn('[Announcement] Failed to fetch announcements', err);
       });
-  }, [seenIds]);
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -289,67 +295,13 @@ const AnnouncementPopup: React.FC<AnnouncementPopupProps> = ({ onOpenSettings, o
       )}
 
       {isPopupOpen && selectedAnnouncement && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center px-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="relative w-full max-w-xl max-h-[88vh] overflow-y-auto rounded-2xl border border-yellow-500/20 bg-[#18181b] shadow-2xl animate-in zoom-in-95 duration-200">
-            <div className="flex items-center justify-between border-b border-white/5 bg-gradient-to-r from-yellow-500/10 to-transparent p-4">
-              <div className="flex items-center gap-3">
-                <div className="rounded-lg bg-yellow-500/10 p-2 text-yellow-500">
-                  <Megaphone size={20} />
-                </div>
-                <div>
-                  <h3 className="font-medium tracking-wide text-white">{selectedAnnouncement.title || '系统公告'}</h3>
-                  <span className="mt-0.5 block text-[10px] text-gray-500">
-                    {formatAnnouncementDate(selectedAnnouncement.date)}
-                  </span>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={closePopup}
-                className="rounded-lg p-1 text-gray-400 transition-colors hover:bg-white/10 hover:text-white"
-              >
-                <X size={20} />
-              </button>
-            </div>
-
-            <div className="p-6">
-              <AnnouncementRichText
-                content={selectedAnnouncement.content}
-                className="text-gray-200"
-                onImageClick={(src) => window.open(src, '_blank', 'noopener,noreferrer')}
-              />
-              {!!selectedAnnouncement.images?.length && (
-                <div className="mt-4 grid grid-cols-2 gap-2">
-                  {selectedAnnouncement.images.map((img, idx) => (
-                    <button
-                      key={`${img}-${idx}`}
-                      type="button"
-                      onClick={() => window.open(img, '_blank', 'noopener,noreferrer')}
-                      className="overflow-hidden rounded-lg border border-white/10 bg-black/20"
-                    >
-                      <img
-                        src={img}
-                        alt={`announcement-${idx + 1}`}
-                        className="h-28 w-full object-cover"
-                        loading="lazy"
-                      />
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            <div className="flex justify-end border-t border-white/5 bg-white/2 p-4">
-              <button
-                type="button"
-                onClick={closePopup}
-                className="rounded-lg border border-white/10 bg-white/10 px-4 py-2 text-xs font-medium text-white transition-colors hover:bg-white/20"
-              >
-                我知道了
-              </button>
-            </div>
-          </div>
-        </div>
+        <AnnouncementModal
+          title={selectedAnnouncement.title}
+          dateText={formatAnnouncementDate(selectedAnnouncement.date)}
+          content={selectedAnnouncement.content}
+          images={selectedAnnouncement.images}
+          onClose={closePopup}
+        />
       )}
     </>
   );

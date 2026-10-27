@@ -19,7 +19,7 @@ import {
 } from 'lucide-react';
 import { AuthSessionPayload, getAuthorizedBillingHeaders } from '../src/services/accountIdentity';
 import { useToast } from '../src/context/ToastContext';
-import AnnouncementRichText from './AnnouncementRichText';
+import AnnouncementModal from './AnnouncementModal';
 import { ANNOUNCEMENT_SIZE_RANGE, announcementToPlainText } from '../src/services/announcementMarkup';
 
 const EMOJIS = ['🎉', '🔥', '✨', '🚀', '📢', '🎁', '💡', '⚠️', '✅', '❌', '👍', '❤️', '😀', '😄', '🤔', '🙏', '🆕', '💰', '🎨', '🖼️'];
@@ -768,37 +768,20 @@ const AnnouncementAdminPanel: React.FC<AnnouncementAdminPanelProps> = ({ session
       </div>
 
       {showPreview && (
-        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/70 px-4 backdrop-blur-sm">
-          <div className="flex max-h-[88vh] w-full max-w-xl flex-col overflow-hidden rounded-2xl border border-yellow-500/20 bg-[#18181b] shadow-2xl">
-            <div className="flex items-center justify-between border-b border-white/5 bg-gradient-to-r from-yellow-500/10 to-transparent p-4">
-              <div>
-                <div className="text-xs text-yellow-300">预览效果，用户看到的就是这样</div>
-                <h3 className="mt-0.5 font-medium text-white">{announcementForm.title.trim() || '系统公告'}</h3>
-              </div>
+        <AnnouncementModal
+          banner="预览效果，用户看到的就是这样"
+          title={announcementForm.title.trim() || '系统公告'}
+          dateText={new Date().toLocaleDateString()}
+          content={announcementForm.content}
+          images={announcementImageDataUrls}
+          interactiveImages={false}
+          onClose={() => setShowPreview(false)}
+          footer={
+            <>
               <button
                 type="button"
                 onClick={() => setShowPreview(false)}
-                className="rounded-lg p-1 text-gray-400 hover:bg-white/10 hover:text-white"
-                title="关闭预览"
-              >
-                <X size={20} />
-              </button>
-            </div>
-            <div className="overflow-y-auto p-6">
-              <AnnouncementRichText content={announcementForm.content} className="text-gray-200" />
-              {announcementImageDataUrls.length > 0 && (
-                <div className="mt-4 grid grid-cols-2 gap-2">
-                  {announcementImageDataUrls.map((src, idx) => (
-                    <img key={idx} src={src} alt={`预览图片${idx + 1}`} className="h-28 w-full rounded-lg border border-white/10 object-cover" />
-                  ))}
-                </div>
-              )}
-            </div>
-            <div className="flex justify-end gap-2 border-t border-white/5 p-4">
-              <button
-                type="button"
-                onClick={() => setShowPreview(false)}
-                className="rounded-lg border border-white/10 bg-white/10 px-4 py-2 text-xs text-white hover:bg-white/20"
+                className="rounded-xl border border-white/10 bg-white/10 px-5 py-2.5 text-sm text-white hover:bg-white/20"
               >
                 继续编辑
               </button>
@@ -806,13 +789,13 @@ const AnnouncementAdminPanel: React.FC<AnnouncementAdminPanelProps> = ({ session
                 type="button"
                 onClick={() => { setShowPreview(false); void handleSaveAnnouncement(); }}
                 disabled={isSavingAnnouncement}
-                className="rounded-lg bg-cyan-600 px-4 py-2 text-xs font-medium text-white hover:bg-cyan-500 disabled:opacity-60"
+                className="rounded-xl bg-cyan-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-cyan-500 disabled:opacity-60"
               >
                 确认发布
               </button>
-            </div>
-          </div>
-        </div>
+            </>
+          }
+        />
       )}
     </div>
   );

@@ -3691,8 +3691,8 @@ html.classic-vip-mode .classic-live-empty {
 }
 
 .announcement-modal-card {
-  width: min(620px, calc(100vw - 32px));
-  max-height: min(82vh, 860px);
+  width: min(780px, calc(100vw - 32px));
+  max-height: min(88vh, 900px);
   overflow: hidden;
   border-radius: 24px;
   border: 1px solid rgba(255, 214, 10, 0.28);
@@ -3783,8 +3783,8 @@ html.classic-vip-mode .classic-live-empty {
 }
 
 .announcement-modal-body {
-  padding: 24px 28px 0;
-  max-height: min(52vh, 560px);
+  padding: 24px 32px 0;
+  max-height: min(62vh, 680px);
   overflow-y: auto;
 }
 
