@@ -201,11 +201,11 @@ const AnnouncementPopup: React.FC<AnnouncementPopupProps> = ({
 
   return (
     <>
-      <div className="fixed top-4 right-4 sm:top-5 sm:right-6 z-[72] flex items-center gap-1 sm:gap-2">
+      <div className="fixed top-2 right-2 sm:top-5 sm:right-6 z-[72] flex items-center gap-1 sm:gap-2">
         <button
           type="button"
           onClick={() => setIsCenterOpen((prev) => !prev)}
-          className="relative inline-flex h-10 w-10 items-center justify-center rounded-xl border border-white/12 bg-[#171b24]/92 text-gray-200 shadow-[0_10px_30px_rgba(0,0,0,0.35)] backdrop-blur-xl transition-all hover:border-white/25 hover:bg-[#1d2431] hover:text-white"
+          className="relative inline-flex h-8 w-8 items-center justify-center rounded-xl border border-white/12 bg-[#171b24]/92 text-gray-200 shadow-[0_10px_30px_rgba(0,0,0,0.35)] backdrop-blur-xl transition-all hover:border-white/25 hover:bg-[#1d2431] hover:text-white sm:h-10 sm:w-10"
           title="查看公告"
         >
           <Bell size={16} />
@@ -219,7 +219,7 @@ const AnnouncementPopup: React.FC<AnnouncementPopupProps> = ({
             setIsPricingOpen(true);
             setIsCenterOpen(false);
           }}
-          className="relative inline-flex h-10 w-10 items-center justify-center rounded-xl border border-yellow-400/25 bg-[#171b24]/92 text-yellow-200 shadow-[0_10px_30px_rgba(0,0,0,0.35)] backdrop-blur-xl transition-all hover:border-yellow-300/45 hover:bg-[#24220f] hover:text-yellow-100"
+          className="relative inline-flex h-8 w-8 items-center justify-center rounded-xl border border-yellow-400/25 bg-[#171b24]/92 text-yellow-200 shadow-[0_10px_30px_rgba(0,0,0,0.35)] backdrop-blur-xl transition-all hover:border-yellow-300/45 hover:bg-[#24220f] hover:text-yellow-100 sm:h-10 sm:w-10"
           title="查看价格表"
         >
           <ReceiptText size={16} />
@@ -261,7 +261,7 @@ const AnnouncementPopup: React.FC<AnnouncementPopupProps> = ({
             <button
               type="button"
               onClick={() => { markClassicModeGuideSeen(); onOpenClassicMode(); }}
-              className="inline-flex h-10 items-center gap-1.5 rounded-xl border border-white/12 bg-[#171b24]/92 px-3 text-xs font-semibold text-gray-100 shadow-[0_10px_30px_rgba(0,0,0,0.35)] backdrop-blur-xl transition-all hover:border-white/25 hover:bg-[#1d2431] hover:text-white"
+              className="inline-flex h-8 items-center gap-1 rounded-xl border border-white/12 bg-[#171b24]/92 px-2 text-[11px] font-semibold text-gray-100 shadow-[0_10px_30px_rgba(0,0,0,0.35)] backdrop-blur-xl transition-all hover:border-white/25 hover:bg-[#1d2431] hover:text-white sm:h-10 sm:gap-1.5 sm:px-3 sm:text-xs"
               title="切换到经典版"
             >
               <LayoutList size={15} aria-hidden="true" />
