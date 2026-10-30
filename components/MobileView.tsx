@@ -9,6 +9,8 @@ import {
   History,
   Map as MapIcon,
   Layers,
+  ShoppingCart,
+  Headset,
 } from 'lucide-react';
 import { ToolMode } from '../types';
 import logo from '../src/assets/logo.svg';
@@ -21,6 +23,7 @@ interface MobileViewProps {
   onOpenHistory: () => void;
   onOpenCanvas: () => void;
   onOpenClassicMode: () => void;
+  onOpenSupport: () => void;
 }
 
 const MobileView: React.FC<MobileViewProps> = ({
@@ -28,6 +31,7 @@ const MobileView: React.FC<MobileViewProps> = ({
   onOpenHistory,
   onOpenCanvas,
   onOpenClassicMode,
+  onOpenSupport,
 }) => {
   const storeNodes = useCanvasStore((state) => state.nodes);
 
@@ -47,47 +51,71 @@ const MobileView: React.FC<MobileViewProps> = ({
       className="relative w-full h-full bg-neutral-900 overflow-y-auto pb-28 flex flex-col"
       style={{ minHeight: '100dvh' }}
     >
-      <div className="shrink-0 sticky top-0 z-20 bg-neutral-900/95 backdrop-blur-md border-b border-white/10 px-3 py-2.5 flex items-center gap-2 shadow-lg">
-        <div className="flex flex-1 items-center gap-2 min-w-0">
-          <img src={logo} alt="Nano Banana Pro" className="w-5 h-5 opacity-90 shrink-0" />
-          <h1 className="text-base font-bold text-white tracking-tight truncate max-w-[112px] min-[390px]:max-w-[150px]">
-            <span className="bg-gradient-to-r from-yellow-400 to-orange-500 bg-clip-text text-transparent">
-              Nano Banana Pro
-            </span>
-          </h1>
-          <div className="hidden min-[390px]:inline-flex bg-white/10 rounded-full px-2 py-0.5 text-[11px] text-white font-medium shrink-0">
-            {nodes.length} 作品
+      <div className="shrink-0 sticky top-0 z-20 border-b border-white/10 bg-neutral-900/95 px-3 py-2.5 shadow-lg backdrop-blur-md">
+        <div className="flex items-center gap-2">
+          <div className="flex min-w-0 flex-1 items-center gap-2">
+            <img src={logo} alt="Nano Banana Pro" className="h-5 w-5 shrink-0 opacity-90" />
+            <h1 className="max-w-[112px] truncate text-base font-bold tracking-tight text-white min-[390px]:max-w-[150px]">
+              <span className="bg-gradient-to-r from-yellow-400 to-orange-500 bg-clip-text text-transparent">
+                Nano Banana Pro
+              </span>
+            </h1>
+            <div className="hidden shrink-0 rounded-full bg-white/10 px-2 py-0.5 text-[11px] font-medium text-white min-[390px]:inline-flex">
+              {nodes.length} 作品
+            </div>
+          </div>
+
+          <div className="grid shrink-0 grid-cols-4 gap-1">
+            <button
+              onClick={onOpenHistory}
+              className="flex h-8 w-8 items-center justify-center rounded-lg border border-white/10 bg-white/5 text-gray-200 active:scale-95"
+              title="历史记录"
+            >
+              <History size={15} />
+            </button>
+            <button
+              onClick={onOpenSettings}
+              className="flex h-8 w-8 items-center justify-center rounded-lg border border-white/10 bg-white/5 text-gray-200 active:scale-95"
+              title="设置"
+            >
+              <Settings size={15} />
+            </button>
+            <button
+              onClick={onOpenClassicMode}
+              className="flex h-8 w-8 items-center justify-center rounded-lg border border-white/10 bg-white/5 text-gray-200 active:scale-95"
+              title="VIP"
+            >
+              <Layers size={15} />
+            </button>
+            <button
+              onClick={onOpenCanvas}
+              className="flex h-8 w-8 items-center justify-center rounded-lg border border-white/10 bg-white/5 text-gray-200 active:scale-95"
+              title="查看画布"
+            >
+              <MapIcon size={15} />
+            </button>
           </div>
         </div>
 
-        <div className="grid grid-cols-4 gap-1 shrink-0">
-          <button
-            onClick={onOpenHistory}
-            className="w-8 h-8 rounded-lg bg-white/5 border border-white/10 text-gray-200 flex items-center justify-center active:scale-95"
-            title="历史记录"
+        <div className="mt-2 grid grid-cols-2 gap-2">
+          <a
+            href="https://item.taobao.com/item.htm?id=1058856152173"
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label="购买额度"
+            className="inline-flex h-9 items-center justify-center gap-2 rounded-lg border border-orange-400/30 bg-orange-500/10 text-xs font-semibold text-orange-200"
           >
-            <History size={15} />
-          </button>
+            <ShoppingCart size={15} aria-hidden="true" />
+            购买额度
+          </a>
           <button
-            onClick={onOpenSettings}
-            className="w-8 h-8 rounded-lg bg-white/5 border border-white/10 text-gray-200 flex items-center justify-center active:scale-95"
-            title="设置"
+            type="button"
+            onClick={onOpenSupport}
+            aria-label="联系客服"
+            className="inline-flex h-9 items-center justify-center gap-2 rounded-lg border border-emerald-400/25 bg-emerald-500/10 text-xs font-semibold text-emerald-200"
           >
-            <Settings size={15} />
-          </button>
-          <button
-            onClick={onOpenClassicMode}
-            className="w-8 h-8 rounded-lg bg-white/5 border border-white/10 text-gray-200 flex items-center justify-center active:scale-95"
-            title="VIP"
-          >
-            <Layers size={15} />
-          </button>
-          <button
-            onClick={onOpenCanvas}
-            className="w-8 h-8 rounded-lg bg-white/5 border border-white/10 text-gray-200 flex items-center justify-center active:scale-95"
-            title="查看画布"
-          >
-            <MapIcon size={15} />
+            <Headset size={15} aria-hidden="true" />
+            联系客服
           </button>
         </div>
       </div>

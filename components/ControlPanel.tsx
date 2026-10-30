@@ -13,7 +13,7 @@ import { AssetImage } from '../src/components/AssetImage';
 import { ImageRetentionNotice } from '../src/components/ImageRetentionNotice';
 import { fetchPromptToolConfig, optimizePrompt, PromptOption } from '../services/promptService';
 import { useHistoryStore } from '../src/store/historyStore';
-import { Wand2, Loader2, ImagePlus, X, Upload, Plus, Sparkles, Minus, Maximize2, ChevronLeft, ChevronRight, Check, Clapperboard, Film, HelpCircle, LayoutGrid, MonitorPlay, Zap, Pin, PinOff, Eraser, Trash2, ShieldCheck, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
+import { Wand2, Loader2, ImagePlus, X, Upload, Plus, Sparkles, Minus, ChevronLeft, ChevronRight, Check, Clapperboard, Film, HelpCircle, LayoutGrid, MonitorPlay, Zap, Pin, PinOff, Eraser, Trash2, ShieldCheck, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 import VideoPricingModal from './VideoPricingModal';
 import CoinIcon from './CoinIcon';
 import ModelSelector from './ModelSelector';
@@ -52,6 +52,7 @@ import { getSelectedVideoRoute } from '../src/config/videoRoutes';
 import { useVideoModelCatalog } from '../src/hooks/useVideoModelCatalog';
 import { useVideoRouteCatalog } from '../src/hooks/useVideoRouteCatalog';
 import ImageModelIcon from './ImageModelIcon';
+import { UpscaleMark, UPSCALE_MODE_LABEL } from './UpscaleMark';
 import {
   extractErrorMessage,
 } from '../src/utils/errorDebug';
@@ -1615,10 +1616,10 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
 
   // ===== Sidebar shell =====
   const activeTab: 'image' | 'upscale' | 'video' = isUpscaleMode ? 'upscale' : isVideoMode ? 'video' : 'image';
-  const sidebarTabs = [
-    { id: 'image' as const, label: '生图', Icon: Wand2, mode: ToolMode.GENERATE, active: 'from-purple-500 to-blue-500' },
-    { id: 'upscale' as const, label: '超清放大', Icon: Maximize2, mode: ToolMode.UPSCALE, active: 'from-sky-500 to-cyan-500' },
-    { id: 'video' as const, label: '视频', Icon: Film, mode: ToolMode.VIDEO, active: 'from-pink-500 to-orange-500' },
+  const sidebarTabs: { id: 'image' | 'upscale' | 'video'; label: string; Icon?: typeof Wand2; mode: ToolMode; active: string }[] = [
+    { id: 'image', label: '生图', Icon: Wand2, mode: ToolMode.GENERATE, active: 'from-purple-500 to-blue-500' },
+    { id: 'upscale', label: UPSCALE_MODE_LABEL, mode: ToolMode.UPSCALE, active: 'from-sky-500 to-cyan-500' },
+    { id: 'video', label: '视频', Icon: Film, mode: ToolMode.VIDEO, active: 'from-pink-500 to-orange-500' },
   ];
   const collapsed = !isMobile && !isControlPanelOpen;
 
@@ -1665,7 +1666,7 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
               aria-label={label}
               className={`rounded-xl p-2.5 transition-colors ${activeTab === id ? `bg-linear-to-tr ${active} text-white shadow-lg` : 'text-gray-400 hover:bg-white/10 hover:text-white'}`}
             >
-              <Icon size={18} />
+              {Icon ? <Icon size={18} /> : <UpscaleMark size={20} />}
             </button>
           ))}
         </div>
@@ -1675,19 +1676,20 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
           {isMobile && <div className="mx-auto mb-3 h-1.5 w-12 rounded-full bg-white/20" />}
           <div className="flex items-center gap-2">
             <div role="tablist" aria-label="创作模式" className="flex flex-1 gap-1 rounded-xl bg-white/5 p-1">
-              {sidebarTabs.map(({ id, label, Icon, mode, active }) => (
-                <button
+              {sidebarTabs.map(({ id, label, Icon, mode, active }) => {
+                const isActive = activeTab === id;
+                return <button
                   key={id}
                   type="button"
                   role="tab"
-                  aria-selected={activeTab === id}
+                  aria-selected={isActive}
                   onClick={() => setToolMode(mode)}
-                  className={`flex flex-1 items-center justify-center gap-1.5 rounded-lg px-2 py-2 text-xs font-semibold transition-colors ${activeTab === id ? `bg-linear-to-tr ${active} text-white shadow-lg` : 'text-gray-400 hover:bg-white/10 hover:text-white'}`}
+                  className={`flex min-w-0 flex-1 items-center justify-center rounded-lg py-2 font-semibold transition-colors ${id === 'upscale' ? 'gap-1 px-1 text-[11px]' : 'gap-1.5 px-2 text-xs'} ${isActive ? `bg-linear-to-tr ${active} text-white shadow-lg` : 'text-gray-400 hover:bg-white/10 hover:text-white'}`}
                 >
-                  <Icon size={14} aria-hidden="true" />
+                  {Icon ? <Icon size={14} aria-hidden="true" /> : <UpscaleMark size={24} />}
                   {label}
-                </button>
-              ))}
+                </button>;
+              })}
             </div>
             <button
               type="button"
@@ -1722,7 +1724,7 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
                 <div className="mb-1 text-sm font-semibold text-white">
                   {isCheckingGenerationAccess ? '正在验证访问权限' : '请先登录账户'}
                 </div>
-                高清放大按账户金币计费，需要登录后使用。
+                8K超清按账户金币计费，需要登录后使用。
               </div>
             )
           ) : toolMode === ToolMode.INPAINT ? (

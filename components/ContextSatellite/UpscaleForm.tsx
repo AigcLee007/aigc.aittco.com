@@ -109,7 +109,7 @@ export const UpscaleForm: React.FC<UpscaleFormProps> = ({ width, height, onChang
       {!engines && !loadError && (
         <p className="flex items-center gap-2 text-sm text-gray-400"><Loader2 size={14} className="animate-spin" aria-hidden="true" /> 正在读取…</p>
       )}
-      {engines && !enabled && <p role="alert" className="mb-3 text-sm text-amber-400">高清放大暂未开通，请联系管理员。</p>}
+      {engines && !enabled && <p role="alert" className="mb-3 text-sm text-amber-400">8K超清暂未开通，请联系管理员。</p>}
       {engines && enabled && engines.length === 0 && <p role="alert" className="mb-3 text-sm text-amber-400">暂无可用的放大方式。</p>}
 
       {engines && enabled && engines.length > 0 && (

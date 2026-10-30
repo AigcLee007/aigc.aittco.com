@@ -67,7 +67,7 @@ export const submitUpscale = async (
   payload: { image: string; engine: string; factor: number; format?: string | null; clientLiveTaskIds?: string[] },
 ): Promise<{ taskId: string; [key: string]: any }> => {
   const session = getStoredAuthSessionToken();
-  if (!session) throw new AppError('请先登录后再使用高清放大', { status: 401 });
+  if (!session) throw new AppError('请先登录后再使用8K超清', { status: 401 });
   const headers = { ...buildBillingIdentityHeaders(session), 'Content-Type': 'application/json' };
   const result = await submitImageJob(`${API_BASE_URL}/upscale`, payload, headers);
   const taskId = result?.task_id || result?.id;

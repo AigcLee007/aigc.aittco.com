@@ -4,6 +4,7 @@ import { readOriginalBlob } from '../services/imageAssetCache';
 import { blobToDataUrl } from '../services/imageBlobUtils';
 import { imageDimensions } from '../services/imageDimensions';
 import { submitUpscale } from '../services/upscaleApi';
+import { UPSCALE_MODE_LABEL } from '../../components/UpscaleMark';
 import { useCanvasStore } from '../store/canvasStore';
 import type { NodeData } from '../../types';
 
@@ -38,7 +39,7 @@ export const useUpscaleFlow = ({ onInitGenerations, onUpdateGeneration }: Upscal
     const { node, dataUrl } = target;
     setTarget(null);
     // The placeholder takes the source's shape, so the result lands at the right size.
-    const [placeholderId] = onInitGenerations(1, node.prompt || '高清放大', 'Smart', node);
+    const [placeholderId] = onInitGenerations(1, node.prompt || UPSCALE_MODE_LABEL, 'Smart', node);
     // Remember what this result was made from, so the user can compare the two afterwards.
     useCanvasStore.getState().updateNode(placeholderId, {
       sourceNodeId: node.id,
@@ -46,7 +47,7 @@ export const useUpscaleFlow = ({ onInitGenerations, onUpdateGeneration }: Upscal
     }, true);
     submitUpscale({ image: dataUrl, engine: choice.engine, factor: choice.factor, format: choice.format, clientLiveTaskIds: [placeholderId] })
       .then((result) => onUpdateGeneration(placeholderId, null, undefined, result.taskId))
-      .catch((error) => onUpdateGeneration(placeholderId, null, error?.message || '高清放大失败'));
+      .catch((error) => onUpdateGeneration(placeholderId, null, error?.message || `${UPSCALE_MODE_LABEL}失败`));
   }, [target, onInitGenerations, onUpdateGeneration]);
 
   const ui = (

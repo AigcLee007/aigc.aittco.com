@@ -205,6 +205,69 @@ body {
   justify-content: flex-end;
 }
 
+.classic-home-action-btn {
+  min-height: 40px;
+  padding: 0 10px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 11px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  color: var(--text-main);
+  font-size: 12px;
+  font-weight: 700;
+  text-decoration: none;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: border-color 0.2s ease, background 0.2s ease, transform 0.2s ease;
+}
+
+.classic-home-action-btn:hover {
+  transform: translateY(-1px);
+}
+
+.classic-home-buy-btn {
+  border-color: rgba(251, 146, 60, 0.36);
+  background: rgba(154, 73, 24, 0.2);
+  color: #fed7aa;
+}
+
+.classic-home-buy-btn:hover {
+  border-color: rgba(251, 146, 60, 0.58);
+  background: rgba(154, 73, 24, 0.3);
+}
+
+.classic-home-support-btn {
+  border-color: rgba(52, 211, 153, 0.3);
+  background: rgba(6, 95, 70, 0.18);
+  color: #a7f3d0;
+}
+
+.classic-home-support-btn:hover {
+  border-color: rgba(52, 211, 153, 0.5);
+  background: rgba(6, 95, 70, 0.28);
+}
+
+.classic-home-action-short {
+  display: none;
+}
+
+@media (max-width: 720px) {
+  .classic-home-action-full {
+    display: none;
+  }
+
+  .classic-home-action-short {
+    display: inline;
+  }
+
+  .classic-home-action-btn {
+    padding: 0 9px;
+    font-size: 11px;
+  }
+}
+
 .mode-switch-link {
   min-height: 38px;
   padding: 0 13px;
@@ -5938,7 +6001,7 @@ html.classic-vip-mode .classic-live-empty {
 .classic-fast-toggle.is-standard:disabled { opacity: 1; cursor: default; color: var(--text-sub); }
 
 
-/* ===== 高清放大：创作模式切换与放大页 ===== */
+/* ===== 8K超清：创作模式切换与放大页 ===== */
 .classic-mode-switch {
   display: flex;
   gap: 6px;
@@ -5960,6 +6023,8 @@ html.classic-vip-mode .classic-live-empty {
   transition: background 0.18s ease, color 0.18s ease;
 }
 .classic-mode-tab:hover { color: var(--text-main, #fff); background: rgba(255, 255, 255, 0.06); }
+.classic-mode-upscale-tab { display: inline-flex; align-items: center; justify-content: center; gap: 8px; white-space: nowrap; }
+.classic-mode-upscale-badge { display: block; width: 48px; height: auto; flex: none; }
 .classic-mode-tab.active {
   background: linear-gradient(135deg, var(--banana), #ffae00);
   color: #000;
@@ -5981,7 +6046,9 @@ html.classic-vip-mode .classic-live-empty {
 .classic-upscale-error { margin-top: 8px; color: #ffb8b8; font-size: 12px; }
 .classic-upscale-error[hidden] { display: none; }
 
-/* 卡片上的「高清放大」是主操作：用主题色，排在最前面 */
+/* 卡片上的「8K超清」是主操作：用主题色，排在最前面 */
+.classic-live-action-btn[data-action="upscale"] { gap: 5px; }
+.classic-live-action-btn[data-action="upscale"] img { display: block; width: 24px; height: auto; flex: none; }
 .classic-live-action-btn.is-primary-action {
   background: linear-gradient(135deg, var(--banana), #ffae00);
   border-color: transparent;
@@ -5996,8 +6063,9 @@ html.classic-vip-mode .classic-live-empty {
   background: linear-gradient(135deg, var(--banana), #ffae00);
   color: #000;
 }
+.history-item .overlay-btn[data-action="upscale"] img { display: block; width: 25px; height: auto; }
 
-/* ===== 高清放大页：上传区 / 方式卡片 / 价格 ===== */
+/* ===== 8K超清页：上传区 / 方式卡片 / 价格 ===== */
 .classic-upscale-drop { min-height: 180px; max-height: none; border-width: 1.5px; border-color: rgba(255, 214, 10, 0.28); background: radial-gradient(120% 120% at 50% 0%, rgba(255, 214, 10, 0.07), rgba(255, 255, 255, 0.02)); }
 .classic-upscale-drop:hover, .classic-upscale-drop.is-dragging { border-color: var(--banana); background: radial-gradient(120% 120% at 50% 0%, rgba(255, 214, 10, 0.13), rgba(255, 255, 255, 0.03)); transform: none; opacity: 1; }
 .classic-upscale-placeholder { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; width: 100%; padding: 26px 16px; text-align: center; }

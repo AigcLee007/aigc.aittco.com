@@ -1050,8 +1050,13 @@ function patchClassicLiveCard(card, task, primary) {
     card = document.createElement("div");
     card.innerHTML = '<div class="classic-live-media"><div class="classic-live-meta"><span class="classic-live-chip"></span><span class="classic-live-meta-end"><span class="classic-live-time"></span><span class="history-cache-badge cloud"></span></span></div></div><div class="classic-live-info"><div><div class="classic-live-prompt"></div><div class="classic-live-config"></div></div><div class="classic-live-actions"></div></div>';
     const actions = card.querySelector(".classic-live-actions");
-    for (const [action, label] of [["upscale", "✨ 高清放大"], ["compare", "对比"], ["zoom", "放大"], ["download", "下载原图"], ["folder", "📂"], ["fast", "快速下载"], ["regen", "重生"], ["ref", "参考"], ["copy", "复制图片"], ["recover", "从本地恢复"], ["delete", "删除"]]) {
-      const button = document.createElement("button"); button.type = "button"; button.className = "classic-live-action-btn" + (action === "upscale" ? " is-primary-action" : ""); button.dataset.action = action; button.textContent = label;
+    for (const [action, label] of [["upscale", "8K超清"], ["compare", "对比"], ["zoom", "放大"], ["download", "下载原图"], ["folder", "📂"], ["fast", "快速下载"], ["regen", "重生"], ["ref", "参考"], ["copy", "复制图片"], ["recover", "从本地恢复"], ["delete", "删除"]]) {
+      const button = document.createElement("button"); button.type = "button"; button.className = "classic-live-action-btn" + (action === "upscale" ? " is-primary-action" : ""); button.dataset.action = action;
+      if (action === "upscale") {
+        const badge = document.createElement("img"); badge.src = "/8k-ultra-hd.svg"; badge.alt = ""; badge.setAttribute("aria-hidden", "true");
+        const text = document.createElement("span"); text.textContent = label;
+        button.append(badge, text);
+      } else button.textContent = label;
       if (action === "fast") button.title = "高质量 JPEG，体积更小，适合网络较慢时下载";
       if (action === "folder") { button.title = "下载的图片在哪里"; button.setAttribute("aria-label", "下载的图片在哪里"); }
       button.onclick = event => {
@@ -3021,7 +3026,7 @@ document.addEventListener("paste", (e) => {
       active.tagName === "TEXTAREA" ||
       active.isContentEditable);
   if (isTyping) return;
-  // On the 高清放大 page a pasted picture is for upscaling, not a reference image.
+  // On the 8K超清 page a pasted picture is for upscaling, not a reference image.
   if (document.getElementById("classicUpscaleArea")?.hidden === false) return;
 
   const items = Array.from(e.clipboardData?.items || []);
@@ -4580,10 +4585,14 @@ function renderClassicHistoryRecords(records = [], options = {}) {
     if (!card) {
       card = document.createElement("div"); card.className = "result-item history-item"; card.dataset.recordId = record.id;
       card.innerHTML = `<img loading="lazy" decoding="async"><div class="history-time-tag"></div><div class="history-cache-badge cloud"></div><div class="history-prompt-tip"></div><div class="item-overlay"></div>`;
-      const actions = [["upscale", "高清放大", "✨"], ["zoom", "放大", "🔍"], ["download", "下载原图", "💾"], ["regenerate", "重生", "♻️"], ["reference", "垫图", "🧩"], ["copy", "复制图片", "📋"], ["restore", "从本地恢复", "📂"]];
+      const actions = [["upscale", "8K超清", "✨"], ["zoom", "放大", "🔍"], ["download", "下载原图", "💾"], ["regenerate", "重生", "♻️"], ["reference", "垫图", "🧩"], ["copy", "复制图片", "📋"], ["restore", "从本地恢复", "📂"]];
       for (const [action, label, icon] of actions) {
         const button = document.createElement("button"); button.className = "overlay-btn history-icon-btn";
-        button.dataset.action = action; button.dataset.label = label; button.textContent = icon; button.title = label;
+        button.dataset.action = action; button.dataset.label = label; button.title = label;
+        if (action === "upscale") {
+          const badge = document.createElement("img"); badge.src = "/8k-ultra-hd.svg"; badge.alt = ""; badge.setAttribute("aria-hidden", "true");
+          button.appendChild(badge);
+        } else button.textContent = icon;
         card.querySelector(".item-overlay").appendChild(button);
       }
       const action = event => {

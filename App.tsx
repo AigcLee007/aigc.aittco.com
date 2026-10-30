@@ -294,6 +294,7 @@ const App: React.FC = () => {
   // Modal state
   const [modalOpen, setModalOpen] = useState(false);
   const [modalTab, setModalTab] = useState<"settings" | "history">("settings");
+  const [supportOpen, setSupportOpen] = useState(false);
   const [reversePromptOpen, setReversePromptOpen] = useState(false);
   const [batchModalOpen, setBatchModalOpen] = useState(false);
   const handleOpenBatch = useCallback(() => setBatchModalOpen(true), []);
@@ -325,6 +326,8 @@ const App: React.FC = () => {
     setModalTab(tab);
     setModalOpen(true);
   }, []);
+  const openSupport = useCallback(() => setSupportOpen(true), []);
+  const closeSupport = useCallback(() => setSupportOpen(false), []);
 
   const openClassicMode = useCallback(() => {
     if (typeof window === "undefined") return;
@@ -442,6 +445,9 @@ const App: React.FC = () => {
              settingsTab={modalTab}
              onCloseSettings={() => setModalOpen(false)}
              onOpenSettings={() => openModal("settings")}
+             supportOpen={supportOpen}
+             onOpenSupport={openSupport}
+             onCloseSupport={closeSupport}
              onReusePrompt={(prompt, type) => {
                setModalOpen(false);
                useSelectionStore
@@ -499,6 +505,7 @@ const App: React.FC = () => {
             useSelectionStore.getState().setToolMode(ToolMode.PAN);
           }}
           onOpenClassicMode={openClassicMode}
+          onOpenSupport={openSupport}
         />
         <ControlPanel
           onInitGenerations={handleInitGenerations}
@@ -512,6 +519,9 @@ const App: React.FC = () => {
           settingsTab={modalTab}
           onCloseSettings={() => setModalOpen(false)}
           onOpenSettings={() => openModal("settings")}
+          supportOpen={supportOpen}
+          onOpenSupport={openSupport}
+          onCloseSupport={closeSupport}
           onReusePrompt={(prompt, type) => {
             setModalOpen(false);
             useSelectionStore
@@ -610,6 +620,9 @@ const App: React.FC = () => {
           settingsTab={modalTab}
           onCloseSettings={() => setModalOpen(false)}
           onOpenSettings={() => openModal("settings")}
+          supportOpen={supportOpen}
+          onOpenSupport={openSupport}
+          onCloseSupport={closeSupport}
           onReusePrompt={(prompt, type) => {
             setModalOpen(false);
             useSelectionStore

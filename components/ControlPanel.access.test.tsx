@@ -61,4 +61,15 @@ describe('canvas permission verification', () => {
     await waitFor(() => expect(container.querySelector<HTMLButtonElement>('button[type="submit"]')?.disabled).toBe(false));
     expect(mocks.session).toHaveBeenCalledTimes(2);
   });
+
+  it('labels the upscale mode as 8K超清 and shows the shared badge', async () => {
+    mocks.session.mockResolvedValue({ authenticated: true, user: { userId: 'admin-a' } });
+    await act(async () => {
+      render(<ControlPanel onInitGenerations={vi.fn()} onUpdateGeneration={vi.fn()} onOpenBatchModal={vi.fn()} />);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    const upscaleTab = screen.getByRole('tab', { name: '8K超清' });
+    expect(upscaleTab.querySelector('img')?.getAttribute('src')).toBe('/8k-ultra-hd.svg');
+  });
 });

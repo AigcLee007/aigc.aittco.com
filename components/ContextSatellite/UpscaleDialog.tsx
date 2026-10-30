@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { Maximize2, X } from 'lucide-react';
+import { X } from 'lucide-react';
 import { UpscaleForm, type UpscaleChoice } from './UpscaleForm';
+import { UpscaleMark, UPSCALE_MODE_LABEL } from '../UpscaleMark';
 
 interface UpscaleDialogProps {
   /** Pixel size of the image being upscaled, read from the real file. */
@@ -18,7 +19,7 @@ export const UpscaleDialog: React.FC<UpscaleDialogProps> = ({ width, height, onC
       <div className="max-h-[92vh] w-[min(92vw,440px)] overflow-y-auto rounded-2xl border border-white/10 bg-neutral-900 p-5 text-gray-200 shadow-2xl" onClick={(event) => event.stopPropagation()}>
         <div className="mb-4 flex items-center justify-between">
           <h2 id="upscale-title" className="flex items-center gap-2 text-base font-semibold text-white">
-            <Maximize2 size={18} aria-hidden="true" /> 高清放大
+            <UpscaleMark size={20} /> {UPSCALE_MODE_LABEL}
           </h2>
           <button type="button" onClick={onCancel} aria-label="关闭" className="rounded-full p-1.5 text-gray-400 hover:bg-white/10 hover:text-white">
             <X size={16} aria-hidden="true" />

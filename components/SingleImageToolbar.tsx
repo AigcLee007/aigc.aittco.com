@@ -1,8 +1,9 @@
 import React from 'react';
-import { GitCompare, Maximize2 } from 'lucide-react';
+import { GitCompare } from 'lucide-react';
 import { useSelectionStore } from '../src/store/selectionStore';
 import { useCanvasStore } from '../src/store/canvasStore';
 import { ToolMode, type NodeData } from '../types';
+import { UpscaleMark, UPSCALE_MODE_LABEL } from './UpscaleMark';
 
 interface SingleImageToolbarProps {
   onUpscale: (node: NodeData) => void;
@@ -37,8 +38,8 @@ const SingleImageToolbar: React.FC<SingleImageToolbarProps> = ({ onUpscale, onCo
         onClick={() => onUpscale(node)}
         className="flex items-center gap-2 rounded-xl bg-white px-4 py-2 text-sm font-medium text-black transition-colors hover:bg-gray-200"
       >
-        <Maximize2 size={16} aria-hidden="true" />
-        高清放大
+        <UpscaleMark size={20} />
+        {UPSCALE_MODE_LABEL}
       </button>
       {canCompare && (
         <button

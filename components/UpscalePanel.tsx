@@ -1,11 +1,12 @@
 import React, { useCallback, useRef, useState } from 'react';
-import { ImagePlus, Loader2, Maximize2, X } from 'lucide-react';
+import { ImagePlus, Loader2, X } from 'lucide-react';
 import { UpscaleForm, type UpscaleChoice } from './ContextSatellite/UpscaleForm';
 import { submitUpscale } from '../src/services/upscaleApi';
 import { blobToDataUrl } from '../src/services/imageBlobUtils';
 import { imageDimensions } from '../src/services/imageDimensions';
 import { useCanvasStore } from '../src/store/canvasStore';
 import type { NodeData } from '../types';
+import { UpscaleMark, UPSCALE_MODE_LABEL } from './UpscaleMark';
 
 // Matches what the server reads (30 MB). Larger files would be refused after a slow upload.
 const MAX_FILE_BYTES = 30 * 1024 * 1024;
@@ -22,7 +23,7 @@ interface UpscalePanelProps {
 
 interface Picked { blob: Blob; dataUrl: string; width: number; height: number; name: string; fromNode: NodeData | null }
 
-// The "高清放大" page of the control panel. It works on any picture: one already on the canvas, or one
+// The 8K超清 page of the control panel. It works on any picture: one already on the canvas, or one
 // dropped / chosen from the computer. The result lands on the canvas as a new image next to it.
 export const UpscalePanel: React.FC<UpscalePanelProps> = ({ onInitGenerations, onUpdateGeneration, selectedNode, readNode }) => {
   const inputRef = useRef<HTMLInputElement>(null);
@@ -64,7 +65,7 @@ export const UpscalePanel: React.FC<UpscalePanelProps> = ({ onInitGenerations, o
     if (!picked || !choice) return;
     const { dataUrl, fromNode } = picked;
     // A picture from the canvas gets its result beside it; a local file starts a new image.
-    const [placeholderId] = onInitGenerations(1, fromNode?.prompt || '高清放大', 'Smart', fromNode || undefined);
+    const [placeholderId] = onInitGenerations(1, fromNode?.prompt || UPSCALE_MODE_LABEL, 'Smart', fromNode || undefined);
     if (fromNode) {
       useCanvasStore.getState().updateNode(placeholderId, {
         sourceNodeId: fromNode.id,
@@ -75,7 +76,7 @@ export const UpscalePanel: React.FC<UpscalePanelProps> = ({ onInitGenerations, o
     }
     submitUpscale({ image: dataUrl, engine: choice.engine, factor: choice.factor, format: choice.format, clientLiveTaskIds: [placeholderId] })
       .then((result) => onUpdateGeneration(placeholderId, null, undefined, result.taskId))
-      .catch((err) => onUpdateGeneration(placeholderId, null, err?.message || '高清放大失败'));
+      .catch((err) => onUpdateGeneration(placeholderId, null, err?.message || `${UPSCALE_MODE_LABEL}失败`));
     // Keep the picture so another engine or scale can be tried without choosing it again.
   };
 
@@ -131,7 +132,7 @@ export const UpscalePanel: React.FC<UpscalePanelProps> = ({ onInitGenerations, o
         onClick={submit}
         className="flex w-full items-center justify-center gap-2 rounded-full bg-linear-to-r from-yellow-300 to-orange-400 py-3.5 text-sm font-black text-black shadow-[0_10px_30px_rgba(250,204,21,0.3)] transition-all hover:brightness-110 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40 disabled:shadow-none"
       >
-        <Maximize2 size={16} aria-hidden="true" />
+        <UpscaleMark size={20} />
         {choice ? `开始放大 · ${choice.quote.points} 金币` : '开始放大'}
       </button>
     </div>

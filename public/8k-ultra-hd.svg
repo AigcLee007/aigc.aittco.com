@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 80" role="img" aria-labelledby="title desc">
+  <title id="title">8K Ultra HD</title>
+  <desc id="desc">白色 8K 字样位于黑色面板中，下方是黄色 ULTRA HD 标签。</desc>
+  <rect x="1" y="1" width="118" height="78" rx="7" fill="#fff9df" stroke="#e0ad00" stroke-width="3"/>
+  <rect x="6" y="5" width="108" height="45" rx="2" fill="#1c1b19" stroke="#f2c500" stroke-width="2.5"/>
+  <text x="60" y="43" fill="#fff" font-family="Arial, Helvetica, sans-serif" font-size="44" font-weight="900" text-anchor="middle">8K</text>
+  <rect x="6" y="51" width="108" height="23" fill="#ffdf1b"/>
+  <text x="60" y="67.5" fill="#151411" font-family="Arial, Helvetica, sans-serif" font-size="12" font-weight="900" letter-spacing="1.15" text-anchor="middle">ULTRA HD</text>
+</svg>

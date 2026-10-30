@@ -1,4 +1,4 @@
-// Classic layout: "高清放大" for a finished image. Kept in its own file; script.js and
+// Classic layout: 8K超清 for a finished image. Kept in its own file; script.js and
 // unified-bridge.js only call window.openClassicUpscale(url, prompt).
 (function (root) {
   const doc = root.document;
@@ -69,7 +69,7 @@
     const headers = { "Content-Type": "application/json", ...sessionHeaders() };
     const owner = String(root.classicImageJobOwner || "");
     const requestId = root.ClassicImageJobs.newId();
-    const liveId = root.createClassicLiveTask({ prompt: prompt || "高清放大", modelLabel: label, routeLabel: "高清放大", size, status: "submitting" });
+    const liveId = root.createClassicLiveTask({ prompt: prompt || "8K超清", modelLabel: label, routeLabel: "8K超清", size, status: "submitting" });
     const compareId = await keepBeforeCopy(blob, liveId);
     if (compareId) root.updateClassicLiveTask?.(liveId, { compareUrl: compareId, compareLabel: label });
     root.promoteClassicLiveTask?.(liveId, `request-${requestId}`, { clientRequestId: requestId, ownerId: owner, status: "submitting" });
@@ -77,11 +77,11 @@
       const ack = await root.ClassicImageJobs.submit("/api/upscale", { image: dataUrl, engine, factor, format, uiMode: "classic", clientLiveTaskIds: [liveId] }, headers, requestId, owner);
       const taskId = ack.task_id || ack.id;
       if (!taskId) throw new Error("未获取到任务编号");
-      root.promoteClassicLiveTask?.(liveId, taskId, { prompt: prompt || "高清放大", size, modelLabel: label, routeLabel: "高清放大", status: "running" });
-      root.pollSingleTask?.(taskId, "", size, 1, { trackUi: false, liveTaskId: liveId, promptSnapshot: prompt || "高清放大", modelLabel: label, routeLabel: "高清放大" });
+      root.promoteClassicLiveTask?.(liveId, taskId, { prompt: prompt || "8K超清", size, modelLabel: label, routeLabel: "8K超清", status: "running" });
+      root.pollSingleTask?.(taskId, "", size, 1, { trackUi: false, liveTaskId: liveId, promptSnapshot: prompt || "8K超清", modelLabel: label, routeLabel: "8K超清" });
     } catch (error) {
-      root.failClassicLiveTask?.(liveId, error.message || "高清放大失败", { prompt: prompt || "高清放大", size, modelLabel: label, routeLabel: "高清放大" });
-      toast(error.message || "高清放大失败");
+      root.failClassicLiveTask?.(liveId, error.message || "8K超清失败", { prompt: prompt || "8K超清", size, modelLabel: label, routeLabel: "8K超清" });
+      toast(error.message || "8K超清失败");
     }
   }
 
@@ -170,7 +170,7 @@
   }
 
   async function openClassicUpscale(url, prompt = "") {
-    if (!root.localStorage?.getItem(SESSION_KEY)) { toast("请先登录后再使用高清放大"); return; }
+    if (!root.localStorage?.getItem(SESSION_KEY)) { toast("请先登录后再使用8K超清"); return; }
     if (open) return;
     toast("正在读取原图…");
     let blob, dims, dataUrl, options;
@@ -182,12 +182,12 @@
       dims = await measure(blob);
       [dataUrl, options] = await Promise.all([toDataUrl(blob), ask(`/api/upscale/options?width=${dims.width}&height=${dims.height}`)]);
     } catch (error) { toast(error.message || "读取原图失败"); return; }
-    if (!options.enabled || !options.engines.length) { toast("高清放大暂未开通，请联系管理员"); return; }
+    if (!options.enabled || !options.engines.length) { toast("8K超清暂未开通，请联系管理员"); return; }
 
     let choice = null;
     const dialog = el("div", { class: "api-guide-modal", role: "dialog", "aria-modal": "true", "aria-labelledby": "upscaleTitle", style: "display:flex" });
     const card = el("div", { class: "api-guide-card", style: "max-width:420px;text-align:left" });
-    const title = el("div", { class: "api-guide-title", id: "upscaleTitle", text: "高清放大" });
+    const title = el("div", { class: "api-guide-title", id: "upscaleTitle", text: "8K超清" });
     const info = el("div", { class: "api-guide-desc", text: `当前图片 ${dims.width} × ${dims.height}` });
     const cancel = el("button", { class: "api-guide-btn ghost", type: "button", text: "取消", onclick: close });
     const confirm = el("button", { class: "api-guide-btn", type: "button", text: "确认放大", disabled: "" });
@@ -236,7 +236,7 @@
     }
   }
 
-  // ===== 高清放大 page (the second mode of the create tab) =====
+  // ===== 8K超清 page (the second mode of the create tab) =====
   // Works on any picture: dropped, chosen from the computer, pasted, or sent here from a result card.
   const MAX_FILE_BYTES = 30 * 1024 * 1024;
   const ACCEPTED_TYPES = ["image/png", "image/jpeg", "image/webp"];
@@ -273,7 +273,7 @@
 
   async function loadIntoPage(blob, name) {
     showPageError("");
-    if (!root.localStorage?.getItem(SESSION_KEY)) { showPageError("请先登录后再使用高清放大"); return; }
+    if (!root.localStorage?.getItem(SESSION_KEY)) { showPageError("请先登录后再使用8K超清"); return; }
     if (blob.type && !ACCEPTED_TYPES.includes(blob.type)) { showPageError("请使用 PNG、JPG 或 WebP 格式的图片"); return; }
     if (blob.size > MAX_FILE_BYTES) { showPageError("图片文件超过 30MB，请压缩后再试"); return; }
     const token = ++page.token;
@@ -283,7 +283,7 @@
       const dims = await measure(blob);
       const [dataUrl, options] = await Promise.all([toDataUrl(blob), ask(`/api/upscale/options?width=${dims.width}&height=${dims.height}`)]);
       if (token !== page.token) return;
-      if (!options.enabled || !options.engines.length) { showPageError("高清放大暂未开通，请联系管理员"); return; }
+      if (!options.enabled || !options.engines.length) { showPageError("8K超清暂未开通，请联系管理员"); return; }
       page.picked = { blob, dataUrl, dims, name };
       page.choice = null;
       const preview = $("classicUpscalePreview");

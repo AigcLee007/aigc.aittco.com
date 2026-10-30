@@ -15,9 +15,9 @@ import {
   Link,
   Eraser,
   CheckCircle2,
-  Maximize2,
   GitCompare,
 } from 'lucide-react';
+import { UpscaleMark, UPSCALE_MODE_LABEL } from './UpscaleMark';
 import { ToolMode, type NodeData } from '../types';
 import { readOriginalBlob } from '../src/services/imageAssetCache';
 import { assetActionSource } from '../src/services/imageAssetActions';
@@ -230,8 +230,8 @@ const ContextMenu: React.FC<ContextMenuProps> = ({
 
         {isImageNode && onUpscale && !node?.loading && (node?.src || node?.assetId) && (
           <button onClick={handleUpscale} className="flex items-center gap-2 px-4 py-2 hover:bg-gray-800 text-left text-gray-200">
-            <Maximize2 size={14} className="text-sky-400" />
-            <span>{'高清放大'}</span>
+            <UpscaleMark size={18} />
+            <span>{UPSCALE_MODE_LABEL}</span>
           </button>
         )}
 

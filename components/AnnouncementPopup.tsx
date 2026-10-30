@@ -1,8 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Bell, CheckCheck, LayoutList, Megaphone, ReceiptText, UserRound, Wallet } from 'lucide-react';
+import { Bell, CheckCheck, Headset, LayoutList, Megaphone, ReceiptText, ShoppingCart, UserRound, Wallet, X } from 'lucide-react';
 import { ClassicModeGuide, markClassicModeGuideSeen } from '../src/components/ClassicModeGuide';
 import PricingReferencePanel from './PricingReferencePanel';
 import AnnouncementModal from './AnnouncementModal';
+import wechatQR from '../src/assets/wechat_qr.png';
 import { announcementToPlainText } from '../src/services/announcementMarkup';
 import { fetchBillingAccount } from '../src/services/accountService';
 import {
@@ -22,6 +23,7 @@ interface Announcement {
 }
 
 const SEEN_STORAGE_KEY = 'seen_announcement_ids';
+const PURCHASE_URL = 'https://item.taobao.com/item.htm?id=1058856152173';
 
 const readSeenAnnouncementIds = (): string[] => {
   try {
@@ -51,13 +53,26 @@ const formatAnnouncementDate = (input?: string) => {
 interface AnnouncementPopupProps {
   onOpenSettings?: () => void;
   onOpenClassicMode?: () => void;
+  supportOpen?: boolean;
+  onOpenSupport?: () => void;
+  onCloseSupport?: () => void;
 }
 
-const AnnouncementPopup: React.FC<AnnouncementPopupProps> = ({ onOpenSettings, onOpenClassicMode }) => {
+const AnnouncementPopup: React.FC<AnnouncementPopupProps> = ({
+  onOpenSettings,
+  onOpenClassicMode,
+  supportOpen,
+  onOpenSupport,
+  onCloseSupport,
+}) => {
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [seenIds, setSeenIds] = useState<string[]>(() => readSeenAnnouncementIds());
   const [isCenterOpen, setIsCenterOpen] = useState(false);
   const [isPricingOpen, setIsPricingOpen] = useState(false);
+  const [localSupportOpen, setLocalSupportOpen] = useState(false);
+  const isSupportOpen = supportOpen ?? localSupportOpen;
+  const openSupport = onOpenSupport ?? (() => setLocalSupportOpen(true));
+  const closeSupport = onCloseSupport ?? (() => setLocalSupportOpen(false));
   const [isPopupOpen, setIsPopupOpen] = useState(false);
   const [selectedAnnouncement, setSelectedAnnouncement] = useState<Announcement | null>(null);
   const [accountSummary, setAccountSummary] = useState<{
@@ -144,6 +159,15 @@ const AnnouncementPopup: React.FC<AnnouncementPopupProps> = ({ onOpenSettings, o
     return () => document.removeEventListener('mousedown', onMouseDown);
   }, [isCenterOpen]);
 
+  useEffect(() => {
+    if (!isSupportOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') closeSupport();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [isSupportOpen, closeSupport]);
+
   const markAnnouncementsRead = (ids: string[]) => {
     if (!ids.length) return;
     const next = Array.from(new Set([...seenIds, ...ids.map((id) => String(id))]));
@@ -177,7 +201,7 @@ const AnnouncementPopup: React.FC<AnnouncementPopupProps> = ({ onOpenSettings, o
 
   return (
     <>
-      <div className="fixed top-4 right-4 sm:top-5 sm:right-6 z-[72] flex items-center gap-2">
+      <div className="fixed top-4 right-4 sm:top-5 sm:right-6 z-[72] flex items-center gap-1 sm:gap-2">
         <button
           type="button"
           onClick={() => setIsCenterOpen((prev) => !prev)}
@@ -199,6 +223,27 @@ const AnnouncementPopup: React.FC<AnnouncementPopupProps> = ({ onOpenSettings, o
           title="查看价格表"
         >
           <ReceiptText size={16} />
+        </button>
+        <a
+          href={PURCHASE_URL}
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-label="购买额度"
+          title="购买额度"
+          className="hidden h-10 shrink-0 items-center justify-center gap-1.5 rounded-xl border border-orange-400/30 bg-[#171b24]/92 px-2 text-[11px] font-semibold text-orange-200 shadow-[0_10px_30px_rgba(0,0,0,0.35)] backdrop-blur-xl transition-colors hover:border-orange-300/50 hover:bg-[#242018] hover:text-orange-100 sm:inline-flex md:px-3 md:text-xs"
+        >
+          <ShoppingCart size={15} aria-hidden="true" />
+          <span>购买额度</span>
+        </a>
+        <button
+          type="button"
+          onClick={openSupport}
+          aria-label="联系客服"
+          title="联系客服"
+          className="hidden h-10 shrink-0 items-center justify-center gap-1.5 rounded-xl border border-emerald-400/25 bg-[#171b24]/92 px-2 text-[11px] font-semibold text-emerald-200 shadow-[0_10px_30px_rgba(0,0,0,0.35)] backdrop-blur-xl transition-colors hover:border-emerald-300/45 hover:bg-[#17231f] hover:text-emerald-100 sm:inline-flex md:px-3 md:text-xs"
+        >
+          <Headset size={15} aria-hidden="true" />
+          <span>联系客服</span>
         </button>
         <button
           type="button"
@@ -228,6 +273,45 @@ const AnnouncementPopup: React.FC<AnnouncementPopupProps> = ({ onOpenSettings, o
       </div>
 
       <PricingReferencePanel isOpen={isPricingOpen} onClose={() => setIsPricingOpen(false)} />
+
+      {isSupportOpen && (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) closeSupport();
+          }}
+        >
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="canvas-support-title"
+            className="relative w-full max-w-sm border border-white/12 bg-[#11171a] p-5 text-center text-white shadow-2xl"
+          >
+            <button
+              type="button"
+              onClick={closeSupport}
+              aria-label="关闭客服窗口"
+              className="absolute right-3 top-3 inline-flex h-9 w-9 items-center justify-center rounded-lg text-gray-400 transition-colors hover:bg-white/10 hover:text-white"
+            >
+              <X size={18} />
+            </button>
+            <h2 id="canvas-support-title" className="pr-8 text-left text-base font-semibold">联系客服</h2>
+            <p className="mt-2 text-sm text-gray-400">微信扫码联系人工客服</p>
+            <img
+              src={wechatQR}
+              alt="微信客服二维码"
+              className="mx-auto mt-4 h-56 w-56 max-w-full rounded-lg bg-white object-contain p-2"
+            />
+            <button
+              type="button"
+              onClick={closeSupport}
+              className="mt-4 h-10 w-full rounded-lg border border-white/12 bg-white/[0.04] text-sm text-gray-200 transition-colors hover:bg-white/[0.08]"
+            >
+              关闭
+            </button>
+          </section>
+        </div>
+      )}
 
       {isCenterOpen && (
         <div ref={centerRef} className="fixed top-16 right-4 sm:top-[72px] sm:right-6 z-[72] w-[360px] max-w-[calc(100vw-1.5rem)]">
