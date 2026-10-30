@@ -14,10 +14,10 @@ describe('classic home quick actions', () => {
     const supportButton = toolbar?.querySelector('button[onclick="openSupportModal()"]');
 
     expect(purchaseLink).not.toBeNull();
-    expect(purchaseLink?.textContent).toContain('购买额度');
+    expect(purchaseLink?.textContent).toContain('充值');
     expect(purchaseLink?.getAttribute('target')).toBe('_blank');
     expect(supportButton).not.toBeNull();
-    expect(supportButton?.textContent).toContain('联系客服');
+    expect(supportButton?.textContent).toContain('客服');
   });
 
   it('labels the upscale mode as 8K超清 and shows the shared badge', () => {

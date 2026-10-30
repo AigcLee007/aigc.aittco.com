@@ -102,20 +102,20 @@ const MobileView: React.FC<MobileViewProps> = ({
             href="https://item.taobao.com/item.htm?id=1058856152173"
             target="_blank"
             rel="noopener noreferrer"
-            aria-label="购买额度"
+            aria-label="充值"
             className="inline-flex h-9 items-center justify-center gap-2 rounded-lg border border-orange-400/30 bg-orange-500/10 text-xs font-semibold text-orange-200"
           >
             <ShoppingCart size={15} aria-hidden="true" />
-            购买额度
+            充值
           </a>
           <button
             type="button"
             onClick={onOpenSupport}
-            aria-label="联系客服"
+            aria-label="客服"
             className="inline-flex h-9 items-center justify-center gap-2 rounded-lg border border-emerald-400/25 bg-emerald-500/10 text-xs font-semibold text-emerald-200"
           >
             <Headset size={15} aria-hidden="true" />
-            联系客服
+            客服
           </button>
         </div>
       </div>

@@ -649,7 +649,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
                       className="flex-1 bg-linear-to-r from-orange-500/20 to-red-500/20 hover:from-orange-500/30 hover:to-red-500/30 border border-orange-500/30 text-orange-200 hover:text-orange-100 text-sm py-2.5 rounded-xl flex items-center justify-center gap-2 transition-all active:scale-95 no-underline"
                     >
                       <ShoppingCart size={16} />
-                      购买额度
+                      充值
                     </a>
                   </div>
                 </>

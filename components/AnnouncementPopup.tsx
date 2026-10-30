@@ -228,22 +228,22 @@ const AnnouncementPopup: React.FC<AnnouncementPopupProps> = ({
           href={PURCHASE_URL}
           target="_blank"
           rel="noopener noreferrer"
-          aria-label="购买额度"
-          title="购买额度"
+          aria-label="充值"
+          title="充值"
           className="hidden h-10 shrink-0 items-center justify-center gap-1.5 rounded-xl border border-orange-400/30 bg-[#171b24]/92 px-2 text-[11px] font-semibold text-orange-200 shadow-[0_10px_30px_rgba(0,0,0,0.35)] backdrop-blur-xl transition-colors hover:border-orange-300/50 hover:bg-[#242018] hover:text-orange-100 sm:inline-flex md:px-3 md:text-xs"
         >
           <ShoppingCart size={15} aria-hidden="true" />
-          <span>购买额度</span>
+          <span>充值</span>
         </a>
         <button
           type="button"
           onClick={openSupport}
-          aria-label="联系客服"
-          title="联系客服"
+          aria-label="客服"
+          title="客服"
           className="hidden h-10 shrink-0 items-center justify-center gap-1.5 rounded-xl border border-emerald-400/25 bg-[#171b24]/92 px-2 text-[11px] font-semibold text-emerald-200 shadow-[0_10px_30px_rgba(0,0,0,0.35)] backdrop-blur-xl transition-colors hover:border-emerald-300/45 hover:bg-[#17231f] hover:text-emerald-100 sm:inline-flex md:px-3 md:text-xs"
         >
           <Headset size={15} aria-hidden="true" />
-          <span>联系客服</span>
+          <span>客服</span>
         </button>
         <button
           type="button"

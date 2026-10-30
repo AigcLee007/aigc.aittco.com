@@ -73,11 +73,11 @@ describe('announcement popup', () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
 
-    const purchaseLink = screen.getByRole('link', { name: '购买额度' });
+    const purchaseLink = screen.getByRole('link', { name: '充值' });
     expect(purchaseLink.getAttribute('href')).toBe('https://item.taobao.com/item.htm?id=1058856152173');
     expect(purchaseLink.getAttribute('target')).toBe('_blank');
 
-    fireEvent.click(screen.getByRole('button', { name: '联系客服' }));
+    fireEvent.click(screen.getByRole('button', { name: '客服' }));
     const supportDialog = await screen.findByRole('dialog', { name: '联系客服' });
     expect(supportDialog.querySelector('img')?.getAttribute('alt')).toBe('微信客服二维码');
     fireEvent.click(screen.getByRole('button', { name: '关闭客服窗口' }));

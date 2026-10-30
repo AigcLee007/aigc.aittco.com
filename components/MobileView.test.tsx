@@ -27,10 +27,10 @@ describe('canvas mobile home actions', () => {
       />,
     );
 
-    expect(screen.getByRole('link', { name: '购买额度' }).getAttribute('href')).toBe(
+    expect(screen.getByRole('link', { name: '充值' }).getAttribute('href')).toBe(
       'https://item.taobao.com/item.htm?id=1058856152173',
     );
-    fireEvent.click(screen.getByRole('button', { name: '联系客服' }));
+    fireEvent.click(screen.getByRole('button', { name: '客服' }));
     expect(onOpenSupport).toHaveBeenCalledTimes(1);
   });
 });
