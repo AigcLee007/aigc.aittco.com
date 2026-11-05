@@ -28,7 +28,7 @@ const GPT_IMAGE_DEFAULTS = {
   outputCompression: null,
   moderation: "auto",
 };
-const GPT_IMAGE_QUALITY_VALUES = ["auto", "low", "medium", "high", "xhigh", "max"];
+const GPT_IMAGE_QUALITY_VALUES = ["auto", "low", "medium", "high", "xhigh", "max", "0.25", "0.5", "1", "2"];
 const NOTICE_READ_TS_KEY = "nb_notice_last_read_ts";
 const NOTICE_POPUP_DISMISSED_KEY = "nb_notice_popup_dismissed_id";
 const CREATE_MODE_STORAGE_KEY = "preferred-create-ui";
@@ -1432,8 +1432,12 @@ function isClassicGptImageModel(modelId = null) {
   );
 }
 
+function isClassicMidjourneyModel(modelId = null) {
+  return /^midjourney(?:-|\s)/i.test(getClassicSelectedModelId(modelId || imageModel));
+}
+
 function getCurrentRefImageLimit(modelId = imageModel) {
-  return isClassicGptImageModel(modelId) ? GPT_MAX_REF_IMAGES : DEFAULT_MAX_REF_IMAGES;
+  return isClassicMidjourneyModel(modelId) ? 1 : isClassicGptImageModel(modelId) ? GPT_MAX_REF_IMAGES : DEFAULT_MAX_REF_IMAGES;
 }
 
 function readClassicGptOutputCompression() {
@@ -1449,14 +1453,15 @@ function readClassicGptOutputCompression() {
 }
 
 function getClassicSupportedGptQualities() {
-  if (!isClassicGptImageModel()) return GPT_IMAGE_QUALITY_VALUES;
+  if (isClassicMidjourneyModel()) return ['0.25', '0.5', '1', '2'];
+  if (!isClassicGptImageModel()) return GPT_IMAGE_QUALITY_VALUES.slice(0, 6);
   const route = getClassicSelectedRoute();
   const configured = Array.isArray(route?.supportedQualities)
     ? route.supportedQualities
         .map((value) => String(value || "").trim().toLowerCase())
         .filter((value) => GPT_IMAGE_QUALITY_VALUES.includes(value))
     : [];
-  return configured.length ? Array.from(new Set(configured)) : GPT_IMAGE_QUALITY_VALUES;
+  return configured.length ? Array.from(new Set(configured)) : GPT_IMAGE_QUALITY_VALUES.slice(0, 6);
 }
 
 function getClassicGptSettings() {
@@ -1469,7 +1474,8 @@ function getClassicGptSettings() {
       quality: supportedQualities.includes(quality)
         ? quality
         : supportedQualities.includes('auto') ? 'auto'
-        : supportedQualities.includes('medium') ? 'medium' : supportedQualities[0],
+        : supportedQualities.includes('medium') ? 'medium'
+        : supportedQualities.includes('1') ? '1' : supportedQualities[0],
       outputFormat: GPT_IMAGE_DEFAULTS.outputFormat,
       outputCompression: null,
       moderation: GPT_IMAGE_DEFAULTS.moderation,
@@ -1544,7 +1550,7 @@ function enforceCurrentRefImageLimit() {
 function updateClassicGptSettingsUi() {
   // Quality is a GPT-only fourth cell in the main parameter row.
   const qualityModule = document.getElementById("gptImageSettingsRow");
-  const isVisible = isClassicGptImageModel();
+  const isVisible = isClassicGptImageModel() || isClassicMidjourneyModel();
   if (qualityModule) {
     qualityModule.style.display = isVisible ? "" : "none";
     qualityModule.closest(".params-row")?.classList.toggle("has-quality", isVisible);
@@ -2350,13 +2356,14 @@ function updateCurrentPriceCard() {
   const pricing = getClassicCurrentPricing();
   const modelLabel = pricing.model?.label || "当前模型";
   const routeLabel = getClassicLineLabel(pricing.route?.line || "", pricing.route?.label || "");
-  meta.textContent = `${modelLabel} / ${routeLabel} / ${formatClassicSizeLabel(pricing.size)} / ${pricing.quantity} 张`;
+  const midjourney = isClassicMidjourneyModel(pricing.model?.id);
+  meta.textContent = `${modelLabel} / ${routeLabel} / ${formatClassicSizeLabel(pricing.size)} / ${midjourney ? `${pricing.quantity} 组（${pricing.quantity * 4} 张），每张 ${formatClassicPoint(pricing.unitCost / 4)} 金币` : `${pricing.quantity} 张`}`;
   total.textContent = `${formatClassicPoint(pricing.totalCost)} 🪙`;
 
   const modalMeta = document.getElementById("priceCurrentMeta");
   const modalTotal = document.getElementById("priceCurrentTotal");
   if (modalMeta) {
-    modalMeta.textContent = `${modelLabel} / ${routeLabel} / ${formatClassicSizeLabel(pricing.size)} / 单张 ${formatClassicPoint(pricing.unitCost)}`;
+    modalMeta.textContent = `${modelLabel} / ${routeLabel} / ${formatClassicSizeLabel(pricing.size)} / ${midjourney ? `每组四张 ${formatClassicPoint(pricing.unitCost)}，每张 ${formatClassicPoint(pricing.unitCost / 4)}` : `单张 ${formatClassicPoint(pricing.unitCost)}`}`;
   }
   if (modalTotal) {
     modalTotal.textContent = `${formatClassicPoint(pricing.totalCost)} 🪙`;

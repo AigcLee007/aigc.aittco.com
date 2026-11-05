@@ -1290,6 +1290,13 @@
       const ratio = String(option.getAttribute("data-value") || "").trim();
       option.style.display = extraRatios.has(ratio) ? "flex" : "none";
     });
+    const midjourney = /^midjourney-/i.test(String(model?.id || ''));
+    const mjRatios = ['1:1', '3:2', '2:3', '4:3', '3:4', '5:4', '4:5', '16:9', '9:16', '21:9'];
+    pill.querySelectorAll('.dropdown-item').forEach(option => {
+      const ratio = String(option.getAttribute('data-value') || '');
+      if (midjourney) option.style.display = mjRatios.includes(ratio) ? 'flex' : 'none';
+      else if (!option.classList.contains('gemini-only-ratio')) option.style.display = '';
+    });
 
     const currentRatio = String(pill.getAttribute("data-selected-value") || "16:9").trim();
     const currentOption = pill.querySelector(`.dropdown-item[data-value="${currentRatio}"]`);
@@ -1538,6 +1545,17 @@
     renderModelMenu();
     renderLineMenu();
     renderSizeMenu();
+    const isMidjourney = /^midjourney-/i.test(String(getCurrentModel()?.id || ''));
+    const qtyPill = document.getElementById('qtyPill');
+    if (qtyPill) {
+      qtyPill.querySelectorAll('.dropdown-item').forEach(item => {
+        const count = Number(item.getAttribute('data-value') || 1);
+        item.textContent = isMidjourney ? `${count} 组（${count * 4} 张）` : `${count} 张`;
+      });
+      const quantityLabel = qtyPill.querySelector('.trigger-label');
+      const count = Number(qtyPill.getAttribute('data-selected-value') || 1);
+      if (quantityLabel) quantityLabel.textContent = isMidjourney ? `${count} 组（${count * 4} 张）` : `${count} 张`;
+    }
     updateRatioAvailabilityForModel();
     updateBrandHeader();
     updateLegacyAdminVisibility();
@@ -3135,8 +3153,8 @@
     activeRunToken += 1;
     const runToken = activeRunToken;
     currentRunSize = size;
-    totalBatchSize = batchSize;
-    activeTasksCount = batchSize;
+    totalBatchSize = batchSize * (/^midjourney-/i.test(String(selectedModel.id)) ? 4 : 1);
+    activeTasksCount = totalBatchSize;
     completedTasksCount = 0;
     loadedImageCount = 0;
     if (progressInterval) clearInterval(progressInterval);
@@ -3157,7 +3175,8 @@
     const normalizedRequestSize = String(size || "1K").trim().toLowerCase();
     const promptWithoutAr = stripAspectRatioSuffix(promptBaseText);
     const gptImage2Model = isGptImage2Model(selectedModel, requestModel);
-    const currentPrompt = gptImage2Model ? promptWithoutAr : `${promptWithoutAr} --ar ${ratio}`.trim();
+    const midjourneyModel = /^midjourney-/i.test(String(selectedModel.id));
+    const currentPrompt = gptImage2Model || midjourneyModel ? promptWithoutAr : `${promptWithoutAr} --ar ${ratio}`.trim();
 
     if (submitReferenceIndices.length > 0) {
       submitReferenceIndices = submitReferenceIndices.slice();
@@ -3196,11 +3215,36 @@
         size,
         ratio,
         index: taskIndex,
-        quantity: batchSize,
+        quantity: totalBatchSize,
         referenceCount: normalizedRefImages.length,
         status: "submitting",
       });
     };
+
+    if (midjourneyModel) {
+      if (normalizedRefImages.length > 1) {
+        activeTasksCount = 0; releaseSubmitButton();
+        showSoftToast('Midjourney 最多支持一张参考图'); return;
+      }
+      const markSubmitSettled = createSubmitSettledTracker(batchSize);
+      for (let group = 0; group < batchSize; group++) {
+        const liveTaskIds = Array.from({ length: 4 }, (_, slot) => createLiveTask(group * 4 + slot + 1)).filter(Boolean);
+        const quality = getClassicGptSettings().quality;
+        submitSingleTask({
+          modelId: selectedModel.id, routeId: selectedRoute.id, model: requestModel,
+          uiMode: 'classic', prompt: currentPrompt, size: normalizedRequestSize,
+          image_size: normalizedRequestSize, aspect_ratio: ratio, n: 1,
+          quality: ['0.25', '0.5', '1', '2'].includes(quality) ? quality : '1',
+          clientLiveTaskIds: liveTaskIds,
+          ...(normalizedRefImages.length ? { image: normalizedRefImages[0] } : {}),
+        }, key, size, group + 1, {
+          route: selectedRoute, modelId: selectedModel.id, model: requestModel,
+          runToken, trackUi: true, expectedCount: 4, liveTaskId: liveTaskIds[0], liveTaskIds,
+          promptSnapshot: promptBaseText, modelLabel, routeLabel, onSubmitSettled: markSubmitSettled,
+        });
+      }
+      return;
+    }
 
     if (isGeminiNativeSyncRoute(selectedRoute)) {
       const markSubmitSettled = createSubmitSettledTracker(batchSize);

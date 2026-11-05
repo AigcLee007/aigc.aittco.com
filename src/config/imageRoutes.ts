@@ -5,7 +5,7 @@ import { roundNonNegativePoint } from '../utils/pointFormat';
 export type ImageRouteTransport = 'openai-image' | 'gemini-native';
 export type ImageRouteMode = 'async' | 'sync';
 export type ImageRouteSizeKey = '1k' | '2k' | '4k';
-export type ImageRouteQuality = 'auto' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+export type ImageRouteQuality = 'auto' | 'low' | 'medium' | 'high' | 'xhigh' | 'max' | '0.25' | '0.5' | '1' | '2';
 
 export const DEFAULT_IMAGE_ROUTE_QUALITIES: ImageRouteQuality[] = [
   'auto',
@@ -75,7 +75,7 @@ const API_BASE_URL = '/api';
 const cleanUrl = (url: string) => url.replace(/\/$/, '');
 
 const isImageRouteQuality = (value: unknown): value is ImageRouteQuality =>
-  DEFAULT_IMAGE_ROUTE_QUALITIES.includes(value as ImageRouteQuality);
+  [...DEFAULT_IMAGE_ROUTE_QUALITIES, '0.25', '0.5', '1', '2'].includes(value as ImageRouteQuality);
 
 const normalizeSupportedQualities = (value: unknown): ImageRouteQuality[] => {
   if (!Array.isArray(value)) return [...DEFAULT_IMAGE_ROUTE_QUALITIES];

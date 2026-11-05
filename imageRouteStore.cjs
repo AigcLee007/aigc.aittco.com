@@ -18,7 +18,7 @@ const {
 const VALID_TRANSPORTS = new Set(["openai-image", "gemini-native"]);
 const VALID_MODES = new Set(["async", "sync"]);
 const DEFAULT_SUPPORTED_QUALITIES = ["auto", "low", "medium", "high", "xhigh", "max"];
-const VALID_SUPPORTED_QUALITIES = new Set(DEFAULT_SUPPORTED_QUALITIES);
+const VALID_SUPPORTED_QUALITIES = new Set([...DEFAULT_SUPPORTED_QUALITIES, '0.25', '0.5', '1', '2']);
 
 const trimToString = (value = "") => String(value ?? "").trim();
 const trimToNull = (value = "") => {

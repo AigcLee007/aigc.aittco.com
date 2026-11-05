@@ -33,6 +33,8 @@ import {
   getImageModelById,
   getImageModelEffectiveRequestSize,
   isGptImageCompatibleModel,
+  isMidjourneyImageModel,
+  getImageModelMaxReferenceImages,
 } from '../src/config/imageModels';
 import { useImageRouteCatalog } from '../src/hooks/useImageRouteCatalog';
 import { useImageModelCatalog } from '../src/hooks/useImageModelCatalog';
@@ -487,7 +489,7 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
         : (videoModel === 'omni_flash-10s' && videoGenerationMode === 'first_last'
           ? 2
           : getVideoModelMaxReferenceImages(selectedVideoModelConfig.id)))
-      : (isGptImageCompatibleModel(selectedImageModelConfig.id) ? 16 : 10);
+      : getImageModelMaxReferenceImages(selectedImageModelConfig.id);
     
     // DEBUG ALERT
     // alert(`[Debug] Drop: Max=${max}, Current=${referenceImages.length}, IsVideo=${isVideoMode}, Model=${videoModel}`);
@@ -558,7 +560,7 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
           : (videoModel === 'omni_flash-10s' && videoGenerationMode === 'first_last'
             ? 2
             : getVideoModelMaxReferenceImages(selectedVideoModelConfig.id)))
-        : (isGptImageCompatibleModel(selectedImageModelConfig.id) ? 16 : 10);
+        : getImageModelMaxReferenceImages(selectedImageModelConfig.id);
       const remainingSlots = max - referenceImages.length;
 
       if (remainingSlots <= 0) {
@@ -830,12 +832,17 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
 
     const isGptImage2RequestModel = (model: string) =>
       isGptImageCompatibleModel(model);
+    const isMidjourneyModel = isMidjourneyImageModel(selectedImageModelConfig.id);
+    if (isMidjourneyModel && effectiveReferenceImages.length > 1) {
+      setError('Midjourney 最多支持一张参考图');
+      return;
+    }
     const isGptImage2Model =
       isGptImageCompatibleModel(selectedImageModelConfig.id) ||
       isGptImage2RequestModel(modelName);
     const promptWithoutAr = parsedPrompt.replace(/\s*--ar\s*\d+\s*[:：]\s*\d+/gi, '').trim();
     const promptWithRatio = `${promptWithoutAr} --ar ${effectiveRatio}`;
-    const currentPrompt = isGptImage2Model ? promptWithoutAr : promptWithRatio;
+    const currentPrompt = isGptImage2Model || isMidjourneyModel ? promptWithoutAr : promptWithRatio;
     // Decision Logic:
     // User explicitly requested NO "Regenerate" / "Edit Mode".
     // Panel always functions as "Create New". References must be added manually.
@@ -948,8 +955,26 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
       }
     } else {
 
+      if (isMidjourneyModel) {
+        const reference = effectiveReferenceImages[0] ? await referenceToDataUrl(effectiveReferenceImages[0]) : null;
+        if (effectiveReferenceImages.length && !reference) { setError('参考图读取失败，请重试'); return; }
+        for (let group = 0; group < quantity; group++) {
+          const ids = onInitGenerations(4, currentPrompt, effectiveRatio);
+          void generateImageApi(apiKey, {
+            model: modelName, modelId: selectedImageModelConfig.id, routeId: selectedImageRoute.id,
+            prompt: currentPrompt, size: imageSize, image_size: imageSize, aspect_ratio: effectiveRatio,
+            quality: ['0.25', '0.5', '1', '2'].includes(gptImageQuality) ? gptImageQuality : '1',
+            n: 1, clientLiveTaskIds: ids, ...(reference ? { image: reference } : {}),
+          }).then((result: any) => {
+            if (result.taskId) ids.forEach(id => onUpdateGeneration(id, null, undefined, result.taskId));
+            else {
+              const images = result.images || result.data?.map((item: any) => item.url || normalizeImageResultValue(item.b64_json)) || [];
+              ids.forEach((id, index) => onUpdateGeneration(id, images[index] || null, images[index] ? undefined : GENERATION_FALLBACK_MESSAGE));
+            }
+          }).catch(error => ids.forEach(id => onUpdateGeneration(id, null, toDisplayGenerationError(error))));
+        }
       // Gemini native sync-only path.
-      if (shouldUseGeminiNativeSync) {
+      } else if (shouldUseGeminiNativeSync) {
         const mapSize = (s: string) => {
           const normalized = String(s || '1k').trim().toUpperCase();
           return /^\d+K$/.test(normalized) ? normalized : '1K';
@@ -1547,7 +1572,7 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
   ];
   const maxReferenceImages = isVideoMode
     ? ((videoModel === 'omni_flash-10s' && videoGenerationMode === 'first_last') ? 2 : getVideoModelMaxReferenceImages(selectedVideoModelConfig.id))
-    : (isGptImageCompatibleModel(selectedImageModelConfig.id) ? 16 : 10);
+    : getImageModelMaxReferenceImages(selectedImageModelConfig.id);
   const maxReferenceVideos = isVideoMode
     ? getVideoModelMaxReferenceVideos(selectedVideoModelConfig.id)
     : 0;

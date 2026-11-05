@@ -113,7 +113,7 @@ const routes = rows.map((row, index) => {
 // This workbook describes the original 23 routes. Keep later model additions
 // from the shared catalog when rebuilding the production configuration.
 routes.push(...require('../config/imageRoutes.json').routes.filter(
-  (route) => route.modelFamily === 'gpt-image-2.6-sunburst',
+  (route) => ['gpt-image-2.6-sunburst', 'midjourney-v8.2-tehui'].includes(route.modelFamily),
 ));
 
 const familyNames = [...new Set(routes.map((route) => route.modelFamily))];

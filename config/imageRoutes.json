@@ -3,6 +3,25 @@
   "defaultNanoBananaLine": "",
   "routes": [
     {
+      "id": "midjourney-v8.2-osodm-tehui",
+      "label": "特惠线路",
+      "description": "每组四张，每组 8 金币（每张 2 金币）",
+      "modelFamily": "midjourney-v8.2-tehui",
+      "line": "特惠线路",
+      "transport": "openai-image",
+      "mode": "async",
+      "baseUrl": "https://api.osodm.com",
+      "generatePath": "/v1/images/midjourney/generations",
+      "taskPath": "/v1/images/midjourney/tasks/{taskId}",
+      "upstreamModel": "Midjourney v8.2-特惠",
+      "apiKeyEnv": "Midjourney-v8.2-osodm-tehui",
+      "pointCost": 8,
+      "supportedQualities": ["0.25", "0.5", "1", "2"],
+      "resultKind": "url",
+      "sortOrder": 0,
+      "isDefaultRoute": true
+    },
+    {
       "id": "gpt-image-2.6-sunburst-native",
       "label": "原生线路",
       "description": "",

@@ -14,6 +14,8 @@ import {
   getImageModelSizeOptions,
   getNormalizedImageSizeForModel,
   isGptImageCompatibleModel,
+  isMidjourneyImageModel,
+  MIDJOURNEY_ASPECT_RATIOS,
   shouldShowImageSizeSelector,
 } from '../src/config/imageModels';
 import {
@@ -114,6 +116,7 @@ export const ImageFormConfig: React.FC<ImageFormConfigProps> = ({
   const showLineSelector = availableRoutes.length > 1;
   const showSizeSelector = shouldShowImageSizeSelector(currentModel.id);
   const isGptImage2 = isGptImageCompatibleModel(currentModel.id);
+  const isMidjourney = isMidjourneyImageModel(currentModel.id);
   const selectedRoute = getSelectedImageRoute(currentModel.id, imageLine);
   const sizeOptions = getImageRouteSizeOptions(selectedRoute, baseSizeOptions);
   const effectiveSize = sizeOptions.includes(normalizedSize)
@@ -133,6 +136,7 @@ export const ImageFormConfig: React.FC<ImageFormConfigProps> = ({
       high: '高',
       xhigh: '超高',
       max: '最高',
+      '0.25': '0.25', '0.5': '0.5', '1': '1（标准）', '2': '2',
     };
     return supportedQualities.map((value) => ({ value, label: labels[value] }));
   }, [supportedQualities]);
@@ -172,7 +176,8 @@ export const ImageFormConfig: React.FC<ImageFormConfigProps> = ({
   useEffect(() => {
     if (!supportedQualities.includes(gptImageQuality)) {
       setGptImageQuality(supportedQualities.includes('auto') ? 'auto'
-        : supportedQualities.includes('medium') ? 'medium' : supportedQualities[0]);
+        : supportedQualities.includes('medium') ? 'medium'
+        : supportedQualities.includes('1') ? '1' : supportedQualities[0]);
     }
   }, [gptImageQuality, setGptImageQuality, supportedQualities]);
 
@@ -195,6 +200,10 @@ export const ImageFormConfig: React.FC<ImageFormConfigProps> = ({
     setImageLine,
   ]);
 
+  useEffect(() => {
+    if (isMidjourney && !MIDJOURNEY_ASPECT_RATIOS.includes(aspectRatio)) setAspectRatio('1:1');
+  }, [isMidjourney, aspectRatio, setAspectRatio]);
+
   const ratioOptions = useMemo(() => {
     const extraRatios = getImageModelExtraAspectRatios(currentModel.id).map((value) => ({
       label: value,
@@ -210,9 +219,10 @@ export const ImageFormConfig: React.FC<ImageFormConfigProps> = ({
 
     return merged.filter(
       (option, index) =>
-        merged.findIndex((item) => item.value === option.value) === index,
+        merged.findIndex((item) => item.value === option.value) === index &&
+        (!isMidjourney || MIDJOURNEY_ASPECT_RATIOS.includes(option.value)),
     );
-  }, [currentModel.id, currentModel.supportsCustomRatio]);
+  }, [currentModel.id, currentModel.supportsCustomRatio, isMidjourney]);
 
   const gridClass =
     currentModel.panelLayout === 'nano-banana'
@@ -323,7 +333,7 @@ export const ImageFormConfig: React.FC<ImageFormConfigProps> = ({
           </div>
         )}
 
-        {isGptImage2 && (
+        {(isGptImage2 || isMidjourney) && (
           <div>
             <label className="mb-1 block text-[10px] text-gray-500">质量</label>
             <DropUpSelect
@@ -337,7 +347,7 @@ export const ImageFormConfig: React.FC<ImageFormConfigProps> = ({
         )}
 
         <div>
-          <label className="mb-1 block text-[10px] text-gray-500">数量</label>
+          <label className="mb-1 block text-[10px] text-gray-500">{isMidjourney ? '组数' : '数量'}</label>
           <DropUpSelect
             value={String(quantity)}
             onChange={(value) => setQuantity(parseInt(value, 10))}
@@ -370,7 +380,7 @@ export const ImageFormConfig: React.FC<ImageFormConfigProps> = ({
           <div className="min-w-0">
             <div className="text-[10px] text-gray-400">当前配置消耗</div>
             <div className="mt-0.5 truncate text-[11px] text-gray-500">
-              {currentModel.label} / {selectedRoute.label} / {effectiveSize.toUpperCase()} / {quantity} 张
+              {currentModel.label} / {selectedRoute.label} / {effectiveSize.toUpperCase()} / {isMidjourney ? `${quantity} 组（${quantity * 4} 张）` : `${quantity} 张`}
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-1.5 rounded-lg border border-yellow-400/20 bg-black/20 px-2.5 py-1.5 text-sm font-semibold text-yellow-300">
@@ -379,7 +389,7 @@ export const ImageFormConfig: React.FC<ImageFormConfigProps> = ({
           </div>
         </div>
         <div className="mt-2 text-[10px] leading-4 text-gray-500">
-          单张 {currentUnitCost.toFixed(1)} 点，最终按数量自动合计。
+          {isMidjourney ? `每张 ${(currentUnitCost / 4).toFixed(0)} 金币，每组 4 张，共 ${currentUnitCost.toFixed(0)} 金币。` : `单张 ${currentUnitCost.toFixed(1)} 点，最终按数量自动合计。`}
         </div>
       </div>
     </>

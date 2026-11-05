@@ -40,6 +40,7 @@ const {
 } = require("./imageRouteCompatibility.cjs");
 const { getSeedreamSizeError } = require("./seedreamImagePolicy.cjs");
 const { isGptImageCompatibleModel } = require("./imageModelCompatibility.cjs");
+const { isMidjourneyImageRoute, normalizeMidjourneyImageRequest, normalizeMidjourneyImageTask } = require("./midjourneyImagePolicy.cjs");
 const { parseGeminiPromptOptions, parseGeminiReversePrompt } = require("./promptToolResponse.cjs");
 
 const localEnvPath = path.join(__dirname, ".env");
@@ -4035,6 +4036,8 @@ const legacyImageGenerateHandler = async (req, res) => {
       }
     }
 
+    if (isMidjourneyImageRoute(route)) finalRequestBody = normalizeMidjourneyImageRequest(requestBody);
+
     if (shouldUseBilling) {
       billingCharge = await reservePoints(billingAccount.accountId, pointCost, {
         action: "generate",
@@ -4054,7 +4057,7 @@ const legacyImageGenerateHandler = async (req, res) => {
       modelId: requestedImageModel?.id || null,
       modelName: requestedImageModel?.label || requestBody.model,
       route,
-      quantity: requestBody.n,
+      quantity: isMidjourneyImageRoute(route) ? 4 : requestBody.n,
       aspectRatio: requestBody.aspect_ratio || null,
       outputSize: requestBody.size || requestBody.image_size || null,
       uiMode,
@@ -4445,6 +4448,8 @@ const legacyImageGenerateHandler = async (req, res) => {
       { retries: 1, delayMs: 700, label: `generate-${route.id}` },
     );
 
+    if (isMidjourneyImageRoute(route)) response.data = normalizeMidjourneyImageTask(response.data);
+
     if (isSyncLine) {
       const syncImmediateResultUrls = extractResultUrlsFromPayload(response.data);
       const syncUpstreamStatus = extractResultStatus(response.data);
@@ -4824,6 +4829,9 @@ const legacyImageEditHandler = async (req, res) => {
 
     if (!route || (!route.editPath && route.transport !== 'openai-image')) {
       return sendUserFacingGenerationError(res, 400, new Error("图片编辑线路不存在或已停用，请联系管理员"));
+    }
+    if (isMidjourneyImageRoute(route)) {
+      return sendUserFacingGenerationError(res, 400, new Error('Midjourney 参考图请使用生成接口，不支持局部编辑'));
     }
     if (requestedImageModel?.id === "seedream-5-pro") {
       const sizeError = getSeedreamSizeError(requestBody);
@@ -5659,6 +5667,7 @@ const pollImageTaskAndSettle = async ({
     responseData = response.data;
   }
 
+  if (isMidjourneyImageRoute(route)) responseData = normalizeMidjourneyImageTask(responseData);
   const taskStatus = extractResultStatus(responseData);
   if (isTaskSuccessStatus(taskStatus)) {
     const latestGenerationRecord =
@@ -6057,6 +6066,10 @@ const validateImageJobRequest = async (req, endpoint) => {
   });
   const route = requestedRoute;
   if (!route) throw Object.assign(new Error("图片线路不存在或已停用"), { status: 400 });
+  if (isMidjourneyImageRoute(route)) {
+    if (endpoint === '/api/edit') throw Object.assign(new Error('Midjourney 参考图请使用生成接口，不支持局部编辑'), { status: 400 });
+    normalizeMidjourneyImageRequest(body);
+  }
   if (endpoint === '/api/edit' && !route.editPath && route.transport !== 'openai-image') throw Object.assign(new Error('所选线路不支持图片编辑'), { status: 400 });
   if (endpoint === "/api/gemini/generate" && !isGeminiNativeRoute(route)) throw Object.assign(new Error("Gemini 图片线路不支持当前请求"), { status: 400 });
   if (isGeminiNativeRoute(route)) {
