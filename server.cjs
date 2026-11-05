@@ -41,6 +41,7 @@ const {
 const { getSeedreamSizeError } = require("./seedreamImagePolicy.cjs");
 const { isGptImageCompatibleModel } = require("./imageModelCompatibility.cjs");
 const { isMidjourneyImageRoute, normalizeMidjourneyImageRequest, normalizeMidjourneyImageTask } = require("./midjourneyImagePolicy.cjs");
+const { activateMidjourney } = require("./scripts/activate-midjourney-v82-tehui.cjs");
 const { parseGeminiPromptOptions, parseGeminiReversePrompt } = require("./promptToolResponse.cjs");
 
 const localEnvPath = path.join(__dirname, ".env");
@@ -7221,6 +7222,9 @@ app.get("/{*splat}", (req, res) => {
 if (require.main === module) {
   void operationsDashboard.start();
   recoverImageJobsInBackground();
+  void activateMidjourney({ apply: true })
+    .then(result => console.log(`[Catalog] Midjourney v8.2-特惠 sync: ${JSON.stringify(result)}`))
+    .catch(error => console.error(`[Catalog] Midjourney v8.2-特惠 sync failed: ${error.message}`));
   app.listen(PORT, () => {
     console.log(`Backend server running on http://localhost:${PORT}`);
     console.log(`   Upstream API: ${UPSTREAM_URL}`);
