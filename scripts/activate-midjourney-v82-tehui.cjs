@@ -8,7 +8,7 @@ const MODEL_ID = 'midjourney-v8.2-tehui';
 const model = models.models.find(item => item.id === MODEL_ID);
 const route = routes.routes.find(item => item.id === 'midjourney-v8.2-osodm-tehui');
 
-// Existing rows (including inactive rows) belong to administrators. Never overwrite them.
+// Preserve administrator settings; migrate only the original default display name.
 // The two creates are independently committed; a rerun resumes a partial import.
 const activateMidjourney = async ({ apply = false, store = { ...modelStore, ...routeStore } } = {}) => {
   const existingModel = await store.getImageModelById(model.id, { includeInactive: true });
@@ -20,6 +20,9 @@ const activateMidjourney = async ({ apply = false, store = { ...modelStore, ...r
   if (apply && !existingModel) {
     await store.createManagedImageModel(model);
     result.model = 'created';
+  } else if (apply && existingModel?.label === 'Midjourney v8.2-特惠') {
+    await store.updateManagedImageModel(model.id, { label: model.label });
+    result.model = 'renamed';
   }
   if (apply && !existingRoute) {
     await store.createManagedImageRoute(route);

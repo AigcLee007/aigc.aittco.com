@@ -1157,6 +1157,9 @@
     if (/^gpt(?:-|$)/i.test(String(model.id || '').trim())) {
       return `<span class="classic-model-brand"><img src="/openai.svg" alt="" aria-hidden="true" width="16" height="16" />${escapeHtmlText(model.label)}</span>`;
     }
+    if (/^midjourney(?:-|\s)/i.test(String(model.id || '').trim())) {
+      return `<span class="classic-model-brand"><img src="/midjourney.svg" alt="" aria-hidden="true" width="16" height="16" style="filter: invert(1)" />${escapeHtmlText(model.label)}</span>`;
+    }
     const icon = MODEL_ICONS[model.iconKind] || "";
     return escapeHtmlText(icon ? `${icon} ${model.label}` : model.label);
   };

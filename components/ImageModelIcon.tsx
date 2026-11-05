@@ -25,6 +25,11 @@ export const ImageModelIcon: React.FC<ImageModelIconProps> = ({
     return <img src="/openai.svg" alt="" aria-hidden="true" width={size} height={size} className="shrink-0 object-contain" />;
   }
 
+  if (/^midjourney(?:-|\s)/i.test(String(modelId || '').trim())) {
+    const size = isTitle ? 20 : 16;
+    return <img src="/midjourney.svg" alt="" aria-hidden="true" width={size} height={size} className="shrink-0 object-contain invert" />;
+  }
+
   switch (iconKind) {
     case 'banana-zap':
       return (

@@ -163,7 +163,7 @@
     },
     {
       "id": "midjourney-v8.2-tehui",
-      "label": "Midjourney v8.2-特惠",
+      "label": "Midjourney v8.2",
       "description": "每组四张，每张 2 金币，每组 8 金币；支持一张参考图",
       "modelFamily": "midjourney-v8.2-tehui",
       "routeFamily": "midjourney-v8.2-tehui",

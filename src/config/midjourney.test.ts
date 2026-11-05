@@ -5,7 +5,7 @@ import { getImageRoutesByModelFamily, getImageRoutePointCost, getImageRouteSuppo
 describe('Midjourney catalog', () => {
   it('registers the exact upstream model, numeric qualities and a single 8-point route', () => {
     const model = getImageModelById('midjourney-v8.2-tehui');
-    expect(model).toMatchObject({ id: 'midjourney-v8.2-tehui', label: 'Midjourney v8.2-特惠', requestModel: 'Midjourney v8.2-特惠', sizeOptions: ['1k', '2k'], supportsCustomRatio: false });
+    expect(model).toMatchObject({ id: 'midjourney-v8.2-tehui', label: 'Midjourney v8.2', requestModel: 'Midjourney v8.2-特惠', sizeOptions: ['1k', '2k'], supportsCustomRatio: false });
     const routes = getImageRoutesByModelFamily(model.routeFamily);
     expect(routes).toHaveLength(1);
     expect(routes[0]).toMatchObject({ baseUrl: 'https://api.osodm.com', generatePath: '/v1/images/midjourney/generations', taskPath: '/v1/images/midjourney/tasks/{taskId}', mode: 'async', apiKeyEnv: 'Midjourney-v8.2-osodm-tehui', pointCost: 8, resultKind: 'url' });
