@@ -3,12 +3,14 @@ import { Banana, Layers, Sparkles, Zap } from 'lucide-react';
 import type { ImageModelIconKind } from '../src/config/imageModels';
 
 interface ImageModelIconProps {
+  modelId?: string;
   iconKind?: ImageModelIconKind;
   line?: string;
   variant?: 'selector' | 'title';
 }
 
 export const ImageModelIcon: React.FC<ImageModelIconProps> = ({
+  modelId,
   iconKind = 'banana',
   line,
   variant = 'selector',
@@ -16,6 +18,12 @@ export const ImageModelIcon: React.FC<ImageModelIconProps> = ({
   const isTitle = variant === 'title';
   const mainSize = isTitle ? 20 : 12;
   const accentSize = isTitle ? 14 : 12;
+
+  // Production catalogs may still assign banana/sparkles to GPT models.
+  if (/^gpt(?:-|$)/i.test(String(modelId || '').trim())) {
+    const size = isTitle ? 20 : 16;
+    return <img src="/openai.svg" alt="" aria-hidden="true" width={size} height={size} className="shrink-0 object-contain" />;
+  }
 
   switch (iconKind) {
     case 'banana-zap':

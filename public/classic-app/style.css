@@ -1084,6 +1084,17 @@ body {
   text-overflow: ellipsis;
   margin-right: 8px;
 }
+.classic-model-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.classic-model-brand img {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  object-fit: contain;
+}
 .pill-trigger:hover {
   border-color: var(--banana);
   background: rgba(255, 214, 10, 0.08);

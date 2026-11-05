@@ -1503,6 +1503,7 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
 
   const getImageTitleIcon = () => (
       <ImageModelIcon
+      modelId={selectedImageModelConfig?.id}
       iconKind={selectedImageModelConfig?.iconKind}
       line={selectedImageRoute?.line}
       variant="title"

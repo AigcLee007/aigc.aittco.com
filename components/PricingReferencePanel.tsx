@@ -203,7 +203,7 @@ const PricingReferencePanel: React.FC<PricingReferencePanelProps> = ({
                     className="rounded-xl border border-yellow-400/25 bg-yellow-400/[0.08] px-3 py-2.5"
                   >
                     <div className="flex items-center gap-2">
-                      <ImageModelIcon iconKind={item.model.iconKind} variant="selector" />
+                      <ImageModelIcon modelId={item.model.id} iconKind={item.model.iconKind} variant="selector" />
                       <div className="min-w-0 flex-1 truncate text-xs font-semibold text-white">
                         {item.model.label}
                       </div>
@@ -240,7 +240,7 @@ const PricingReferencePanel: React.FC<PricingReferencePanelProps> = ({
                 >
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div className="flex min-w-0 items-center gap-2">
-                      <ImageModelIcon iconKind={model.iconKind} variant="selector" />
+                      <ImageModelIcon modelId={model.id} iconKind={model.iconKind} variant="selector" />
                       <div className="min-w-0">
                         <div className="truncate text-sm font-semibold text-white">{model.label}</div>
                         <div className="text-[11px] text-gray-400">

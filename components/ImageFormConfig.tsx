@@ -236,7 +236,7 @@ export const ImageFormConfig: React.FC<ImageFormConfigProps> = ({
           value: model.id,
           label: model.label,
           cost: displayCost,
-          icon: <ImageModelIcon iconKind={model.iconKind} variant="selector" />,
+          icon: <ImageModelIcon modelId={model.id} iconKind={model.iconKind} variant="selector" />,
         };
       }),
     [imageSize, restrictToDirectKeyCompatible, visibleImageModels],

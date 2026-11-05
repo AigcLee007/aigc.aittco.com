@@ -363,7 +363,7 @@ const ImageEditPanel: React.FC<ImageEditPanelProps> = ({
           value: model.id,
           label: model.label,
           cost: firstCapability?.pointCost ?? model.selectorCost,
-          icon: <ImageModelIcon iconKind={model.iconKind} variant="selector" />,
+          icon: <ImageModelIcon modelId={model.id} iconKind={model.iconKind} variant="selector" />,
         };
       }),
     [directKeyOnly, editableModels],

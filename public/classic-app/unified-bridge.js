@@ -1153,6 +1153,13 @@
       };
     });
   };
+  const getModelLabelMarkup = (model) => {
+    if (/^gpt(?:-|$)/i.test(String(model.id || '').trim())) {
+      return `<span class="classic-model-brand"><img src="/openai.svg" alt="" aria-hidden="true" width="16" height="16" />${escapeHtmlText(model.label)}</span>`;
+    }
+    const icon = MODEL_ICONS[model.iconKind] || "";
+    return escapeHtmlText(icon ? `${icon} ${model.label}` : model.label);
+  };
   const renderModelMenu = () => {
     const pill = document.getElementById("modelPill");
     if (!pill) return;
@@ -1185,11 +1192,10 @@
         const costLabel = formatCoinLabel(
           displayRoute ? getRoutePointCost(displayRoute, selectedSize) : model.selectorCost,
         );
-        const icon = MODEL_ICONS[model.iconKind] || "";
         const activeClass = selected?.id === model.id ? " active" : "";
         return `
           <div class="dropdown-item${activeClass}" data-value="${escapeHtmlText(model.id)}" onclick="selectPill('modelPill', this)">
-            <span>${escapeHtmlText(icon ? `${icon} ${model.label}` : model.label)}</span>
+            <span>${getModelLabelMarkup(model)}</span>
             ${costLabel ? `<span class="item-cost">${escapeHtmlText(costLabel)}</span>` : ""}
           </div>
         `;
@@ -1199,9 +1205,8 @@
     pill.setAttribute("data-selected-value", selected?.id || "");
     const triggerLabel = pill.querySelector(".trigger-label");
     const triggerVal = pill.querySelector(".trigger-val");
-    const icon = MODEL_ICONS[selected?.iconKind] || "";
     if (triggerLabel) {
-      triggerLabel.innerText = selected ? `${icon ? `${icon} ` : ""}${selected.label}` : "暂无可用模型";
+      triggerLabel.innerHTML = selected ? getModelLabelMarkup(selected) : "暂无可用模型";
     }
     if (triggerVal) {
       const selectedRoute = selected ? getCurrentRoute() : null;
