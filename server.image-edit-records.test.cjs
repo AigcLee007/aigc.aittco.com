@@ -23,6 +23,7 @@ function harness({ background = true, response = { data: [{ url: 'https://exampl
     shouldUseUserProvidedApiKey: () => false, getRoutePointCost: () => 3,
     requireBillingAccount: async () => ({ accountId: 'account' }), getRouteModelName: () => 'gpt-image-2',
     isGptImage2RequestModel: () => true, normalizeGptImage2RequestSize: () => '1024x1024', getRouteAuthorization: () => 'test',
+    normalizeGptImageRouteQuality: require('./imageRouteCompatibility.cjs').normalizeGptImageRouteQuality,
     reservePoints: async () => ({ chargeId: 'charge', account: { points: 10 } }), refundPoints: async () => {},
     shouldRunGptImage2SyncRouteInBackground: () => background,
     imageJobContext: { getStore: () => null },

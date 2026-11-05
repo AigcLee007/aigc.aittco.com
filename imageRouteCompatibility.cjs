@@ -3,6 +3,15 @@ const VISIONARY_BASE_URL = 'https://api.visionary.beer';
 const VISIONARY_GENERATE_PATH = '/v1/images/generations';
 const VISIONARY_TASK_PATH = '/v1/tasks/{taskId}';
 
+const normalizeGptImageRouteQuality = (route = {}, value) => {
+  const qualities = route.supportedQualities?.length
+    ? route.supportedQualities : ['auto', 'low', 'medium', 'high', 'xhigh', 'max'];
+  const quality = String(value || '').trim().toLowerCase();
+  if (qualities.includes(quality)) return quality;
+  return qualities.includes('auto') ? 'auto'
+    : qualities.includes('medium') ? 'medium' : qualities[0];
+};
+
 const normalizeMouxihubGptImageModelName = (route = {}, modelName = '', requestBody = {}) => {
   let host = '';
   try {
@@ -48,6 +57,7 @@ const normalizeImageRouteCompatibility = (route = {}) => {
 };
 
 module.exports = {
+  normalizeGptImageRouteQuality,
   normalizeImageRouteCompatibility,
   normalizeMouxihubGptImageModelName,
   VISIONARY_BASE_URL,

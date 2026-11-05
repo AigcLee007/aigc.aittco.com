@@ -110,6 +110,12 @@ const routes = rows.map((row, index) => {
   return route;
 });
 
+// This workbook describes the original 23 routes. Keep later model additions
+// from the shared catalog when rebuilding the production configuration.
+routes.push(...require('../config/imageRoutes.json').routes.filter(
+  (route) => route.modelFamily === 'gpt-image-2.6-sunburst',
+));
+
 const familyNames = [...new Set(routes.map((route) => route.modelFamily))];
 for (const family of familyNames) {
   const familyRoutes = routes.filter((route) => route.modelFamily === family);

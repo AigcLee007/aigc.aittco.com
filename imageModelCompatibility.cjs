@@ -1,4 +1,4 @@
-const GPT_IMAGE_COMPATIBLE_PATTERN = /^gpt-image-2(?:$|-|\.5(?:-|$))/i;
+const GPT_IMAGE_COMPATIBLE_PATTERN = /^gpt-image-2(?:$|-|\.[56](?:-|$))/i;
 
 const isGptImageCompatibleModel = (value = '') => {
   const normalized = String(value || '').trim();

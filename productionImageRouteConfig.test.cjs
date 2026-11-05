@@ -5,13 +5,13 @@ const { test } = require("node:test");
 const catalog = require("./config/production-image-routes.json");
 const { validateRouteConfig } = require("./scripts/replace-production-image-routes.cjs");
 
-test("production workbook config contains 23 unique routes and one default per family", () => {
+test("production config contains 24 unique routes and one default per family", () => {
   validateRouteConfig(catalog);
-  assert.equal(catalog.routes.length, 23);
-  assert.equal(new Set(catalog.routes.map((route) => route.modelFamily)).size, 5);
+  assert.equal(catalog.routes.length, 24);
+  assert.equal(new Set(catalog.routes.map((route) => route.modelFamily)).size, 6);
   assert.deepEqual(
     [...new Set(catalog.routes.map((route) => route.modelFamily))].sort(),
-    ["gemini-nano-banana-2.1", "gpt-image-2", "gpt-image-2.5-sunburst", "nano-banana-pro", "seedream-5-pro"],
+    ["gemini-nano-banana-2.1", "gpt-image-2", "gpt-image-2.5-sunburst", "gpt-image-2.6-sunburst", "nano-banana-pro", "seedream-5-pro"],
   );
   assert.ok(catalog.routes.every((route) => !Object.hasOwn(route, "apiKey")));
 });

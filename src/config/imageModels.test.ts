@@ -84,6 +84,8 @@ describe('GPT-compatible image model detection', () => {
     expect(isGptImageCompatibleModel('gpt-image-2.5')).toBe(true);
     expect(isGptImageCompatibleModel('gpt-image-2.5-flare')).toBe(true);
     expect(isGptImageCompatibleModel('gpt-image-2.5-sunburst')).toBe(true);
+    expect(isGptImageCompatibleModel('gpt-image-2.6-sunburst')).toBe(true);
+    expect(isGptImageCompatibleModel('gpt-image-26')).toBe(false);
     expect(isGptImageCompatibleModel('seedream-5-pro')).toBe(true);
     expect(isGptImageCompatibleModel('gemini-3.1-flash-image-preview')).toBe(false);
   });

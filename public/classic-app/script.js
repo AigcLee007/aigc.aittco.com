@@ -1428,7 +1428,7 @@ function isClassicGptImageModel(modelId = null) {
   const selected = getClassicSelectedModelId(modelId || imageModel);
   return (
     selected === "seedream-5-pro" ||
-    /^gpt-image-2(?:$|-|\.5(?:-|$))/i.test(String(selected || "").trim())
+    /^gpt-image-2(?:$|-|\.[56](?:-|$))/i.test(String(selected || "").trim())
   );
 }
 
@@ -1466,7 +1466,10 @@ function getClassicGptSettings() {
     // Format, compression and moderation are no longer user options:
     // always PNG, no compression, automatic moderation.
     return {
-      quality: supportedQualities.includes(quality) ? quality : GPT_IMAGE_DEFAULTS.quality,
+      quality: supportedQualities.includes(quality)
+        ? quality
+        : supportedQualities.includes('auto') ? 'auto'
+        : supportedQualities.includes('medium') ? 'medium' : supportedQualities[0],
       outputFormat: GPT_IMAGE_DEFAULTS.outputFormat,
       outputCompression: null,
       moderation: GPT_IMAGE_DEFAULTS.moderation,
@@ -1558,10 +1561,7 @@ function updateClassicGptSettingsUi() {
   const compressionInput = document.getElementById("gptOutputCompressionInput");
 
   if (!supportedQualities.includes(storedQuality)) {
-    localStorage.setItem(GPT_IMAGE_QUALITY_KEY, GPT_IMAGE_DEFAULTS.quality);
-  }
-  if (!supportedQualities.includes(settings.quality)) {
-    localStorage.removeItem(GPT_IMAGE_QUALITY_KEY);
+    localStorage.setItem(GPT_IMAGE_QUALITY_KEY, settings.quality);
   }
   qualityPill?.querySelectorAll(".dropdown-item").forEach((item) => {
     const value = String(item.getAttribute("data-value") || "").trim().toLowerCase();

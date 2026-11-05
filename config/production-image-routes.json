@@ -2,6 +2,29 @@
   "defaultRouteId": "nano-banana-pro-discount",
   "routes": [
     {
+      "id": "gpt-image-2.6-sunburst-native",
+      "label": "原生线路",
+      "description": "",
+      "modelFamily": "gpt-image-2.6-sunburst",
+      "line": "原生线路",
+      "transport": "openai-image",
+      "mode": "sync",
+      "baseUrl": "https://rolldek.com",
+      "generatePath": "/v1/images/generations",
+      "editPath": "/v1/images/edits",
+      "upstreamModel": "gpt-image-2.6-sunburst",
+      "apiKeyEnv": "GPT-image-2.6-sunburst_rolldek_yuansheng",
+      "pointCost": 4,
+      "sizeOverrides": {
+        "1k": { "pointCost": 4 },
+        "2k": { "pointCost": 4.5 },
+        "4k": { "pointCost": 5 }
+      },
+      "supportedQualities": ["low", "medium", "high"],
+      "sortOrder": 0,
+      "isDefaultRoute": true
+    },
+    {
       "id": "nano-banana-pro-official-t3",
       "label": "官方T3",
       "description": "",

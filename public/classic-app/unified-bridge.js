@@ -881,7 +881,7 @@
     return values.some(
       (value) =>
         value === "seedream-5-pro" ||
-        /^gpt-image-2(?:$|-|\.5(?:-|$))/i.test(value),
+        /^gpt-image-2(?:$|-|\.[56](?:-|$))/i.test(value),
     );
   };
   const isGptImage2Model = isGptImageCompatibleModel;

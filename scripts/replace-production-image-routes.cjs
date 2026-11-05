@@ -4,7 +4,7 @@ const path = require("node:path");
 const { closePool, getPool, isMySqlConfigured, withTransaction } = require("../db.cjs");
 
 const CONFIG_PATH = path.join(__dirname, "../config/production-image-routes.json");
-const REQUIRED_ROUTE_COUNT = 23;
+const REQUIRED_ROUTE_COUNT = 24;
 const ACTIVE_JOB_STATES = ["queued", "running"];
 
 const validateRouteConfig = (catalog) => {
@@ -122,7 +122,8 @@ const main = async () => {
       SELECT COUNT(*) AS total, COUNT(DISTINCT model_family) AS families,
         SUM(is_default_route) AS defaults FROM image_routes
     `);
-    if (Number(counts[0]?.total) !== REQUIRED_ROUTE_COUNT || Number(counts[0]?.defaults) !== 5) {
+    const familyCount = new Set(catalog.routes.map((route) => route.modelFamily)).size;
+    if (Number(counts[0]?.total) !== REQUIRED_ROUTE_COUNT || Number(counts[0]?.defaults) !== familyCount) {
       throw new Error("Post-import route count/default validation failed; transaction rolled back");
     }
   });

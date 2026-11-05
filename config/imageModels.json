@@ -142,6 +142,26 @@
       "sortOrder": 8
     },
     {
+      "id": "gpt-image-2.6-sunburst",
+      "label": "GPT-Image-2.6-Sunburst",
+      "description": "GPT-Image-2.6-Sunburst image generation and editing",
+      "modelFamily": "gpt-image-2.6-sunburst",
+      "routeFamily": "gpt-image-2.6-sunburst",
+      "requestModel": "gpt-image-2.6-sunburst",
+      "selectorCost": 4,
+      "iconKind": "sparkles",
+      "panelLayout": "default",
+      "sizeBehavior": "passthrough",
+      "defaultSize": "2k",
+      "sizeOptions": ["1k", "2k", "4k"],
+      "extraAspectRatios": [],
+      "showSizeSelector": true,
+      "supportsCustomRatio": true,
+      "isActive": true,
+      "isDefaultModel": false,
+      "sortOrder": 9
+    },
+    {
       "id": "gpt-image-2.5",
       "label": "GPT-Image-2.5 (兼容)",
       "description": "Legacy compatibility model",

@@ -36,6 +36,7 @@ const {
 const {
   VISION_ROUTE_IDS,
   normalizeMouxihubGptImageModelName,
+  normalizeGptImageRouteQuality,
 } = require("./imageRouteCompatibility.cjs");
 const { getSeedreamSizeError } = require("./seedreamImagePolicy.cjs");
 const { isGptImageCompatibleModel } = require("./imageModelCompatibility.cjs");
@@ -4018,7 +4019,7 @@ const legacyImageGenerateHandler = async (req, res) => {
         model: requestBody.model,
         prompt: requestBody.prompt,
         size: requestBody.size || "auto",
-        quality: requestBody.quality || "auto",
+        quality: normalizeGptImageRouteQuality(route, requestBody.quality),
         output_format: requestBody.output_format || "png",
         moderation: requestBody.moderation || "auto",
       };
@@ -4908,6 +4909,7 @@ const legacyImageEditHandler = async (req, res) => {
 
     const isGptImage2Edit = isGptImage2RequestModel(requestBody.model);
     if (isGptImage2Edit) {
+      requestBody.quality = normalizeGptImageRouteQuality(route, requestBody.quality);
       if (requestBody.size) formData.append("size", requestBody.size);
       if (requestBody.quality) formData.append("quality", requestBody.quality);
       if (requestBody.output_format) formData.append("output_format", requestBody.output_format);

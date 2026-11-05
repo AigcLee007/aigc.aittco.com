@@ -171,7 +171,8 @@ export const ImageFormConfig: React.FC<ImageFormConfigProps> = ({
 
   useEffect(() => {
     if (!supportedQualities.includes(gptImageQuality)) {
-      setGptImageQuality('auto');
+      setGptImageQuality(supportedQualities.includes('auto') ? 'auto'
+        : supportedQualities.includes('medium') ? 'medium' : supportedQualities[0]);
     }
   }, [gptImageQuality, setGptImageQuality, supportedQualities]);
 

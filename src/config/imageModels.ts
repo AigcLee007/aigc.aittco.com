@@ -44,7 +44,7 @@ export interface ImageModelCatalogShape {
   models: ImageModelConfig[];
 }
 
-const GPT_IMAGE_COMPATIBLE_PATTERN = /^gpt-image-2(?:$|-|\.5(?:-|$))/i;
+const GPT_IMAGE_COMPATIBLE_PATTERN = /^gpt-image-2(?:$|-|\.[56](?:-|$))/i;
 
 export const isGptImageCompatibleModel = (value: unknown): boolean => {
   const normalized = String(value || '').trim();

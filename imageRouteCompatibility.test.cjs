@@ -2,7 +2,26 @@ const assert = require('assert');
 const {
   normalizeImageRouteCompatibility,
   normalizeMouxihubGptImageModelName,
+  normalizeGptImageRouteQuality,
 } = require('./imageRouteCompatibility.cjs');
+
+describe('GPT image route quality', () => {
+  it('preserves the supported three quality values and defaults unsupported values to medium', () => {
+    const route = { supportedQualities: ['low', 'medium', 'high'] };
+    for (const quality of route.supportedQualities) {
+      assert.strictEqual(normalizeGptImageRouteQuality(route, quality), quality);
+    }
+    for (const quality of [undefined, '', 'auto', 'xhigh', 'max', 'invalid']) {
+      assert.strictEqual(normalizeGptImageRouteQuality(route, quality), 'medium');
+    }
+  });
+
+  it('keeps auto defaults and extended values on existing routes that support them', () => {
+    assert.strictEqual(normalizeGptImageRouteQuality({}, undefined), 'auto');
+    assert.strictEqual(normalizeGptImageRouteQuality({}, 'max'), 'max');
+    assert.strictEqual(normalizeGptImageRouteQuality({ supportedQualities: ['low'] }, 'auto'), 'low');
+  });
+});
 
 describe('normalizeImageRouteCompatibility', () => {
   it('normalizes the production Visionary backup route to its documented async API contract', () => {
