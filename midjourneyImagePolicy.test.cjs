@@ -19,6 +19,10 @@ describe('OSODM Midjourney image contract', () => {
       assert.throws(() => normalizeMidjourneyImageRequest({ prompt: 'x', ...patch }), error => error.status === 400);
     }
   });
+  it('uses the configured upstream model for stable generation', () => {
+    const body = { prompt: 'a pavilion', model: 'Midjourney v8.2-特惠' };
+    assert.equal(normalizeMidjourneyImageRequest(body, { upstreamModel: 'mj-v8.2' }).model, 'mj-v8.2');
+  });
   it('returns all four result.data images and excludes the composite preview', () => {
     const data = Array.from({ length: 4 }, (_, i) => ({ url: `https://images.test/${i}.png` }));
     const result = normalizeMidjourneyImageTask({ task_id: 'mj-1', status: 'SUCCESS', progress: '100%', image_url: 'https://images.test/grid.png', result: { data, url: 'https://images.test/grid.png' } });

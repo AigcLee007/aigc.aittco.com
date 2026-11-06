@@ -27,5 +27,11 @@ describe('Midjourney additive activation', () => {
     model.label = '自定义名称';
     assert.deepEqual(await activateMidjourney({ apply: true, store }), { model: 'existing', route: 'existing' });
     assert.equal(model.label, '自定义名称');
+    const stable = { store, stable: true };
+    assert.deepEqual(await activateMidjourney(stable), { model: 'existing', route: 'would-create' });
+    assert.deepEqual(await activateMidjourney({ ...stable, apply: true }), { model: 'existing', route: 'created' });
+    assert.equal(routes.get('midjourney-v8.2-osodm-wending').pointCost, 16);
+    assert.deepEqual(await activateMidjourney({ ...stable, apply: true }), { model: 'existing', route: 'existing' });
+    assert.equal(routes.get(route.id).pointCost, 99);
   });
 });

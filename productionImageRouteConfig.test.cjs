@@ -5,9 +5,9 @@ const { test } = require("node:test");
 const catalog = require("./config/production-image-routes.json");
 const { validateRouteConfig } = require("./scripts/replace-production-image-routes.cjs");
 
-test("production config contains 26 unique routes and one default per family", () => {
+test("production config contains 27 unique routes and one default per family", () => {
   validateRouteConfig(catalog);
-  assert.equal(catalog.routes.length, 26);
+  assert.equal(catalog.routes.length, 27);
   assert.equal(new Set(catalog.routes.map((route) => route.modelFamily)).size, 7);
   assert.deepEqual(
     [...new Set(catalog.routes.map((route) => route.modelFamily))].sort(),

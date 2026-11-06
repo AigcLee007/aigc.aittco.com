@@ -41,7 +41,7 @@ const {
 const { getSeedreamSizeError } = require("./seedreamImagePolicy.cjs");
 const { isGptImageCompatibleModel } = require("./imageModelCompatibility.cjs");
 const { isMidjourneyImageRoute, normalizeMidjourneyImageRequest, normalizeMidjourneyImageTask } = require("./midjourneyImagePolicy.cjs");
-const { activateMidjourney } = require("./scripts/activate-midjourney-v82-tehui.cjs");
+const { activateMidjourney, syncConfiguredStableMidjourneyRoute } = require("./scripts/activate-midjourney-v82-tehui.cjs");
 const { parseGeminiPromptOptions, parseGeminiReversePrompt } = require("./promptToolResponse.cjs");
 
 const localEnvPath = path.join(__dirname, ".env");
@@ -4037,7 +4037,7 @@ const legacyImageGenerateHandler = async (req, res) => {
       }
     }
 
-    if (isMidjourneyImageRoute(route)) finalRequestBody = normalizeMidjourneyImageRequest(requestBody);
+    if (isMidjourneyImageRoute(route)) finalRequestBody = normalizeMidjourneyImageRequest(requestBody, route);
 
     if (shouldUseBilling) {
       billingCharge = await reservePoints(billingAccount.accountId, pointCost, {
@@ -6069,7 +6069,7 @@ const validateImageJobRequest = async (req, endpoint) => {
   if (!route) throw Object.assign(new Error("图片线路不存在或已停用"), { status: 400 });
   if (isMidjourneyImageRoute(route)) {
     if (endpoint === '/api/edit') throw Object.assign(new Error('Midjourney 参考图请使用生成接口，不支持局部编辑'), { status: 400 });
-    normalizeMidjourneyImageRequest(body);
+    normalizeMidjourneyImageRequest(body, route);
   }
   if (endpoint === '/api/edit' && !route.editPath && route.transport !== 'openai-image') throw Object.assign(new Error('所选线路不支持图片编辑'), { status: 400 });
   if (endpoint === "/api/gemini/generate" && !isGeminiNativeRoute(route)) throw Object.assign(new Error("Gemini 图片线路不支持当前请求"), { status: 400 });
@@ -7230,7 +7230,12 @@ if (require.main === module) {
     .catch(error => console.error(`[Catalog] MochiAI GPT Image 2.6 sync failed: ${error.message}`));
   void activateMidjourney({ apply: true })
     .then(result => console.log(`[Catalog] Midjourney v8.2-特惠 sync: ${JSON.stringify(result)}`))
-    .catch(error => console.error(`[Catalog] Midjourney v8.2-特惠 sync failed: ${error.message}`));
+    .catch(error => console.error(`[Catalog] Midjourney v8.2-特惠 sync failed: ${error.message}`))
+    .then(syncConfiguredStableMidjourneyRoute)
+    .then(result => {
+      if (result) console.log(`[Catalog] Midjourney v8.2 stable sync: ${JSON.stringify(result)}`);
+    })
+    .catch(error => console.error(`[Catalog] Midjourney v8.2 stable sync failed: ${error.message}`));
   app.listen(PORT, () => {
     console.log(`Backend server running on http://localhost:${PORT}`);
     console.log(`   Upstream API: ${UPSTREAM_URL}`);

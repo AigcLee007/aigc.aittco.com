@@ -22,6 +22,25 @@
       "isDefaultRoute": true
     },
     {
+      "id": "midjourney-v8.2-osodm-wending",
+      "label": "稳定线路",
+      "description": "每组四张，每组 16 金币（每张 4 金币）",
+      "modelFamily": "midjourney-v8.2-tehui",
+      "line": "稳定线路",
+      "transport": "openai-image",
+      "mode": "async",
+      "baseUrl": "https://api.osodm.com",
+      "generatePath": "/v1/images/midjourney/generations",
+      "taskPath": "/v1/images/midjourney/tasks/{taskId}",
+      "upstreamModel": "mj-v8.2",
+      "apiKeyEnv": "Midjourney-v8.2-osodm-wending",
+      "pointCost": 16,
+      "supportedQualities": ["0.25", "0.5", "1", "2"],
+      "resultKind": "url",
+      "sortOrder": 1,
+      "isDefaultRoute": false
+    },
+    {
       "id": "gpt-image-2.6-sunburst-native",
       "label": "原生线路",
       "description": "",

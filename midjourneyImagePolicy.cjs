@@ -5,11 +5,11 @@ const QUALITIES = ['0.25', '0.5', '1', '2'];
 const invalid = message => { throw Object.assign(new Error(message), { status: 400 }); };
 const isMidjourneyImageRoute = (route = {}) => route.modelFamily === MODEL_ID;
 
-const normalizeMidjourneyImageRequest = (body = {}) => {
+const normalizeMidjourneyImageRequest = (body = {}, route = {}) => {
   if (body.n !== undefined && Number(body.n) !== 1) invalid('Midjourney 每次请求固定 n=1，一组生成四张图片');
-  if (body.mask) invalid('Midjourney 特惠线路不支持蒙版编辑');
+  if (body.mask) invalid('Midjourney 不支持蒙版编辑');
   const size = String(body.image_size || body.imageSize || body.size || '1k').trim().toLowerCase();
-  if (!['1k', '2k'].includes(size) && !RATIOS.includes(size)) invalid('Midjourney 特惠线路只支持标准和 2K 高清');
+  if (!['1k', '2k'].includes(size) && !RATIOS.includes(size)) invalid('Midjourney 只支持标准和 2K 高清');
   const ratio = String(body.aspect_ratio || body.aspectRatio || (RATIOS.includes(size) ? size : '1:1')).trim();
   if (!RATIOS.includes(ratio)) invalid('Midjourney 不支持所选画面比例');
   const quality = body.quality === undefined || body.quality === 'auto' ? '1' : String(body.quality).trim();
@@ -19,7 +19,7 @@ const normalizeMidjourneyImageRequest = (body = {}) => {
   if (images.length > 1) invalid('Midjourney 最多支持一张参考图');
   if (images.some(image => typeof image !== 'string' || !/^(https?:\/\/|data:image\/)/i.test(image))) invalid('Midjourney 参考图须为公网 URL 或图片 data URL');
   return {
-    model: UPSTREAM_MODEL, prompt: body.prompt, size: ratio, n: 1, quality,
+    model: route.upstreamModel || UPSTREAM_MODEL, prompt: body.prompt, size: ratio, n: 1, quality,
     hd: body.hd ?? (size === '2k'), response_format: 'url', stream: false,
     ...(images.length ? { image: images[0] } : {}),
   };
