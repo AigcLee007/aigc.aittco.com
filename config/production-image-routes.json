@@ -44,6 +44,28 @@
       "isDefaultRoute": true
     },
     {
+      "id": "gpt-image-2.6-sunburst-mochiai",
+      "label": "特价4K",
+      "modelFamily": "gpt-image-2.6-sunburst",
+      "line": "特价4K",
+      "transport": "openai-image",
+      "mode": "sync",
+      "baseUrl": "https://mochiai.art",
+      "generatePath": "/v1/images/generations",
+      "editPath": "/v1/images/edits",
+      "upstreamModel": "gpt-image-2.6-sunburst",
+      "apiKeyEnv": "GPT-image-2.6-sunburst_mochiai",
+      "pointCost": 2,
+      "sizeOverrides": {
+        "1k": { "pointCost": 2 },
+        "2k": { "pointCost": 2.5 },
+        "4k": { "pointCost": 3 }
+      },
+      "supportedQualities": ["low", "medium", "high", "xhigh", "max"],
+      "sortOrder": 1,
+      "isDefaultRoute": false
+    },
+    {
       "id": "nano-banana-pro-official-t3",
       "label": "官方T3",
       "description": "",

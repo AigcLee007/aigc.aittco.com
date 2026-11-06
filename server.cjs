@@ -7220,8 +7220,14 @@ app.get("/{*splat}", (req, res) => {
 });
 
 if (require.main === module) {
+  const { syncConfiguredMochiaiRoute } = require("./scripts/activate-gpt-image-2-6-sunburst.cjs");
   void operationsDashboard.start();
   recoverImageJobsInBackground();
+  void syncConfiguredMochiaiRoute()
+    .then(result => {
+      if (result) console.log(`[Catalog] MochiAI GPT Image 2.6 sync: ${JSON.stringify(result)}`);
+    })
+    .catch(error => console.error(`[Catalog] MochiAI GPT Image 2.6 sync failed: ${error.message}`));
   void activateMidjourney({ apply: true })
     .then(result => console.log(`[Catalog] Midjourney v8.2-特惠 sync: ${JSON.stringify(result)}`))
     .catch(error => console.error(`[Catalog] Midjourney v8.2-特惠 sync failed: ${error.message}`));

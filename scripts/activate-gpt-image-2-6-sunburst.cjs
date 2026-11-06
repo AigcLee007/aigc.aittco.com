@@ -6,11 +6,13 @@ const { closePool, isMySqlConfigured } = require('../db.cjs');
 
 const MODEL_ID = 'gpt-image-2.6-sunburst';
 const model = models.models.find(item => item.id === MODEL_ID);
-const route = routes.routes.find(item => item.id === `${MODEL_ID}-native`);
+const nativeRoute = routes.routes.find(item => item.id === `${MODEL_ID}-native`);
+const mochiaiRoute = routes.routes.find(item => item.id === `${MODEL_ID}-mochiai`);
 
 // Existing rows (including inactive rows) belong to administrators. Never overwrite them.
 // The two creates are independently committed; a rerun resumes a partial import.
-const activateGptImage26 = async ({ apply = false, store = { ...modelStore, ...routeStore } } = {}) => {
+const activateGptImage26 = async ({ apply = false, mochiai = false, store = { ...modelStore, ...routeStore } } = {}) => {
+  const route = mochiai ? mochiaiRoute : nativeRoute;
   const existingModel = await store.getImageModelById(model.id, { includeInactive: true });
   const existingRoute = await store.getImageRouteById(route.id, { includeInactive: true });
   const result = {
@@ -28,18 +30,25 @@ const activateGptImage26 = async ({ apply = false, store = { ...modelStore, ...r
   return result;
 };
 
+const syncConfiguredMochiaiRoute = async () => {
+  if (!isMySqlConfigured() || !String(process.env[mochiaiRoute.apiKeyEnv] || '').trim()) return;
+  return activateGptImage26({ apply: true, mochiai: true });
+};
+
 const main = async () => {
   const args = process.argv.slice(2);
-  if (args.some(arg => arg !== '--apply')) {
-    throw new Error('Usage: node scripts/activate-gpt-image-2-6-sunburst.cjs [--apply]');
+  if (args.some(arg => arg !== '--apply' && arg !== '--mochiai')) {
+    throw new Error('Usage: node scripts/activate-gpt-image-2-6-sunburst.cjs [--mochiai] [--apply]');
   }
   if (!isMySqlConfigured()) throw new Error('Run inside the app container with its MySQL environment configured');
   const apply = args.includes('--apply');
+  const mochiai = args.includes('--mochiai');
+  const route = mochiai ? mochiaiRoute : nativeRoute;
   if (apply && !String(process.env[route.apiKeyEnv] || '').trim()) {
     throw new Error(`Missing environment variable: ${route.apiKeyEnv}`);
   }
   console.log(JSON.stringify({ mode: apply ? 'apply' : 'dry-run', model, route,
-    result: await activateGptImage26({ apply }) }, null, 2));
+    result: await activateGptImage26({ apply, mochiai }) }, null, 2));
 };
 
 if (require.main === module) {
@@ -49,4 +58,4 @@ if (require.main === module) {
   }).finally(() => closePool());
 }
 
-module.exports = { activateGptImage26 };
+module.exports = { activateGptImage26, syncConfiguredMochiaiRoute };

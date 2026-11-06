@@ -23,11 +23,11 @@ test('GPT Image 2.6 forwards the 2.5 payload format and bills each size through 
   });
   await new Promise(resolve => upstream.listen(0, '127.0.0.1', resolve));
   const modelId = 'gpt-image-2.6-sunburst';
-  const configured = require('./config/imageRoutes.json').routes.find(route => route.modelFamily === modelId);
-  const route = { ...configured, baseUrl: `http://127.0.0.1:${upstream.address().port}`, apiKey: 'test-key' };
+  const configured = require('./config/imageRoutes.json').routes.filter(route => route.modelFamily === modelId);
+  const localRoutes = configured.map(route => ({ ...route, baseUrl: `http://127.0.0.1:${upstream.address().port}`, apiKey: `key-${route.id}` }));
   const routes = require('./imageRouteStore.cjs');
-  routes.getImageRouteById = async id => id === route.id ? route : null;
-  routes.getImageRouteCatalog = async () => ({ defaultRouteId: route.id, routes: [route] });
+  routes.getImageRouteById = async id => localRoutes.find(route => route.id === id) || null;
+  routes.getImageRouteCatalog = async () => ({ defaultRouteId: `${modelId}-native`, routes: localRoutes });
   const records = new Map();
   const recordStore = require('./generationRecordStore.cjs');
   recordStore.createGenerationRecord = async value => {
@@ -64,15 +64,18 @@ test('GPT Image 2.6 forwards the 2.5 payload format and bills each size through 
     headers: { 'content-type': 'application/json', 'x-auth-session': login.sessionToken }, ...options,
   });
   let balance = 100;
-  for (const [size, quality, price, pixels] of [
-    ['1k', 'low', 4, '1024x1024'], ['2k', 'medium', 4.5, '2048x2048'],
+  for (const [line, size, quality, price, pixels] of [
+    ['native', '1k', 'low', 4, '1024x1024'], ['native', '2k', 'medium', 4.5, '2048x2048'],
     // The existing 2.5 size normalizer limits a square to 8,294,400 pixels.
-    ['4k', 'high', 5, '2880x2880'], ['1k', 'auto', 4, '1024x1024'],
-  ]) await t.test(`${size}/${quality}`, async () => {
+    ['native', '4k', 'high', 5, '2880x2880'], ['native', '1k', 'auto', 4, '1024x1024'],
+    ['mochiai', '1k', 'high', 2, '1024x1024'], ['mochiai', '2k', 'xhigh', 2.5, '2048x2048'],
+    ['mochiai', '4k', 'max', 3, '2880x2880'],
+  ]) await t.test(`${line}/${size}/${quality}`, async () => {
+    const routeId = `${modelId}-${line}`;
     const response = await request('/api/generate', { method: 'POST', body: JSON.stringify({
-      modelId, model: modelId, routeId: route.id, prompt: 'a pavilion', size, image_size: size,
+      modelId, model: modelId, routeId, prompt: 'a pavilion', size, image_size: size,
       aspect_ratio: '1:1', quality, output_format: 'png', moderation: 'auto',
-      asyncTask: true, clientRequestId: `image26-${size}-${quality}`,
+      asyncTask: true, clientRequestId: `image26-${line}-${size}-${quality}`,
     }) });
     assert.equal(response.status, 202);
     const receipt = await response.json();
@@ -85,7 +88,7 @@ test('GPT Image 2.6 forwards the 2.5 payload format and bills each size through 
     assert.equal(done.status, 'succeeded', JSON.stringify(done));
     const call = calls.at(-1);
     assert.equal(call.path, '/v1/images/generations');
-    assert.equal(call.authorization, 'Bearer test-key');
+    assert.equal(call.authorization, `Bearer key-${routeId}`);
     assert.deepEqual(JSON.parse(call.body), {
       model: modelId, prompt: 'a pavilion', size: pixels,
       quality: quality === 'auto' ? 'medium' : quality,
@@ -94,5 +97,5 @@ test('GPT Image 2.6 forwards the 2.5 payload format and bills each size through 
     balance -= price;
     assert.equal((await billing.getAccountByUserId(registration.user.userId)).points, balance);
   });
-  assert.equal(calls.length, 4);
+  assert.equal(calls.length, 7);
 });

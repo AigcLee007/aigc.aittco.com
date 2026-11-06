@@ -39,4 +39,18 @@ describe('GPT Image 2.6 additive activation', () => {
     assert.equal(state.routes.get(route.id).pointCost, 77);
     assert.equal(state.routes.get(route.id).isActive, false);
   });
+
+  it('can import only the MochiAI route and preserves it on reruns', async () => {
+    const state = store();
+    await activateGptImage26({ apply: true, store: state });
+    const options = { mochiai: true, store: state };
+    assert.deepEqual(await activateGptImage26(options), { model: 'existing', route: 'would-create' });
+    assert.equal(state.routes.size, 2);
+    assert.deepEqual(await activateGptImage26({ ...options, apply: true }), { model: 'existing', route: 'created' });
+    const route = state.routes.get('gpt-image-2.6-sunburst-mochiai');
+    assert.equal(route.apiKeyEnv, 'GPT-image-2.6-sunburst_mochiai');
+    route.isActive = false;
+    assert.deepEqual(await activateGptImage26({ ...options, apply: true }), { model: 'existing', route: 'existing' });
+    assert.equal(state.routes.get(route.id).isActive, false);
+  });
 });
