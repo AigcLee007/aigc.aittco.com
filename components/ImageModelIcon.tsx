@@ -21,8 +21,8 @@ export const ImageModelIcon: React.FC<ImageModelIconProps> = ({
 
   // Production catalogs may still assign banana/sparkles to GPT models.
   if (/^gpt(?:-|$)/i.test(String(modelId || '').trim())) {
-    const size = isTitle ? 20 : 16;
-    return <img src="/openai.svg" alt="" aria-hidden="true" width={size} height={size} className="shrink-0 object-contain" />;
+    const size = isTitle ? 16 : 12.8;
+    return <img src="/openai.svg" alt="" aria-hidden="true" style={{ width: size, height: size }} className="shrink-0 object-contain" />;
   }
 
   if (/^midjourney(?:-|\s)/i.test(String(modelId || '').trim())) {

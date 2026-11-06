@@ -1095,6 +1095,10 @@ body {
   flex-shrink: 0;
   object-fit: contain;
 }
+.classic-model-brand img[src="/openai.svg"] {
+  width: 12.8px;
+  height: 12.8px;
+}
 .pill-trigger:hover {
   border-color: var(--banana);
   background: rgba(255, 214, 10, 0.08);
