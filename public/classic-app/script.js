@@ -1468,21 +1468,30 @@ function getClassicGptSettings() {
   try {
     const quality = String(localStorage.getItem(GPT_IMAGE_QUALITY_KEY) || GPT_IMAGE_DEFAULTS.quality).trim().toLowerCase();
     const supportedQualities = getClassicSupportedGptQualities();
-    // Format, compression and moderation are no longer user options:
-    // always PNG, no compression, automatic moderation.
+    const animation = getClassicSelectedRoute()?.id === 'gpt-image-2.6-sunburst-osodm-1k';
     return {
       quality: supportedQualities.includes(quality)
         ? quality
         : supportedQualities.includes('auto') ? 'auto'
         : supportedQualities.includes('medium') ? 'medium'
         : supportedQualities.includes('1') ? '1' : supportedQualities[0],
-      outputFormat: GPT_IMAGE_DEFAULTS.outputFormat,
+      outputFormat: animation && localStorage.getItem('classic_animation_format') === 'gif' ? 'gif' : GPT_IMAGE_DEFAULTS.outputFormat,
       outputCompression: null,
       moderation: GPT_IMAGE_DEFAULTS.moderation,
+      ...(animation ? {
+        complexity: localStorage.getItem('classic_animation_complexity') || 'auto',
+        frameCount: Number(localStorage.getItem('classic_animation_frames') || 9),
+        frameDurationMs: Number(localStorage.getItem('classic_animation_duration') || 200),
+      } : {}),
     };
   } catch (_) {
     return { ...GPT_IMAGE_DEFAULTS };
   }
+}
+
+function setClassicAnimationSetting(key, value) {
+  localStorage.setItem('classic_animation_' + key, String(value));
+  updateClassicGptSettingsUi();
 }
 
 function setClassicGptCompression(value) {
@@ -1557,6 +1566,18 @@ function updateClassicGptSettingsUi() {
   }
 
   const settings = getClassicGptSettings();
+  const animation = getClassicSelectedRoute()?.id === 'gpt-image-2.6-sunburst-osodm-1k';
+  const animationModule = document.getElementById('gptAnimationSettings');
+  if (animationModule) animationModule.hidden = !animation;
+  if (animation) {
+    const controls = { animationFormat: settings.outputFormat, animationComplexity: settings.complexity,
+      animationFrames: settings.frameCount, animationDuration: settings.frameDurationMs };
+    Object.entries(controls).forEach(([id, value]) => {
+      const input = document.getElementById(id);
+      if (input) input.value = String(value);
+    });
+    document.querySelectorAll('[data-gif-control]').forEach(control => { control.hidden = settings.outputFormat !== 'gif'; });
+  }
   const supportedQualities = getClassicSupportedGptQualities();
   const storedQuality = String(
     localStorage.getItem(GPT_IMAGE_QUALITY_KEY) || GPT_IMAGE_DEFAULTS.quality,

@@ -33,6 +33,8 @@ export function createPreview(blob: Blob, validateOnly = false): Promise<{blob: 
       const width = dimensions?.width || bitmap?.width || img!.naturalWidth, height = dimensions?.height || bitmap?.height || img!.naturalHeight;
       if (!width || !height) throw new ImageAssetError('DECODE', '图片无法解码');
       if(validateOnly)return {blob,width,height};
+      // Canvas encoding keeps one frame. Retain GIF bytes for browser playback.
+      if (blob.type === 'image/gif') return { blob, width, height };
       const ratio = Math.min(1, PREVIEW_EDGE / Math.max(width, height));
       canvas.width = Math.max(1, Math.round(width * ratio)); canvas.height = Math.max(1, Math.round(height * ratio));
       const context = canvas.getContext('2d');

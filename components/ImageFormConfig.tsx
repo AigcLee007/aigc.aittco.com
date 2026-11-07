@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef } from 'react';
+import { isGptImageAnimationRoute } from '../src/config/gptImageAnimation';
 import { useSelectionStore } from '../src/store/selectionStore';
 import DropUpSelect from './DropUpSelect';
 import ModelSelector from './ModelSelector';
@@ -72,6 +73,10 @@ export const ImageFormConfig: React.FC<ImageFormConfigProps> = ({
     setImageLine,
     gptImageQuality,
     setGptImageQuality,
+    gptImageOutputFormat, setGptImageOutputFormat,
+    gptImageComplexity, setGptImageComplexity,
+    gptGifFrameCount, setGptGifFrameCount,
+    gptGifFrameDuration, setGptGifFrameDuration,
     autoDownloadOnSuccess,
     setAutoDownloadOnSuccess,
   } = useSelectionStore();
@@ -118,6 +123,7 @@ export const ImageFormConfig: React.FC<ImageFormConfigProps> = ({
   const isGptImage2 = isGptImageCompatibleModel(currentModel.id);
   const isMidjourney = isMidjourneyImageModel(currentModel.id);
   const selectedRoute = getSelectedImageRoute(currentModel.id, imageLine);
+  const supportsAnimation = isGptImageAnimationRoute(selectedRoute);
   const sizeOptions = getImageRouteSizeOptions(selectedRoute, baseSizeOptions);
   const effectiveSize = sizeOptions.includes(normalizedSize)
     ? normalizedSize
@@ -361,6 +367,34 @@ export const ImageFormConfig: React.FC<ImageFormConfigProps> = ({
           />
         </div>
       </div>
+
+      {supportsAnimation && (
+        <div className="mt-3 grid grid-cols-2 gap-3">
+          <div>
+            <label className="mb-1 block text-[10px] text-gray-500">图片格式</label>
+            <DropUpSelect value={gptImageOutputFormat === 'gif' ? 'gif' : 'png'}
+              onChange={value => setGptImageOutputFormat(value as 'png' | 'gif')}
+              options={[{ value: 'png', label: '静态 PNG' }, { value: 'gif', label: '动态 GIF' }]} />
+          </div>
+          <div>
+            <label className="mb-1 block text-[10px] text-gray-500">复杂度</label>
+            <DropUpSelect value={gptImageComplexity} onChange={value => setGptImageComplexity(value as 'auto' | 'low' | 'medium' | 'high')}
+              options={[{value:'auto',label:'自动'},{value:'low',label:'低'},{value:'medium',label:'中'},{value:'high',label:'高'}]} />
+          </div>
+          {gptImageOutputFormat === 'gif' && <>
+            <label className="text-[10px] text-gray-500">GIF 帧数
+              <input aria-label="GIF 帧数" type="number" min={2} max={16} step={1} value={gptGifFrameCount}
+                onChange={event => setGptGifFrameCount(Number(event.target.value))}
+                className="mt-1 w-full rounded-md border border-white/10 bg-gray-900 p-2 text-xs text-white" />
+            </label>
+            <label className="text-[10px] text-gray-500">每帧时长（ms）
+              <input aria-label="GIF 每帧时长" type="number" min={20} max={2000} step={10} value={gptGifFrameDuration}
+                onChange={event => setGptGifFrameDuration(Number(event.target.value))}
+                className="mt-1 w-full rounded-md border border-white/10 bg-gray-900 p-2 text-xs text-white" />
+            </label>
+          </>}
+        </div>
+      )}
 
       <div className="mt-2 flex items-center justify-between gap-2">
         <TransferModeToggle supported={selectedRoute.resultKind === 'url'} />

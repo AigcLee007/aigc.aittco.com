@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Group, Image as KonvaImage, Line as KonvaLine, Rect, Text as KonvaText } from 'react-konva';
 import Konva from 'konva';
 import { useImageAsset } from '../src/hooks/useImageAsset';
+import { useGifAnimation } from '../src/hooks/useGifAnimation';
 import { useGenerationProgress } from '../src/hooks/useGenerationProgress';
 import { NodeData, Point, Stroke, ToolMode } from '../types';
 import { useCanvasStore } from '../src/store/canvasStore';
@@ -175,7 +176,9 @@ const ImageNode: React.FC<{ node: NodeData; feedback: GenerationFeedback; enable
   onLoad,
 }) => {
   const asset = useImageAsset(node, { enabled: enabled && !node.loading && !node.error });
-  const image = asset.image;
+  const animatedImageRef = useRef<Konva.Image>(null);
+  const gif = useGifAnimation(asset.url, enabled && asset.mime === 'image/gif', () => animatedImageRef.current?.getLayer()?.batchDraw());
+  const image = gif || asset.image;
 
   useEffect(() => {
     if (image && onLoad) onLoad();
@@ -212,7 +215,7 @@ const ImageNode: React.FC<{ node: NodeData; feedback: GenerationFeedback; enable
         ctx.closePath();
       }}
     >
-      <KonvaImage image={image} width={node.width} height={node.height} />
+      <KonvaImage ref={animatedImageRef} image={image} width={node.width} height={node.height} />
       {!!node.maskStrokes?.length && <MaskLayer strokes={node.maskStrokes} />}
     </Group>
   );

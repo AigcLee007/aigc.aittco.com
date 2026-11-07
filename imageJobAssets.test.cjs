@@ -51,6 +51,20 @@ test('valid AVIF results are saved using their AV1 HEIF metadata', async t => {
   assert.deepEqual(await fs.readFile(await f.service.resolveAsset(assetArgs(result.resultUrls[0]))), buffer);
 });
 
+test('animated GIF originals, previews and download alternatives retain animation', async t => {
+  const f = await fixture(t);
+  const buffer = Buffer.from('R0lGODlhAgACAIEAAP8AAAAAAAAAAAAAACH/C05FVFNDQVBFMi4wAwEAAAAh+QQAFAAAACwAAAAAAgACAAAIBgABCAQQEAAh+QQBFAABACwAAAAAAgACAIEAAP8AAAAAAAAAAAAIBgABCAQQEAA7', 'base64');
+  assert.equal((await sharp(buffer, { animated: true }).metadata()).pages, 2);
+  const result = await f.service.prepare({ resultUrls: [`data:image/gif;base64,${buffer.toString('base64')}`], context });
+  assert.equal(result.storageStatus, 'saved');
+  const original = await f.service.resolveAsset(assetArgs(result.resultUrls[0]));
+  assert.deepEqual(await fs.readFile(original), buffer);
+  assert.match(result.previewUrl, /\.preview\.gif\?/);
+  const preview = await f.service.resolveAsset(assetArgs(result.previewUrl));
+  assert.equal((await sharp(preview, { animated: true }).metadata()).pages, 2);
+  assert.equal(result.fastUrls[0], null);
+});
+
 test('site-local IPv6 cannot be used as image sources', () => {
   assert.equal(api.isPublicImageUrl('http://[fec0::1]/image.png'), false);
 });

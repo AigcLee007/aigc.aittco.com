@@ -4,7 +4,7 @@ import vm from 'node:vm';
 import productionCatalog from '../../config/production-image-routes.json';
 import staticCatalog from '../../config/imageRoutes.json';
 import { getImageModelById, getImageModelSizeOptions } from './imageModels';
-import { getImageRoutesByModelFamily, getImageModelNameForRoute, getImageRoutePointCost, getImageRouteSupportedQualities } from './imageRoutes';
+import { getImageRoutesByModelFamily, getImageModelNameForRoute, getImageRoutePointCost, getImageRouteSupportedQualities, getImageRouteSizeOptions } from './imageRoutes';
 
 const modelId = 'gpt-image-2.6-sunburst';
 
@@ -13,12 +13,16 @@ describe('GPT Image 2.6 Sunburst', () => {
     expect(getImageModelById(modelId)).toMatchObject({ id: modelId, label: 'GPT-Image-2.6-Sunburst', requestModel: modelId, defaultSize: '2k', isActive: true });
     expect(getImageModelSizeOptions(modelId)).toEqual(['1k', '2k', '4k']);
     const routes = getImageRoutesByModelFamily(modelId);
-    expect(routes).toHaveLength(2);
+    expect(routes).toHaveLength(3);
     expect(routes[0]).toMatchObject({ id: `${modelId}-native`, line: '原生线路', upstreamModel: modelId, transport: 'openai-image', mode: 'sync', baseUrl: 'https://rolldek.com', generatePath: '/v1/images/generations', editPath: '/v1/images/edits', apiKeyEnv: 'GPT-image-2.6-sunburst_rolldek_yuansheng', isDefaultRoute: true });
     expect(getImageRouteSupportedQualities(routes[0])).toEqual(['low', 'medium', 'high']);
     const mochiai = routes.find(route => route.id === `${modelId}-mochiai`);
     expect(mochiai).toMatchObject({ label: '特价4K', line: '特价4K', upstreamModel: modelId, transport: 'openai-image', mode: 'sync', baseUrl: 'https://mochiai.art', generatePath: '/v1/images/generations', editPath: '/v1/images/edits', apiKeyEnv: 'GPT-image-2.6-sunburst_mochiai', isDefaultRoute: false });
     expect(getImageRouteSupportedQualities(mochiai)).toEqual(['low', 'medium', 'high', 'xhigh', 'max']);
+    const animation = routes.find(route => route.line === '动态图片');
+    expect(animation).toMatchObject({ upstreamModel: modelId, mode: 'sync', baseUrl: 'https://api.osodm.com', apiKeyEnv: 'GPT-image-2.6-sunburst_osodm-1k', pointCost: 2 });
+    expect(getImageRouteSizeOptions(animation, ['1k', '2k', '4k'])).toEqual(['1k']);
+    expect(getImageRouteSupportedQualities(animation)).toEqual(['low', 'medium', 'high']);
     expect(productionCatalog.routes.filter(route => route.modelFamily === modelId)).toEqual(staticCatalog.routes.filter(route => route.modelFamily === modelId));
   });
 

@@ -16,7 +16,7 @@ test('GPT Image 2.6 forwards the 2.5 payload format and bills each size through 
   const upstream = http.createServer(async (req, res) => {
     const chunks = [];
     for await (const chunk of req) chunks.push(chunk);
-    calls.push({ path: req.url, authorization: req.headers.authorization,
+    calls.push({ path: req.url, authorization: req.headers.authorization, contentType: req.headers['content-type'],
       body: Buffer.concat(chunks).toString() });
     res.setHeader('Content-Type', 'application/json');
     res.end(JSON.stringify({ data: [{ url: 'https://images.example.test/result.png' }] }));
@@ -77,8 +77,8 @@ test('GPT Image 2.6 forwards the 2.5 payload format and bills each size through 
       aspect_ratio: '1:1', quality, output_format: 'png', moderation: 'auto',
       asyncTask: true, clientRequestId: `image26-${line}-${size}-${quality}`,
     }) });
-    assert.equal(response.status, 202);
     const receipt = await response.json();
+    assert.equal(response.status, 202, JSON.stringify(receipt));
     let done;
     for (let i = 0; i < 300; i++) {
       done = await (await request(`/api/task/${receipt.task_id}`)).json();
@@ -98,4 +98,56 @@ test('GPT Image 2.6 forwards the 2.5 payload format and bills each size through 
     assert.equal((await billing.getAccountByUserId(registration.user.userId)).points, balance);
   });
   assert.equal(calls.length, 7);
+  const animationRouteId = `${modelId}-osodm-1k`;
+  for (const [endpoint, format] of [['/api/generate', 'gif'], ['/api/generate', 'png'], ['/api/edit', 'gif']]) {
+    const response = await request(endpoint, { method: 'POST', body: JSON.stringify({
+      modelId, model: modelId, routeId: animationRouteId, prompt: 'a waving flag',
+      size: '1024x1024', image_size: '1k', quality: 'high', output_format: format,
+      complexity: 'high', frame_count: 6, frame_duration_ms: 150,
+      ...(endpoint === '/api/edit' ? { image: 'data:image/png;base64,aW1hZ2U=' } : {}),
+      asyncTask: true, clientRequestId: `animation-${endpoint.split('/').at(-1)}-${format}`,
+    }) });
+    const receipt = await response.json();
+    assert.equal(response.status, 202, JSON.stringify(receipt));
+    let done;
+    for (let i = 0; i < 300; i++) {
+      done = await (await request(`/api/task/${receipt.task_id}`)).json();
+      if (['succeeded', 'failed'].includes(done.status)) break;
+      await new Promise(resolve => setTimeout(resolve, 10));
+    }
+    assert.equal(done.status, 'succeeded', JSON.stringify(done));
+    const call = calls.at(-1);
+    assert.equal(call.authorization, `Bearer key-${animationRouteId}`);
+    if (endpoint === '/api/edit') {
+      assert.equal(call.path, '/v1/images/edits');
+      assert.match(call.contentType, /multipart\/form-data/);
+      for (const [field, value] of [['model', modelId], ['output_format', 'gif'], ['complexity', 'high'], ['frame_count', '6'], ['frame_duration_ms', '150']]) {
+        assert.ok(call.body.includes(`name="${field}"\r\n\r\n${value}\r\n`), field);
+      }
+    } else {
+      const body = JSON.parse(call.body);
+      assert.equal(body.output_format, format);
+      assert.equal(body.complexity, 'high');
+      assert.equal(body.model, modelId);
+      assert.equal(body.size, '1024x1024');
+      if (format === 'gif') {
+        assert.equal(body.frame_count, 6);
+        assert.equal(body.frame_duration_ms, 150);
+      } else {
+        assert.equal(body.frame_count, undefined);
+      }
+    }
+    balance -= 2;
+    assert.equal((await billing.getAccountByUserId(registration.user.userId)).points, balance);
+  }
+  const count = calls.length;
+  for (const patch of [{image_size:'2k'}, {frame_count:17}, {frame_duration_ms:10}, {routeId:`${modelId}-mochiai`}]) {
+    const response = await request('/api/generate', { method: 'POST', body: JSON.stringify({
+      modelId, routeId: animationRouteId, model: modelId, prompt: 'test',
+      output_format: 'gif', image_size: '1k', asyncTask: true, ...patch,
+    }) });
+    assert.equal(response.status, 400);
+  }
+  assert.equal(calls.length, count);
+  assert.equal((await billing.getAccountByUserId(registration.user.userId)).points, balance);
 });

@@ -58,6 +58,25 @@ test('successful classic results cache originals when gallery is closed and down
   assert.equal(h.calls.length, 1); assert.equal(h.downloads.length, 1);
   h.close();
 });
+
+test('GIF auto and manual downloads use .gif for both browser and local-folder saves', async () => {
+  for (const folder of [false, true]) {
+    const folderNames = [];
+    const h = harness(undefined, w => {
+      w.fetchClassicImageBlob = async () => new Blob(['GIF89a-original'], { type: 'image/gif' });
+      if (folder) w.LocalFolderSave = { saveBlob: async (blob, name) => { folderNames.push(name); return name; } };
+    });
+    try {
+      await h.w.ClassicResultAssets.cacheResult(record);
+      await h.w.downloadSingleImg(record.fullUrl);
+      const names = folder ? folderNames : h.downloads;
+      assert.equal(names.length, 2);
+      assert.ok(names.every(name => name.endsWith('.gif')));
+      const original = await h.w.ClassicResultAssets.readOriginal(record.fullUrl);
+      assert.equal(await original.text(), 'GIF89a-original');
+    } finally { h.close(); }
+  }
+});
 test('URL replacement and disabled auto-download reuse the same original', async () => {
   const h = harness();
   assert.ok(h.w.ClassicResultAssets, 'classic durable original lifecycle must be installed');

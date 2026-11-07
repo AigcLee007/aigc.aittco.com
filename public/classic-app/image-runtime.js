@@ -89,6 +89,11 @@
   async function makeBrowserPreview(blob, options = {}) {
     const maxEdge = Number(options.maxEdge || 720);
     const bitmap = await decodeBrowserBlob(blob);
+    if (blob.type === 'image/gif') {
+      const result = { blob, width: bitmap.width, height: bitmap.height, originalWidth: bitmap.width, originalHeight: bitmap.height, version: 1 };
+      if (typeof bitmap.close === 'function') bitmap.close();
+      return result;
+    }
     const scale = Math.min(1, maxEdge / Math.max(bitmap.width || 1, bitmap.height || 1));
     const width = Math.max(1, Math.round((bitmap.width || 1) * scale));
     const height = Math.max(1, Math.round((bitmap.height || 1) * scale));

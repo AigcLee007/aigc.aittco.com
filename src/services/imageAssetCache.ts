@@ -35,8 +35,8 @@ async function takeFetchSlot() {
   else fetchCount++;
   return ()=>{const next=fetchWaiters.shift();if(next)next();else fetchCount--;};
 }
-interface Entry { url:string; image:HTMLImageElement; refs:number; bytes:number; touched:number; variant:AssetVariant; dispose:()=>void }
-export interface ImageLease { status:ImageAssetStatus; url?:string; image?:HTMLImageElement; message?:string; release:()=>void }
+interface Entry { url:string; image:HTMLImageElement; mime:string; refs:number; bytes:number; touched:number; variant:AssetVariant; dispose:()=>void }
+export interface ImageLease { status:ImageAssetStatus; url?:string; image?:HTMLImageElement; mime?:string; message?:string; release:()=>void }
 export const imageAssetKey = (ref:ImageAssetRef,variant:AssetVariant='preview') => ref.assetId
   ? `${variant}:asset:${ref.assetId}`
   : `${variant}:source:${ref.src || ''}|${ref.thumbnailSrc || ''}`;
@@ -208,7 +208,7 @@ async function loadWithinSlot(ref:ImageAssetRef,variant:AssetVariant,timeoutMs:n
     }
     let disposed=false;
     const dispose=()=>{if(disposed)return;disposed=true;image.src='';URL.revokeObjectURL(url);unpin();releaseBudget();};
-    return {url,image,refs:0,bytes:image.naturalWidth*image.naturalHeight*4,touched:Date.now(),variant,dispose};
+    return {url,image,mime:blob.type,refs:0,bytes:image.naturalWidth*image.naturalHeight*4,touched:Date.now(),variant,dispose};
   }catch(error){if(url)URL.revokeObjectURL(url);unpin();releaseBudget();throw error;}
 }
 
@@ -256,7 +256,7 @@ export async function acquireImageAsset(ref:ImageAssetRef,{variant='preview',tim
     }
     if(signal?.aborted)throw new ImageAssetError('TIMEOUT','图片读取已取消');
     entry.refs++; entry.touched=Date.now(); trim(); let released=false; const owned=entry;
-    return {status:'ready',url:entry.url,image:entry.image,release:()=>{if(released)return;released=true;owned.refs--;owned.touched=Date.now();trim();}};
+    return {status:'ready',url:entry.url,image:entry.image,mime:entry.mime,release:()=>{if(released)return;released=true;owned.refs--;owned.touched=Date.now();trim();}};
   }catch(error){
     const code=error instanceof ImageAssetError?error.code:'NETWORK';
     return {status:code==='BUDGET'?'deferred':code==='EMPTY'||code==='NOT_FOUND'?'missing':'failed',message:error instanceof Error?error.message:'图片读取失败',release:()=>{}};

@@ -148,7 +148,7 @@
   }
   function filename(info, prompt, blob) {
     const label = String(prompt || '生成图片').replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_').trim().slice(0, 50);
-    const ext = blob.type.includes('webp') ? 'webp' : blob.type.includes('jpeg') ? 'jpg' : 'png';
+    const ext = { 'image/gif': 'gif', 'image/webp': 'webp', 'image/jpeg': 'jpg' }[blob.type.split(';')[0]] || 'png';
     return label + '-' + String(info.jobId || info.id).replace(/[^a-zA-Z0-9_-]/g, '_').slice(-32) + '-' + (info.outputIndex + 1) + '.' + ext;
   }
   function triggerDownload(blob, name) {

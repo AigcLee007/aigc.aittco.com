@@ -40,6 +40,7 @@ const {
 } = require("./imageRouteCompatibility.cjs");
 const { getSeedreamSizeError } = require("./seedreamImagePolicy.cjs");
 const { isGptImageCompatibleModel } = require("./imageModelCompatibility.cjs");
+const { isGptImageAnimationRoute, getGptImageAnimationFields, normalizeAnimationSize } = require("./gptImageAnimationPolicy.cjs");
 const { isMidjourneyImageRoute, normalizeMidjourneyImageRequest, normalizeMidjourneyImageTask } = require("./midjourneyImagePolicy.cjs");
 const { activateMidjourney, syncConfiguredStableMidjourneyRoute } = require("./scripts/activate-midjourney-v82-tehui.cjs");
 const { parseGeminiPromptOptions, parseGeminiReversePrompt } = require("./promptToolResponse.cjs");
@@ -3522,6 +3523,8 @@ const legacyImageGenerateHandler = async (req, res) => {
     if (!route) {
       return sendUserFacingGenerationError(res, 400, new Error("图片线路不存在或已停用，请联系管理员"));
     }
+    try { getGptImageAnimationFields(route, requestBody); }
+    catch (error) { return sendUserFacingGenerationError(res, 400, error); }
     if (requestedImageModel?.id === "seedream-5-pro") {
       const sizeError = getSeedreamSizeError(requestBody);
       if (sizeError) {
@@ -4038,6 +4041,11 @@ const legacyImageGenerateHandler = async (req, res) => {
     }
 
     if (isMidjourneyImageRoute(route)) finalRequestBody = normalizeMidjourneyImageRequest(requestBody, route);
+    if (isGptImageAnimationRoute(route)) {
+      Object.assign(finalRequestBody, getGptImageAnimationFields(route, requestBody));
+      finalRequestBody.size = normalizeAnimationSize(finalRequestBody.size);
+      delete finalRequestBody.output_compression;
+    }
 
     if (shouldUseBilling) {
       billingCharge = await reservePoints(billingAccount.accountId, pointCost, {
@@ -4834,6 +4842,8 @@ const legacyImageEditHandler = async (req, res) => {
     if (isMidjourneyImageRoute(route)) {
       return sendUserFacingGenerationError(res, 400, new Error('Midjourney 参考图请使用生成接口，不支持局部编辑'));
     }
+    try { getGptImageAnimationFields(route, requestBody); }
+    catch (error) { return sendUserFacingGenerationError(res, 400, error); }
     if (requestedImageModel?.id === "seedream-5-pro") {
       const sizeError = getSeedreamSizeError(requestBody);
       if (sizeError) {
@@ -4865,6 +4875,11 @@ const legacyImageEditHandler = async (req, res) => {
       }
     }
 
+    if (isGptImageAnimationRoute(route)) {
+      Object.assign(requestBody, getGptImageAnimationFields(route, requestBody));
+      requestBody.size = normalizeAnimationSize(requestBody.size);
+      delete requestBody.output_compression;
+    }
     console.log("[Edit] Proxying request:", {
       routeId: route.id,
       modelId: requestedImageModel?.id || null,
@@ -4922,6 +4937,13 @@ const legacyImageEditHandler = async (req, res) => {
       if (requestBody.size) formData.append("size", requestBody.size);
       if (requestBody.quality) formData.append("quality", requestBody.quality);
       if (requestBody.output_format) formData.append("output_format", requestBody.output_format);
+      if (isGptImageAnimationRoute(route)) {
+        const fields = getGptImageAnimationFields(route, requestBody);
+        // The format is already appended above. Only animation fields belong here.
+        for (const key of ['complexity', 'frame_count', 'frame_duration_ms']) {
+          if (fields[key] !== undefined) formData.append(key, String(fields[key]));
+        }
+      }
       if (requestBody.moderation) formData.append("moderation", requestBody.moderation);
       if (
         requestBody.output_format &&
@@ -6067,6 +6089,7 @@ const validateImageJobRequest = async (req, endpoint) => {
   });
   const route = requestedRoute;
   if (!route) throw Object.assign(new Error("图片线路不存在或已停用"), { status: 400 });
+  getGptImageAnimationFields(route, body);
   if (isMidjourneyImageRoute(route)) {
     if (endpoint === '/api/edit') throw Object.assign(new Error('Midjourney 参考图请使用生成接口，不支持局部编辑'), { status: 400 });
     normalizeMidjourneyImageRequest(body, route);
@@ -7220,14 +7243,19 @@ app.get("/{*splat}", (req, res) => {
 });
 
 if (require.main === module) {
-  const { syncConfiguredMochiaiRoute } = require("./scripts/activate-gpt-image-2-6-sunburst.cjs");
+  const { syncConfiguredMochiaiRoute, syncConfiguredAnimationRoute } = require("./scripts/activate-gpt-image-2-6-sunburst.cjs");
   void operationsDashboard.start();
   recoverImageJobsInBackground();
   void syncConfiguredMochiaiRoute()
     .then(result => {
       if (result) console.log(`[Catalog] MochiAI GPT Image 2.6 sync: ${JSON.stringify(result)}`);
     })
-    .catch(error => console.error(`[Catalog] MochiAI GPT Image 2.6 sync failed: ${error.message}`));
+    .catch(error => console.error(`[Catalog] MochiAI GPT Image 2.6 sync failed: ${error.message}`))
+    .then(syncConfiguredAnimationRoute)
+    .then(result => {
+      if (result) console.log(`[Catalog] GPT Image 2.6 animation sync: ${JSON.stringify(result)}`);
+    })
+    .catch(error => console.error(`[Catalog] GPT Image 2.6 animation sync failed: ${error.message}`));
   void activateMidjourney({ apply: true })
     .then(result => console.log(`[Catalog] Midjourney v8.2-特惠 sync: ${JSON.stringify(result)}`))
     .catch(error => console.error(`[Catalog] Midjourney v8.2-特惠 sync failed: ${error.message}`))

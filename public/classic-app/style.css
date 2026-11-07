@@ -1089,6 +1089,26 @@ body {
   align-items: center;
   gap: 6px;
 }
+.animation-settings:not([hidden]) {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 12px;
+}
+.animation-settings label {
+  font-size: 11px;
+  color: #9ca3af;
+}
+.animation-settings select, .animation-settings input {
+  display: block;
+  width: 100%;
+  margin-top: 5px;
+  padding: 8px;
+  color: #e5e7eb;
+  background: #1f2937;
+  border: 1px solid #374151;
+  border-radius: 6px;
+}
 .classic-model-brand img {
   width: 16px;
   height: 16px;

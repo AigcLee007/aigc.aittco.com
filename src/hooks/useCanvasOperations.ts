@@ -8,6 +8,7 @@ import { editImage } from '../../services/geminiService';
 import { arrangeNodes } from '../../src/utils/layout';
 import { getProxiedImageUrl } from '../../src/utils/mediaProxy';
 import { revokeDownloadObjectUrlLater } from '../../src/utils/downloadObjectUrl';
+import { imageFileExtension } from '../utils/imageFileExtension';
 import { AppStatus } from '../../types';
 import JSZip from 'jszip';
 import { saveAs } from 'file-saver';
@@ -99,7 +100,13 @@ export const useCanvasOperations = () => {
     if (node && (node.src || node.assetId)) {
       try {
         let href = node.src || ''; let isBlob = false;
-        if(node.type==='IMAGE') { href=URL.createObjectURL(await readOriginalBlob(node,15000,{validate:false})); isBlob=true; }
+        let imageMime = '';
+        if (node.type === 'IMAGE') {
+          const blob = await readOriginalBlob(node, 15000, { validate: false });
+          imageMime = blob.type;
+          href = URL.createObjectURL(blob);
+          isBlob = true;
+        }
         if (node.type==='VIDEO' && node.src && (node.src.startsWith('http') || node.src.startsWith('/api/proxy/image?url='))) {
           const response = await fetch(getProxiedImageUrl(node.src));
           if (!response.ok) throw new Error(`Download failed with HTTP ${response.status}`);
@@ -109,7 +116,7 @@ export const useCanvasOperations = () => {
         const link = document.createElement('a');
         link.href = href;
         const isVideo = node.type === 'VIDEO' || (node.src || '').toLowerCase().endsWith('.mp4') || (node.src || '').toLowerCase().includes('format=mp4');
-        const ext = isVideo ? 'mp4' : 'png';
+        const ext = isVideo ? 'mp4' : imageFileExtension(node.src || '', imageMime);
         const filename = (node.prompt ? node.prompt.slice(0, 20).replace(/[^a-z0-9]/gi, '_').trim() : (isVideo ? 'video' : 'image')) + `_${node.id}.${ext}`;
         link.download = filename;
         document.body.appendChild(link); link.click(); document.body.removeChild(link);
@@ -118,7 +125,7 @@ export const useCanvasOperations = () => {
         console.error("Failed to download asset", err);
         const link = document.createElement('a'); link.href = node.src || '';  link.target = "_blank";
         const isVideo = node.type === 'VIDEO' || (node.src || '').toLowerCase().endsWith('.mp4');
-        link.download = `asset_${node.id}.${isVideo ? 'mp4' : 'png'}`; 
+        link.download = `asset_${node.id}.${isVideo ? 'mp4' : imageFileExtension(node.src || '')}`;
         link.click();
       }
     }

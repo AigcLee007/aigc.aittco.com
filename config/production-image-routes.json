@@ -85,6 +85,25 @@
       "isDefaultRoute": false
     },
     {
+      "id": "gpt-image-2.6-sunburst-osodm-1k",
+      "label": "动态图片",
+      "line": "动态图片",
+      "description": "1K 静态 PNG / 动态 GIF，每张 2 积分",
+      "modelFamily": "gpt-image-2.6-sunburst",
+      "transport": "openai-image",
+      "mode": "sync",
+      "baseUrl": "https://api.osodm.com",
+      "generatePath": "/v1/images/generations",
+      "editPath": "/v1/images/edits",
+      "upstreamModel": "gpt-image-2.6-sunburst",
+      "apiKeyEnv": "GPT-image-2.6-sunburst_osodm-1k",
+      "pointCost": 2,
+      "sizeOverrides": { "1k": { "pointCost": 2 } },
+      "supportedQualities": ["low", "medium", "high"],
+      "sortOrder": 2,
+      "isDefaultRoute": false
+    },
+    {
       "id": "nano-banana-pro-official-t3",
       "label": "官方T3",
       "description": "",

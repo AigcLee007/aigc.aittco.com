@@ -15,6 +15,7 @@ import { imageResultStore, type ImageResultInput } from '../services/imageResult
 import { canvasResultIdentity, registerCanvasResult } from '../services/canvasResultIdentity';
 import { saveToLocalFolder } from '../services/localFolderSave';
 import { getCanvasCenter } from '../utils/canvasViewport';
+import { imageFileExtension } from '../utils/imageFileExtension';
 
 type AutoDownloadItem = {
     src: string;
@@ -34,13 +35,6 @@ const sanitizeFilename = (raw: string) =>
         .slice(0, 30)
         .replace(/[^a-zA-Z0-9\u4e00-\u9fa5_-]/g, '_')
         .replace(/^_+|_+$/g, '');
-
-const inferExt = (src: string, mime?: string) => {
-    const lower = src.toLowerCase();
-    if (mime?.includes('webp') || lower.includes('.webp')) return 'webp';
-    if (mime?.includes('jpeg') || mime?.includes('jpg') || lower.includes('.jpg') || lower.includes('.jpeg')) return 'jpg';
-    return 'png';
-};
 
 const resolveFetchUrl = (src: string) => getProxiedImageUrl(src);
 
@@ -87,7 +81,7 @@ const flushAutoDownloadQueue = async () => {
         if(resultId && !token)continue;
         if(item.session !== getStoredAuthSessionToken() || !imageResultStore.getAutoDownloadPreference(true))continue;
         if (blob) {
-            const ext = inferExt(item.src, blob.type);
+            const ext = imageFileExtension(item.src, blob.type);
             const name = `${seq}_${filenameBase}_${item.id || Date.now()}.${ext}`;
             // A chosen local folder takes the file directly; otherwise a normal download.
             const saved = await saveToLocalFolder(blob, name).catch(error => { console.warn('Local folder save failed; using download', error); return null; });

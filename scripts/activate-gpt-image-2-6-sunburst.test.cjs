@@ -38,6 +38,13 @@ describe('GPT Image 2.6 additive activation', () => {
     assert.equal(state.models.get('gpt-image-2.6-sunburst').isActive, false);
     assert.equal(state.routes.get(route.id).pointCost, 77);
     assert.equal(state.routes.get(route.id).isActive, false);
+    await activateGptImage26({ apply: true, animation: true, store: state });
+    const animation = state.routes.get('gpt-image-2.6-sunburst-osodm-1k');
+    assert.equal(animation.apiKeyEnv, 'GPT-image-2.6-sunburst_osodm-1k');
+    assert.equal(animation.pointCost, 2);
+    animation.pointCost = 9;
+    await activateGptImage26({ apply: true, animation: true, store: state });
+    assert.equal(state.routes.get(animation.id).pointCost, 9);
   });
 
   it('can import only the MochiAI route and preserves it on reruns', async () => {

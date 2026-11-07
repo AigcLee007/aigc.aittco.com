@@ -1,10 +1,24 @@
 import 'fake-indexeddb/auto';
-import { render, screen } from '@testing-library/react';
+import { render, screen, act } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import ImageFormConfig from './ImageFormConfig';
 import { useSelectionStore } from '../src/store/selectionStore';
 
 describe('ImageFormConfig transfer controls', () => {
+  it('exposes GIF controls only on the animation route and caps its size at 1K', () => {
+    useSelectionStore.setState({
+      imageModel: 'gpt-image-2.6-sunburst', imageLine: '动态图片', imageSize: '2k', quantity: 1,
+      gptImageOutputFormat: 'gif', gptGifFrameCount: 9, gptGifFrameDuration: 200,
+    });
+    render(<ImageFormConfig />);
+    expect(useSelectionStore.getState().imageSize).toBe('1k');
+    expect(screen.getByText('动态 GIF')).toBeTruthy();
+    expect((screen.getByLabelText('GIF 帧数') as HTMLInputElement).value).toBe('9');
+    expect((screen.getByLabelText('GIF 每帧时长') as HTMLInputElement).value).toBe('200');
+    act(() => useSelectionStore.getState().setImageLine('原生线路'));
+    expect(screen.queryByText('图片格式')).toBeNull();
+    expect(screen.queryByLabelText('GIF 帧数')).toBeNull();
+  });
   it('shows four-image groups and defaults Midjourney quality to 1', () => {
     useSelectionStore.setState({ imageModel: 'midjourney-v8.2-tehui', imageLine: '特惠线路', quantity: 2, gptImageQuality: 'auto' });
     render(<ImageFormConfig />);

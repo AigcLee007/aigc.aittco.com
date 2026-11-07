@@ -23,7 +23,7 @@
         document.documentElement.classList.add("classic-vip-mode");
       }
     </script>
-    <link rel="stylesheet" href="/classic-app/style.css?v=classic_private_v3" />
+    <link rel="stylesheet" href="/classic-app/style.css?v=classic_private_v4" />
   </head>
   <body>
     <div class="top-controls">
@@ -473,6 +473,24 @@
               </div>
             </div>
 
+            <div id="gptAnimationSettings" class="animation-settings" hidden>
+              <label>图片格式
+                <select id="animationFormat" onchange="setClassicAnimationSetting('format', this.value)">
+                  <option value="png">静态 PNG</option><option value="gif">动态 GIF</option>
+                </select>
+              </label>
+              <label>复杂度
+                <select id="animationComplexity" onchange="setClassicAnimationSetting('complexity', this.value)">
+                  <option value="auto">自动</option><option value="low">低</option><option value="medium">中</option><option value="high">高</option>
+                </select>
+              </label>
+              <label data-gif-control hidden>GIF 帧数
+                <input id="animationFrames" aria-label="GIF 帧数" type="number" min="2" max="16" step="1" value="9" onchange="setClassicAnimationSetting('frames', this.value)" />
+              </label>
+              <label data-gif-control hidden>每帧时长（ms）
+                <input id="animationDuration" aria-label="GIF 每帧时长" type="number" min="20" max="2000" step="10" value="200" onchange="setClassicAnimationSetting('duration', this.value)" />
+              </label>
+            </div>
             <div class="current-price-card" id="currentPriceCard">
               <div>
                 <div class="current-price-label">当前配置消耗</div>
@@ -1188,13 +1206,13 @@
     <script src="/classic-app/promptTags.js?v=classic_vip_mode_v1"></script>
     <script src="/shared/image-result-store.js?v=classic_storage_v1"></script>
     <script src="/shared/local-folder-save.js?v=classic_storage_v2"></script>
-    <script src="/classic-app/image-runtime.js?v=classic_gallery_v2"></script>
+    <script src="/classic-app/image-runtime.js?v=classic_gallery_v3"></script>
     <script src="/classic-app/image-job-client.js?v=classic_transfer_v2"></script>
     <script src="/shared/announcement-markup.js?v=ann_markup_v1"></script>
-    <script src="/classic-app/script.js?v=classic_private_v3"></script>
-    <script src="/classic-app/result-assets.js?v=classic_private_v1"></script>
+    <script src="/classic-app/script.js?v=classic_private_v4"></script>
+    <script src="/classic-app/result-assets.js?v=classic_private_v2"></script>
     <script src="/shared/compare-slider.js?v=compare_v1"></script>
     <script src="/classic-app/upscale.js?v=classic_upscale_v3"></script>
-    <script src="/classic-app/unified-bridge.js?v=classic_live_v2"></script>
+    <script src="/classic-app/unified-bridge.js?v=classic_live_v3"></script>
   </body>
 </html>

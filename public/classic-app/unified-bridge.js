@@ -1042,6 +1042,13 @@
         Math.min(100, Math.round(Number(gptSettings.outputCompression))),
       );
     }
+    if (selectedRoute.id === 'gpt-image-2.6-sunburst-osodm-1k') {
+      if (gptSettings.complexity !== 'auto') payload.complexity = gptSettings.complexity;
+      if (gptSettings.outputFormat === 'gif') {
+        payload.frame_count = gptSettings.frameCount;
+        payload.frame_duration_ms = gptSettings.frameDurationMs;
+      }
+    }
     return payload;
   };
   const buildClassicGeminiPayload = ({

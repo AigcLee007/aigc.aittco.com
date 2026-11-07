@@ -1,4 +1,5 @@
 import { createPreview, decodeImage } from '../src/services/imagePreview';
+import { isGptImageAnimationRoute, getGptImageAnimationFields } from '../src/config/gptImageAnimation';
 import { readOriginalBlob } from '../src/services/imageAssetCache';
 ﻿import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { AppStatus, NodeData, ToolMode } from '../types';
@@ -158,6 +159,7 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
     imageModel, setImageModel,
     imageLine, setImageLine,
     gptImageQuality,
+    gptImageOutputFormat, gptImageComplexity, gptGifFrameCount, gptGifFrameDuration,
     grokReferenceMode,
     thinkingLevel, setThinkingLevel
   } = useSelectionStore();
@@ -864,6 +866,21 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
       });
     };
 
+    let animationFields = {};
+    if (isGptImageAnimationRoute(selectedImageRoute)) {
+      try {
+        animationFields = getGptImageAnimationFields(selectedImageRoute, {
+          image_size: imageSize,
+          output_format: gptImageOutputFormat === 'gif' ? 'gif' : 'png',
+          complexity: gptImageComplexity,
+          frame_count: gptGifFrameCount,
+          frame_duration_ms: gptGifFrameDuration,
+        });
+      } catch (error) {
+        setError(error instanceof Error ? error.message : 'GIF 参数无效');
+        return;
+      }
+    }
     const getGptImagePayload = (basePrompt: string, n = 1) => {
       const payload: any = {
         model: modelName,
@@ -872,8 +889,8 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
         size: calculateGptImageSize(imageSize, effectiveRatio),
         image_size: imageSize,
         quality: gptImageQuality,
-        // Format and moderation are fixed: PNG with automatic moderation.
         output_format: 'png',
+        ...animationFields,
         moderation: 'auto',
         n,
         routeId: selectedImageRoute.id,

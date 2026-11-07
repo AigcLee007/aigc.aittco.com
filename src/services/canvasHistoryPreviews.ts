@@ -3,7 +3,7 @@ import type { GenerationRecord } from './generationRecordService';
 import { imageResultStore } from './imageResultStore';
 import { getLocalLine4ThumbnailUrl } from '../utils/generatedImageStorage';
 
-export const isRetainedPreview = (value?: string) => !!value && (/\.preview\.webp\?/.test(value) || value.includes('/generated-assets/line4/thumb/'));
+export const isRetainedPreview = (value?: string) => !!value && (/\.preview\.(webp|gif)\?/.test(value) || value.includes('/generated-assets/line4/thumb/'));
 
 // Update only existing original-result nodes. Account history never recreates
 // the user's layout or replaces an edited/imported image with its old result.

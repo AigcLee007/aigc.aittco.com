@@ -37,6 +37,7 @@ COPY promptToolResponse.cjs ./
 COPY imageRequestCount.cjs ./
 COPY seedreamImagePolicy.cjs ./
 COPY imageModelCompatibility.cjs ./
+COPY gptImageAnimationPolicy.cjs ./
 COPY midjourneyImagePolicy.cjs ./
 COPY imageRouteCompatibility.cjs ./
 COPY visionaryImageApi.cjs ./

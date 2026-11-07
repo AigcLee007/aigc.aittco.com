@@ -27,6 +27,7 @@
     "express": "^5.2.1",
     "express-rate-limit": "^8.2.1",
     "file-saver": "^2.0.5",
+    "gifuct-js": "^2.1.2",
     "helmet": "^8.1.0",
     "idb-keyval": "^6.2.2",
     "immer": "^11.1.3",

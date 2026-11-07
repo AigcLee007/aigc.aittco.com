@@ -60,7 +60,10 @@ interface SelectionStore {
   brushColor: string;
   imageLine: string;
   gptImageQuality: ImageRouteQuality;
-  gptImageOutputFormat: 'png' | 'jpeg' | 'webp';
+  gptImageOutputFormat: 'png' | 'jpeg' | 'webp' | 'gif';
+  gptImageComplexity: 'auto' | 'low' | 'medium' | 'high';
+  gptGifFrameCount: number;
+  gptGifFrameDuration: number;
   gptImageOutputCompression: number | null;
   gptImageModeration: 'auto' | 'low';
   grokReferenceMode: 'stable_fusion' | 'classic_multi';
@@ -116,7 +119,10 @@ interface SelectionStore {
   setBrushColor: (color: string) => void;
   setImageLine: (line: string) => void;
   setGptImageQuality: (quality: ImageRouteQuality) => void;
-  setGptImageOutputFormat: (format: 'png' | 'jpeg' | 'webp') => void;
+  setGptImageOutputFormat: (format: 'png' | 'jpeg' | 'webp' | 'gif') => void;
+  setGptImageComplexity: (value: 'auto' | 'low' | 'medium' | 'high') => void;
+  setGptGifFrameCount: (value: number) => void;
+  setGptGifFrameDuration: (value: number) => void;
   setGptImageOutputCompression: (compression: number | null) => void;
   setGptImageModeration: (moderation: 'auto' | 'low') => void;
   setGrokReferenceMode: (mode: 'stable_fusion' | 'classic_multi') => void;
@@ -228,6 +234,9 @@ const partializeSelectionState = (state: SelectionStore) => ({
   imageLine: state.imageLine,
   gptImageQuality: state.gptImageQuality,
   gptImageOutputFormat: state.gptImageOutputFormat,
+  gptImageComplexity: state.gptImageComplexity,
+  gptGifFrameCount: state.gptGifFrameCount,
+  gptGifFrameDuration: state.gptGifFrameDuration,
   gptImageOutputCompression: state.gptImageOutputCompression,
   gptImageModeration: state.gptImageModeration,
   grokReferenceMode: state.grokReferenceMode,
@@ -322,6 +331,9 @@ export const useSelectionStore = create<SelectionStore>()(
       imageLine: 'line1',
       gptImageQuality: 'auto',
       gptImageOutputFormat: 'png',
+      gptImageComplexity: 'auto',
+      gptGifFrameCount: 9,
+      gptGifFrameDuration: 200,
       gptImageOutputCompression: null,
       gptImageModeration: 'auto',
       grokReferenceMode: 'stable_fusion',
@@ -413,6 +425,9 @@ export const useSelectionStore = create<SelectionStore>()(
       setImageLine: (val) => set(state => { state.imageLine = val; }),
       setGptImageQuality: (val) => set(state => { state.gptImageQuality = val; }),
       setGptImageOutputFormat: (val) => set(state => { state.gptImageOutputFormat = val; }),
+      setGptImageComplexity: (val) => set(state => { state.gptImageComplexity = val; }),
+      setGptGifFrameCount: (val) => set(state => { state.gptGifFrameCount = val; }),
+      setGptGifFrameDuration: (val) => set(state => { state.gptGifFrameDuration = val; }),
       setGptImageOutputCompression: (val) => set(state => { state.gptImageOutputCompression = val; }),
       setGptImageModeration: (val) => set(state => { state.gptImageModeration = val; }),
       setGrokReferenceMode: (val) => set(state => { state.grokReferenceMode = val; }),

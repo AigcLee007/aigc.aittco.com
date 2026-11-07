@@ -137,6 +137,7 @@ function createImageJobAssets(options = {}) {
   }
   // A high-quality JPEG is far smaller than a PNG original for slow connections.
   async function saveFastCopy(asset, context, expires) {
+    if (/\.gif$/i.test(asset.absolute)) return null;
     if (/\.jpe?g$/i.test(asset.absolute)) return null;
     const filename = `${asset.hash}.fast.jpg`;
     const buffer = await sharp(asset.absolute, { limitInputPixels: MAX_IMAGE_PIXELS }).rotate().flatten({ background: '#ffffff' }).jpeg({ quality: 92, mozjpeg: true }).toBuffer();
@@ -145,6 +146,14 @@ function createImageJobAssets(options = {}) {
     return makeUrl(context, filename, expires);
   }
   async function savePreview(asset, context) {
+    if (/\.gif$/i.test(asset.absolute)) {
+      const filename = `${asset.hash}.preview.gif`;
+      const buffer = await sharp(asset.absolute, { animated: true, limitInputPixels: MAX_IMAGE_PIXELS })
+        .resize({ width: 720, height: 720, fit: 'inside', withoutEnlargement: true }).gif().toBuffer();
+      await atomicWrite(path.join(asset.directory, filename), buffer);
+      const user = safeSegment(context.userId), task = safeSegment(context.taskId);
+      return `/api/image-job-assets/${user}/${task}/${filename}?token=preview.${await previewSignature(user, task, filename)}`;
+    }
     const filename = `${asset.hash}.preview.webp`;
     const buffer = await sharp(asset.absolute, { limitInputPixels: MAX_IMAGE_PIXELS }).rotate().resize({ width: 720, height: 720, fit: 'inside', withoutEnlargement: true }).webp({ quality: 80 }).toBuffer();
     await atomicWrite(path.join(asset.directory, filename), buffer);
@@ -316,7 +325,7 @@ function createImageJobAssets(options = {}) {
     const user = safeSegment(userId), task = safeSegment(taskId);
     if (!/^[a-f0-9]{64}(\.preview|\.fast)?\.(png|jpg|webp|avif|gif)$/.test(String(filename))) throw statusError('Asset not found');
     const permanent = String(token || '').match(/^preview\.([a-f0-9]{64})$/);
-    const isPreview = /^[a-f0-9]{64}\.preview\.webp$/.test(filename);
+    const isPreview = /^[a-f0-9]{64}\.preview\.(webp|gif)$/.test(filename);
     const match = String(token || '').match(/^(\d+)\.([a-f0-9]{64})$/);
     if ((!permanent && !match) || (permanent && !isPreview)) throw statusError('Asset not found');
     const expected = permanent ? await previewSignature(user, task, filename) : await signature(user, task, match[1]);
@@ -360,7 +369,7 @@ function createImageJobAssets(options = {}) {
             const stat = await fs.stat(full).catch(() => null);
             if (stat && stat.mtimeMs < Math.min(originalCutoff, previewCutoff)) await fs.rmdir(full).catch(() => {});
           } else if (child.isFile()) {
-            const isPreview = /^[a-f0-9]{64}\.preview\.webp$/.test(child.name);
+            const isPreview = /^[a-f0-9]{64}\.preview\.(webp|gif)$/.test(child.name);
             const stat = await fs.stat(full).catch(() => null);
             if (!stat || stat.mtimeMs >= (isPreview ? previewCutoff : keepFull ? fullCutoff : originalCutoff)) continue;
             const removed = await fs.unlink(full).then(() => true, () => false);
