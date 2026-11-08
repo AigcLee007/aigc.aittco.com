@@ -5,6 +5,7 @@ import { formatPoint } from '../src/utils/pointFormat';
 import { readTaskProgress } from '../src/utils/generationProgress';
 import { fetchWithTimeout } from '../src/utils/fetchWithTimeout';
 import type { GenerationProgressCallback } from '../types';
+import { submitImageJob, queryImageJob, isTransientJobError } from '../src/services/imageJobClient';
 
 // API configuration
 // Production should use the relative /api path; local development uses http://localhost:3355/api.
@@ -82,7 +83,7 @@ function findStatusInObject(obj: any): string | null {
 }
 
 // Poll generation tasks through the backend proxy.
-const pollTask = async (apiKey: string | undefined, taskId: string, onProgress?: GenerationProgressCallback): Promise<string[]> => {
+const pollTask = async (apiKey: string | undefined, taskId: string, onProgress?: GenerationProgressCallback, managed = false): Promise<string[]> => {
   const url = `${cleanUrl(API_BASE_URL)}/task/${taskId}`;
   const maxAttempts = 450; // 15 minutes (450 * 2s = 900s)
 
@@ -90,7 +91,11 @@ const pollTask = async (apiKey: string | undefined, taskId: string, onProgress?:
         await sleep(2000);
 
         try {
-            const response = await fetch(url, {
+            let data: any;
+            if (managed) {
+                data = await queryImageJob(taskId, { ...(await getAuthorizedBillingHeaders()), ...buildAuthHeaders(apiKey) }, cleanUrl(API_BASE_URL));
+            } else {
+              const response = await fetch(url, {
                 method: 'GET',
                 headers: {
                     ...buildAuthHeaders(apiKey),
@@ -104,7 +109,8 @@ const pollTask = async (apiKey: string | undefined, taskId: string, onProgress?:
                 continue;
             }
 
-            const data = await response.json();
+              data = await response.json();
+            }
             console.log(`Polling [${i}/${maxAttempts}]`, data);
 
             let statusRaw = (data.status || data.state || "").toUpperCase();
@@ -118,7 +124,13 @@ const pollTask = async (apiKey: string | undefined, taskId: string, onProgress?:
 
             if (isSuccess) {
                 const foundUrls: string[] = [];
-                findAllUrlsInObject(data, foundUrls);
+                if (managed) {
+                    const results = Array.isArray(data.images) ? data.images : Array.isArray(data.results) ? data.results : data.data || [];
+                    for (const result of results) {
+                        const source = typeof result === 'string' ? result : result?.url;
+                        if (typeof source === 'string' && /^(https?:\/\/|data:image\/|\/(?!\/))/i.test(source)) foundUrls.push(source);
+                    }
+                } else findAllUrlsInObject(data, foundUrls);
                 const uniqueUrls = Array.from(new Set(foundUrls));
 
                 if (uniqueUrls.length > 0) {
@@ -133,6 +145,7 @@ const pollTask = async (apiKey: string | undefined, taskId: string, onProgress?:
             }
 
         } catch (error) {
+            if (managed && !isTransientJobError(error)) throw error;
             console.warn("Polling error:", error);
         }
     }
@@ -184,6 +197,15 @@ const handleApiError = async (response: Response) => {
     throw new Error(`Submission Failed (${response.status}): ${errJson?.error || errText}`);
 };
 
+type ImageRequestOptions = { routeId?: string; model?: string; modelId?: string; clientLiveTaskIds?: string[] };
+
+const submitImageRequest = async (endpoint: string, payload: Record<string, unknown>, headers: Record<string, string>, nodeIds?: string[]) => {
+    if (nodeIds?.length) return submitImageJob(endpoint, { ...payload, clientLiveTaskIds: nodeIds }, headers);
+    const response = await fetch(endpoint, { method: 'POST', headers, body: JSON.stringify(payload) });
+    if (!response.ok) await handleApiError(response);
+    return response.json();
+};
+
 // Generate images through the backend proxy
 export const generateImage = async (
     apiKey: string | undefined,
@@ -192,19 +214,12 @@ export const generateImage = async (
     imageSize: string = '1k',
     n: number = 1,
     onProgress?: GenerationProgressCallback,
-    options?: { routeId?: string; model?: string; modelId?: string }
+    options?: ImageRequestOptions
 ): Promise<string[]> => {
     const endpoint = `${cleanUrl(API_BASE_URL)}/generate`;
     const billingHeaders = await getAuthorizedBillingHeaders();
 
-    const response = await fetch(endpoint, {
-        method: 'POST',
-        headers: {
-            ...billingHeaders,
-            ...buildAuthHeaders(apiKey),
-            'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
+    const resJson = await submitImageRequest(endpoint, {
             model: options?.model || getModelBySize(imageSize),
             modelId: options?.modelId,
             prompt,
@@ -212,14 +227,7 @@ export const generateImage = async (
             aspect_ratio: aspectRatio,
             n,
             routeId: options?.routeId,
-        }),
-    });
-
-    if (!response.ok) {
-        await handleApiError(response);
-    }
-
-    const resJson = await response.json();
+        }, { ...billingHeaders, ...buildAuthHeaders(apiKey), 'Content-Type': 'application/json' }, options?.clientLiveTaskIds);
     if (resJson.url || resJson.image_url) {
         return [resJson.url || resJson.image_url];
     }
@@ -240,7 +248,7 @@ export const generateImage = async (
     if (!taskId) throw new Error("No Task ID received from API.");
 
     onProgress?.(0, 'estimated', 'PENDING');
-    return await pollTask(apiKey, taskId, onProgress);
+    return await pollTask(apiKey, taskId, onProgress, !!options?.clientLiveTaskIds?.length);
 };
 
 // Edit images through the backend proxy
@@ -252,20 +260,13 @@ export const editImage = async (
     imageSize: string = '1k',
     n: number = 1,
     onProgress?: GenerationProgressCallback,
-    options?: { routeId?: string; model?: string; modelId?: string }
+    options?: ImageRequestOptions
 ): Promise<string[]> => {
     const endpoint = `${cleanUrl(API_BASE_URL)}/generate`;
     const rawBase64 = extractBase64(base64Image);
     const billingHeaders = await getAuthorizedBillingHeaders();
 
-    const response = await fetch(endpoint, {
-        method: 'POST',
-        headers: {
-            ...billingHeaders,
-            ...buildAuthHeaders(apiKey),
-            'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
+    const resJson = await submitImageRequest(endpoint, {
             model: options?.model || getModelBySize(imageSize),
             modelId: options?.modelId,
             prompt,
@@ -274,14 +275,7 @@ export const editImage = async (
             n,
             image: rawBase64,
             routeId: options?.routeId,
-        }),
-    });
-
-    if (!response.ok) {
-        await handleApiError(response);
-    }
-
-    const resJson = await response.json();
+        }, { ...billingHeaders, ...buildAuthHeaders(apiKey), 'Content-Type': 'application/json' }, options?.clientLiveTaskIds);
     if (resJson.url || resJson.image_url) {
         return [resJson.url || resJson.image_url];
     }
@@ -293,7 +287,7 @@ export const editImage = async (
     if (!taskId) throw new Error("No Task ID received from API.");
 
     onProgress?.(0, 'estimated', 'PENDING');
-    return await pollTask(apiKey, taskId, onProgress);
+    return await pollTask(apiKey, taskId, onProgress, !!options?.clientLiveTaskIds?.length);
 };
 
 // Check balance through the backend proxy.

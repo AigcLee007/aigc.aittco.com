@@ -26,6 +26,20 @@ const harness = async (t, options = {}) => {
 const submission = (overrides = {}) => ({userId:'owner-a',endpoint:'/api/generate',body:{prompt:'a bird',clientRequestId:'req-1',asyncTask:true},...overrides});
 const remoteResult = {images:['https://images.example/a.png']};
 
+test('persists actual generation names and exposes the same safe snapshot in get and list', async t => {
+  const generationInfo = { source: 'generated', modelId: 'model-a', modelName: 'Original model name', routeId: 'actual-route', routeLabel: 'Original route name', recordId: 'record-a', outputSize: '1K', aspectRatio: '16:9' };
+  const {service,store} = await harness(t, { execute: async (job, body, context) => {
+    await context.persist({ generationInfo: { ...generationInfo, apiKey: 'must-never-reach-browser' } });
+    return remoteResult;
+  } });
+  const accepted = await service.submit(submission());
+  await waitFor(async () => (await service.get(accepted.task_id, 'owner-a')).status === 'succeeded');
+  assert.deepEqual((await service.get(accepted.task_id, 'owner-a')).generationInfo, generationInfo);
+  assert.deepEqual((await service.list('owner-a'))[0].generationInfo, generationInfo);
+  assert.deepEqual((await store.get(accepted.task_id)).generationInfo.modelName, 'Original model name');
+  assert.doesNotMatch(JSON.stringify(await service.get(accepted.task_id, 'owner-a')), /must-never-reach-browser/);
+});
+
 test('operations snapshot separates occupied workers, upstream queue, and local queue without persistence reads', async t => {
   const gate=deferred();let polls=0;t.after(()=>gate.resolve());
   const {service,store}=await harness(t,{concurrency:3,userConcurrency:2,maxQueued:9,userMaxQueued:7,

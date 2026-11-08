@@ -9,6 +9,7 @@ import { bounded } from '../services/imageAssetTypes';
 import { resolveGenerationStartedAt } from '../utils/generationProgress';
 import { beginLocalRead, deferLocalRecoveryWrite, finishLocalRead, localStoreWritable, mergeRecoveredLocalState, setLocalReadFailed } from '../services/localHydrationSafety';
 import { defaultSidebarInset, getCanvasCenter } from '../utils/canvasViewport';
+import { sanitizeGenerationInfo } from '../services/imageGenerationInfo';
 
 // Simple UUID generator
 const generateId = () => Math.random().toString(36).substring(2, 11);
@@ -46,6 +47,7 @@ export const sanitizePersistedNode = (node: NodeData): NodeData => {
   if (node.assetId) sanitized.assetId = String(node.assetId);
   if (node.prompt) sanitized.prompt = String(node.prompt);
   if (node.createdAt) sanitized.createdAt = String(node.createdAt);
+  if (node.generationInfo) sanitized.generationInfo = sanitizeGenerationInfo(node.generationInfo);
   if (node.videoModel) sanitized.videoModel = String(node.videoModel);
   if (node.videoAspectRatio) sanitized.videoAspectRatio = String(node.videoAspectRatio);
   if (typeof node.videoHd === 'boolean') sanitized.videoHd = node.videoHd;
@@ -74,6 +76,7 @@ export const sanitizePersistedNode = (node: NodeData): NodeData => {
   if (node.history) sanitized.history = node.history.slice(-50).map(item => ({
     src: cleanPersistedUrl(item.src) || '', assetId: item.assetId,
     thumbnailSrc: cleanPersistedUrl(item.thumbnailSrc), prompt: item.prompt,
+    generationInfo: sanitizeGenerationInfo(item.generationInfo), createdAt: item.createdAt,
   }));
   if (node.historyIndex !== undefined) sanitized.historyIndex = Math.min(node.historyIndex, (sanitized.history?.length || 1) - 1);
   if (node.groupId) sanitized.groupId = String(node.groupId);

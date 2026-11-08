@@ -4,6 +4,8 @@ import { getStoredAuthSessionToken } from './accountIdentity';
 import { fetchWithTimeout } from '../utils/fetchWithTimeout';
 import { getImageRouteById } from '../config/imageRoutes';
 import { imageResultStore } from './imageResultStore';
+import { getImageModelById } from '../config/imageModels';
+import { sanitizeGenerationInfo } from './imageGenerationInfo';
 
 export const REQUEST_TASK_PREFIX = 'request-';
 const ownerCache = new Map<string, Promise<string>>();
@@ -86,20 +88,36 @@ export async function queryImageJob(taskId: string, headers: Record<string, stri
 export async function submitImageJob(endpoint: string, payload: any, headers: Record<string, string>): Promise<any> {
   const clientRequestId = String(payload.clientRequestId || newImageRequestId());
   const nodeIds: string[] = payload.clientLiveTaskIds || (payload.clientLiveTaskId ? [payload.clientLiveTaskId] : []);
+  const requestedModel = payload.modelId ? getImageModelById(String(payload.modelId)) : undefined;
+  const requestedRoute = payload.routeId ? getImageRouteById(String(payload.routeId)) : undefined;
+  const generationInfo = sanitizeGenerationInfo({ source: 'generated', modelId: payload.modelId,
+    modelName: requestedModel && requestedModel.id === payload.modelId ? requestedModel.label : payload.model,
+    routeId: payload.routeId, routeLabel: requestedRoute?.id === payload.routeId ? requestedRoute?.label : undefined,
+    outputSize: payload.image_size || payload.size, aspectRatio: payload.aspect_ratio || payload.aspectRatio });
   const owner = await getImageJobOwner(headers);
+  const publishMetadata = (info: unknown) => {
+    const snapshot = sanitizeGenerationInfo(info);
+    const session = getStoredAuthSessionToken();
+    if (!snapshot || !nodeIds.length || (session && headers['X-Auth-Session'] !== session)) return;
+    window.dispatchEvent(new CustomEvent('image-job-metadata', { detail: { nodeIds, owner, clientRequestId, generationInfo: snapshot } }));
+  };
   if (!owner) {
     const route = getImageRouteById(String(payload.routeId || ''));
     const timeout = route?.mode === 'sync' && route.id !== 'gpt-image-2-line2' ? 25 * 60 * 1000 : REQUEST_TIMEOUT_MS;
-    return jsonRequest(endpoint, { method: 'POST', headers, body: JSON.stringify({ uiMode: 'canvas', ...payload }) }, timeout);
+    publishMetadata(generationInfo);
+    const result = await jsonRequest(endpoint, { method: 'POST', headers, body: JSON.stringify({ uiMode: 'canvas', ...payload }) }, timeout);
+    if (result.generationInfo) publishMetadata(result.generationInfo);
+    return result;
   }
   const session = headers['X-Auth-Session'];
   if (getStoredAuthSessionToken() && session !== getStoredAuthSessionToken()) throw new AppError('登录账号已切换，请重新提交', { status: 401 });
+  publishMetadata(generationInfo);
   const body = { uiMode: 'canvas', storageMode: imageResultStore.getStorageModePreference(), ...payload, asyncTask: true, clientRequestId };
   const key = submissionKey(owner, clientRequestId);
   activeSubmissions.add(key);
   try {
     // IndexedDB keeps the upload off localStorage and permits identical retries after reload.
-    await saveImageRequest({ owner, requestId: clientRequestId, endpoint, payload: body, createdAt: Date.now() }).catch(() => {});
+    await saveImageRequest({ owner, requestId: clientRequestId, endpoint, payload: body, createdAt: Date.now(), generationInfo }).catch(() => {});
     const currentSession = getStoredAuthSessionToken();
     if (currentSession && session !== currentSession) throw new AppError('登录账号已切换', { status: 401 });
     if (nodeIds.length && typeof window !== 'undefined') {
@@ -111,6 +129,7 @@ export async function submitImageJob(endpoint: string, payload: any, headers: Re
       catch { /* A compact admission receipt remains if canvas persistence is unavailable. */ }
     }
     const accepted = async (result: any) => {
+      if (result.generationInfo) publishMetadata(result.generationInfo);
       if (credentialsSaved) await removeImageRequest(owner, clientRequestId).catch(() => {});
       else await markImageRequestAccepted(owner, clientRequestId, result.task_id || result.id).catch(() => {});
       return result;

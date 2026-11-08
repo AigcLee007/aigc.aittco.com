@@ -49,7 +49,7 @@ export const useCanvasOperations = () => {
         generationResultSrc: undefined,
         x: nodeToDuplicate.x + 20,
         y: nodeToDuplicate.y + 20,
-        history: [{ src: nodeToDuplicate.src || '', assetId:nodeToDuplicate.assetId, thumbnailSrc:nodeToDuplicate.thumbnailSrc, prompt:nodeToDuplicate.prompt }],
+        history: [{ src: nodeToDuplicate.src || '', assetId:nodeToDuplicate.assetId, thumbnailSrc:nodeToDuplicate.thumbnailSrc, prompt:nodeToDuplicate.prompt, generationInfo:nodeToDuplicate.generationInfo, createdAt:nodeToDuplicate.createdAt }],
         historyIndex: 0
       };
       addNode(newNode);
@@ -80,12 +80,14 @@ export const useCanvasOperations = () => {
       const newSrc = resultSrcs[0];
       const cached = await cacheImageSource(newSrc);
       const canonical = /^(data:|blob:)/i.test(newSrc) && cached.assetId ? '' : newSrc;
-      const oldHistory = node.history || [{ src: node.src || '', assetId:node.assetId, thumbnailSrc:node.thumbnailSrc, prompt:node.prompt }];
+      const oldHistory = node.history?.length ? node.history : [{ src: node.src || '', assetId:node.assetId, thumbnailSrc:node.thumbnailSrc, prompt:node.prompt, generationInfo:node.generationInfo, createdAt:node.createdAt }];
       const oldIndex = node.historyIndex ?? 0;
-      const newHistory = [...oldHistory.slice(0, oldIndex + 1), { src:canonical, assetId:cached.assetId, prompt:"Background Removed" }];
+      const processedAt = new Date().toISOString();
+      const generationInfo = { source: 'processed' as const };
+      const newHistory = [...oldHistory.slice(0, oldIndex + 1), { src:canonical, assetId:cached.assetId, prompt:"Background Removed", generationInfo, createdAt:processedAt }];
       const latest=useCanvasStore.getState().nodes.find(n=>n.id===node.id);
       if (!latest || latest.src !== node.src || latest.assetId !== node.assetId) { setStatus(AppStatus.IDLE); return; }
-      updateNode(node.id, { src:canonical, assetId:cached.assetId, thumbnailSrc:undefined, prompt: "Background Removed", history: newHistory, historyIndex: newHistory.length - 1 });
+      updateNode(node.id, { src:canonical, assetId:cached.assetId, thumbnailSrc:undefined, prompt: "Background Removed", generationInfo, createdAt:processedAt, history: newHistory, historyIndex: newHistory.length - 1 });
       setStatus(AppStatus.IDLE);
     } catch (e) { 
       console.error(e); 

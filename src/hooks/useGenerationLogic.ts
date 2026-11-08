@@ -304,6 +304,7 @@ export const useGenerationLogic = () => {
           resultAssetId,
           isVideo ? 'VIDEO' : (currentNode.type as 'IMAGE' | 'VIDEO'),
           thumbnailSrc,
+          currentNode.generationInfo,
         );
 
         if (!isVideo && imageResultStore.getAutoDownloadPreference(useSelectionStore.getState().autoDownloadOnSuccess)) {

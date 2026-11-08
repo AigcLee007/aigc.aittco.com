@@ -20,6 +20,19 @@ export interface HistoryItem {
   assetId?: string;
   thumbnailSrc?: string;
   prompt?: string;
+  generationInfo?: ImageGenerationInfo;
+  createdAt?: string;
+}
+
+export interface ImageGenerationInfo {
+  source: 'generated' | 'uploaded' | 'processed';
+  modelId?: string;
+  modelName?: string;
+  routeId?: string;
+  routeLabel?: string;
+  recordId?: string;
+  outputSize?: string;
+  aspectRatio?: string;
 }
 
 export interface NodeData {
@@ -40,6 +53,7 @@ export interface NodeData {
   assetId?: string; // ID for Blob storage (IndexedDB)
   prompt?: string;
   createdAt?: string; // ISO timestamp for generated/imported asset display
+  generationInfo?: ImageGenerationInfo;
 
   // Video specific
   videoModel?: string;

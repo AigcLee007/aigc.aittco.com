@@ -1247,7 +1247,10 @@ const buildGenerationRecordPayload = async ({
     errorMessage: errorMessage || null,
     meta: jobContext ? { ...(meta || {}), imageJobId: jobContext.taskId } : meta || null,
   });
-  if (jobContext && record?.id) await jobContext.persist({ generationRecordId: record.id, accountId: resolvedAccount?.accountId || null, routeId: route?.id || null, modelId: modelId || null, upstreamStartedAt: new Date().toISOString() });
+  if (jobContext && record?.id) await jobContext.persist({ generationRecordId: record.id, accountId: resolvedAccount?.accountId || null, routeId: route?.id || null, modelId: modelId || null, upstreamStartedAt: new Date().toISOString(),
+    generationInfo: { source: 'generated', recordId: record.id, modelId: modelId || undefined, modelName: modelName || undefined,
+      routeId: route?.id || undefined, routeLabel: route?.label || undefined, outputSize: outputSize || undefined, aspectRatio: aspectRatio || undefined },
+  });
   return record;
 };
 const completeGenerationRecordSuccessSafe = async ({

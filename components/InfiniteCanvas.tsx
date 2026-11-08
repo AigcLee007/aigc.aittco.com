@@ -8,59 +8,10 @@ import { useSelectionStore } from '../src/store/selectionStore';
 import { useZoom } from '../src/hooks/useZoom';
 import { useCanvasInteraction } from '../src/hooks/useCanvasInteraction';
 import { useViewportCulling } from '../src/hooks/useViewportCulling';
-import { useGenerationProgress } from '../src/hooks/useGenerationProgress';
 import { isLowEndDevice } from '../src/utils/performance';
 import CanvasNode from './CanvasNode';
 import { assetActionSource } from '../src/services/imageAssetActions';
-import { RefreshCw } from 'lucide-react';
-
-const SmartTooltip: React.FC<{ node: NodeData; x: number; y: number }> = ({ node, x, y }) => {
-  const feedback = useGenerationProgress(node);
-  const isVideo = node.type === 'VIDEO';
-  return (
-    <div
-      className="fixed pointer-events-none z-100 bg-zinc-900/90 backdrop-blur-md border border-white/10 rounded-xl px-4 py-3 shadow-[0_8px_32px_rgba(0,0,0,0.5)] transition-opacity duration-200 animate-in fade-in zoom-in-95"
-      style={{
-        left: x + 20,
-        top: y + 20,
-        width: '240px'
-      }}
-    >
-      <div className="flex items-center gap-2 mb-2 pb-2 border-b border-white/5">
-        {node.loading && !node.error ? (
-             <RefreshCw className="animate-spin text-blue-400" size={12} />
-        ) : (
-            node.error ? <div className="w-2 h-2 rounded-full bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.5)]"></div> : <div className="w-2 h-2 rounded-full bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.5)]"></div>
-        )}
-        <span className="text-[10px] font-bold text-gray-300 uppercase tracking-widest flex-1">
-           {node.error ? '生成失败' : node.loading ? `生成中 ${feedback.percentLabel}` : (isVideo ? 'AI VIDEO' : 'AI IMAGE')}
-        </span>
-      </div>
-      
-      {node.loading && !node.error && (
-          <div className="mb-2">
-             <div className="h-1.5 w-full bg-gray-800 rounded-full overflow-hidden border border-white/5">
-                <div className="h-full bg-linear-to-r from-blue-600 to-purple-600 transition-all duration-300 ease-out" style={{ width: `${feedback.percent}%` }} />
-             </div>
-             <div className="text-[10px] text-blue-300 mt-1.5">{feedback.statusText}</div>
-             <div className="text-[10px] text-gray-500 mt-1">{feedback.elapsedLabel}</div>
-          </div>
-      )}
-
-      {node.prompt && (
-         <div className="text-xs text-gray-400 line-clamp-4 leading-relaxed font-medium">
-           {node.prompt}
-         </div>
-      )}
-      
-      {node.error && node.errorMessage && (
-         <div className="text-xs text-red-300 mt-2 bg-red-500/10 p-2 rounded border border-red-500/20">
-           {node.errorMessage}
-         </div>
-      )}
-    </div>
-  );
-};
+import ImageHoverTooltip from './ImageHoverTooltip';
 
 interface InfiniteCanvasProps {
   onContextMenu: (e: React.MouseEvent, nodeId: string) => void;
@@ -88,6 +39,7 @@ const InfiniteCanvas: React.FC<InfiniteCanvasProps> = ({
   // Store state
   const { nodes, canvasState, updateNode, moveNode } = useCanvasStore();
   const currentHoveredNode = hoveredNode ? nodes.find(node => node.id === hoveredNode.id) : undefined;
+  const dismissTooltip = useCallback(() => { setHoveredNode(null); setHoverPosition(null); }, []);
   const { selectedIds, select, toolMode, setToolMode, addReferenceImage, showTooltips, brushSize, brushColor } = useSelectionStore();
   const selectedNodeIds = new Set(selectedIds);
 
@@ -150,7 +102,7 @@ const InfiniteCanvas: React.FC<InfiniteCanvasProps> = ({
   }, [updateNode]);
 
   const handleNodeMouseEnter = useCallback((e: Konva.KonvaEventObject<MouseEvent>, node: NodeData) => {
-    if (lowEndMode) return;
+    if (lowEndMode || e.evt.buttons) return;
     e.cancelBubble = true;
     const stage = e.target.getStage();
     if (stage) stage.container().style.cursor = 'pointer';
@@ -172,12 +124,15 @@ const InfiniteCanvas: React.FC<InfiniteCanvasProps> = ({
   useEffect(() => {
      if(hoveredNode) {
         const handleGlobalMove = (e: MouseEvent) => {
+            if (e.buttons) { dismissTooltip(); return; }
             setHoverPosition({ x: e.clientX, y: e.clientY });
         }
         window.addEventListener('mousemove', handleGlobalMove);
         return () => window.removeEventListener('mousemove', handleGlobalMove);
      }
-  }, [hoveredNode]);
+  }, [hoveredNode, dismissTooltip]);
+
+  useEffect(() => { dismissTooltip(); }, [canvasState.offset.x, canvasState.offset.y, canvasState.scale, dismissTooltip]);
 
   // The stage fills the canvas area, which is narrower than the window while the sidebar is open.
   useEffect(() => {
@@ -489,6 +444,8 @@ const InfiniteCanvas: React.FC<InfiniteCanvasProps> = ({
       ref={containerRef}
       className="w-full h-full overflow-hidden relative canvas-bg"
       style={{ cursor: getCursorStyle(), touchAction: 'none' }}
+      onPointerDownCapture={dismissTooltip}
+      onWheelCapture={dismissTooltip}
     >
       <Stage
         ref={stageRef}
@@ -592,7 +549,7 @@ const InfiniteCanvas: React.FC<InfiniteCanvasProps> = ({
 
       {/* Smart Tooltip Overlay */}
   {showTooltips && !lowEndMode && currentHoveredNode && hoverPosition && (
-        <SmartTooltip node={currentHoveredNode} x={hoverPosition.x} y={hoverPosition.y} />
+        <ImageHoverTooltip key={currentHoveredNode.id} node={currentHoveredNode} x={hoverPosition.x} y={hoverPosition.y} />
       )}
 
       {/* Zoom indicator */}

@@ -49,6 +49,13 @@ it('restores a saved original URL when persistence removed a malformed oversized
   expect(mocks.nodes[0].thumbnailSrc).toBe('/api/image-job-assets/preview.webp');
   expect(mocks.recover).toHaveBeenCalledWith(expect.objectContaining({ id: 'node' }), expect.objectContaining({ source: '/api/image-job-assets/recovered.jpg' }));
 });
+
+it('backfills saved model and route names even when the retained preview already exists', async () => {
+  mocks.nodes[0].thumbnailSrc = '/ready.preview.webp?token=preview.x';
+  mocks.history.mockResolvedValue({ records: [{ id: 'record-old', userId: 'owner', status: 'SUCCESS', taskId: 'job-old', modelName: '历史模型', routeLabel: '历史线路', resultUrls: [] }] });
+  mount();
+  await waitFor(() => expect(mocks.nodes[0].generationInfo).toMatchObject({ modelName: '历史模型', routeLabel: '历史线路', recordId: 'record-old' }));
+});
 it('keeps a locally edited image when its original generation is still in the recovery list', async () => {
   mocks.nodes[0].assetId = 'local-background-removed';
   mocks.nodes[0].src = '';

@@ -6,6 +6,32 @@ import { persistImageJobCredentials } from '../store/canvasStore';
 vi.mock('../store/canvasStore', () => ({ persistImageJobCredentials: vi.fn() }));
 
 describe('recoverable image job submission', () => {
+  it('attaches a request snapshot and then the actual server snapshot to the intended nodes', async () => {
+    const events: any[] = [];
+    const listener = (event: Event) => events.push((event as CustomEvent).detail);
+    window.addEventListener('image-job-metadata', listener);
+    try {
+      vi.mocked(fetch).mockResolvedValueOnce(new Response('{"user":{"userId":"metadata-owner"}}'));
+      const generationInfo = { source: 'generated', modelId: 'server-model', modelName: '执行模型', routeId: 'actual-route', routeLabel: '执行线路' };
+      vi.mocked(fetch).mockResolvedValueOnce(new Response(JSON.stringify({ task_id: 'job-metadata', generationInfo })));
+      await jobs.submitImageJob('/api/generate', { modelId: 'requested-model', model: 'request-model', routeId: 'requested-route', clientLiveTaskIds: ['metadata-node'] }, { 'X-Auth-Session': 'metadata-session' });
+      expect(events).toHaveLength(2);
+      expect(events[0]).toMatchObject({ nodeIds: ['metadata-node'], generationInfo: { source: 'generated', modelId: 'requested-model', routeId: 'requested-route' } });
+      expect(events[0].generationInfo.modelName).toBe('request-model');
+      expect(events[0].generationInfo.routeLabel).toBeUndefined();
+      expect(events[1]).toMatchObject({ nodeIds: ['metadata-node'], generationInfo });
+    } finally { window.removeEventListener('image-job-metadata', listener); }
+  });
+  it('uses an explicit request model when the caller has no catalog IDs', async () => {
+    const events: any[] = [];
+    const listener = (event: Event) => events.push((event as CustomEvent).detail);
+    window.addEventListener('image-job-metadata', listener);
+    try {
+      vi.mocked(fetch).mockResolvedValueOnce(new Response(JSON.stringify({ images: ['/direct.png'] })));
+      await jobs.submitImageJob('/api/generate', { model: 'explicit-api-model', clientLiveTaskIds: ['direct-node'] }, {});
+      expect(events[0].generationInfo).toEqual({ source: 'generated', modelName: 'explicit-api-model' });
+    } finally { window.removeEventListener('image-job-metadata', listener); }
+  });
   beforeEach(() => { localStorage.clear(); vi.stubGlobal('fetch', vi.fn()); });
   afterEach(() => vi.unstubAllGlobals());
   it('uses asynchronous admission and a request ID that remains the same during a lost acknowledgement', async () => {

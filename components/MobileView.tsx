@@ -17,6 +17,7 @@ import logo from '../src/assets/logo.svg';
 import { getPreferredImageDisplayUrl } from '../src/utils/generatedImageStorage';
 import { AssetImage } from '../src/components/AssetImage';
 import { ImageRetentionNotice } from '../src/components/ImageRetentionNotice';
+import { ImageInfoButton } from './ImageGenerationDetails';
 
 interface MobileViewProps {
   onOpenSettings: () => void;
@@ -137,10 +138,10 @@ const MobileView: React.FC<MobileViewProps> = ({
       {nodes.length > 0 && (
         <div className="p-4 grid grid-cols-2 gap-3 pb-24">
           {nodes.map((node) => (
+            <div key={node.id} className="relative aspect-square">
             <button
-              key={node.id}
               type="button"
-              className="aspect-square relative rounded-xl overflow-hidden bg-white/5 border border-white/10 shadow-sm active:scale-95 transition-transform text-left"
+              className="w-full h-full relative rounded-xl overflow-hidden bg-white/5 border border-white/10 shadow-sm active:scale-95 transition-transform text-left"
               onClick={() => (node.src || node.assetId) && openLightbox(node.type === 'IMAGE' ? node : node.src!)}
             >
               {(node.src || node.assetId) && !node.loading && !node.error ? (
@@ -173,6 +174,8 @@ const MobileView: React.FC<MobileViewProps> = ({
                 </div>
               )}
             </button>
+            {node.type === 'IMAGE' && <ImageInfoButton image={node} className="absolute bottom-2 right-2 flex min-h-9 items-center gap-1.5 rounded-lg border border-white/15 bg-black/70 px-2.5 py-2 text-xs text-white backdrop-blur-sm active:scale-95" />}
+            </div>
           ))}
         </div>
       )}

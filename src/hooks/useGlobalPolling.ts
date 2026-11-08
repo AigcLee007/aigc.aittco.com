@@ -13,6 +13,7 @@ import { imageResultStore } from '../services/imageResultStore';
 import { recoverCanvasResult } from '../services/canvasResultIdentity';
 import { fetchGenerationRecords } from '../services/generationRecordService';
 import { canvasHistoryPreviewUpdates, isRetainedPreview } from '../services/canvasHistoryPreviews';
+import { canvasGenerationInfoUpdates, sanitizeGenerationInfo } from '../services/imageGenerationInfo';
 
 export const useGlobalPolling = (
   apiKey: string | undefined,
@@ -50,6 +51,19 @@ export const useGlobalPolling = (
   }, [waitingImages, onUpdateGeneration, toastError]);
 
   useEffect(() => {
+    const metadata = (event: Event) => {
+      const { nodeIds, owner, clientRequestId, generationInfo: rawInfo } = (event as CustomEvent).detail;
+      const generationInfo = sanitizeGenerationInfo(rawInfo);
+      if (!generationInfo) return;
+      for (const id of nodeIds) {
+        const state = useCanvasStore.getState();
+        const node = state.nodes.find(item => item.id === id);
+        if (!node || (node.generationOwnerId && node.generationOwnerId !== owner)
+          || (node.clientRequestId && node.clientRequestId !== clientRequestId)
+          || (node.generationInfo && node.generationInfo.source !== 'generated')) continue;
+        state.updateNode(id, { generationInfo }, true);
+      }
+    };
     const submitting = (event: Event) => {
       const { nodeIds, clientRequestId, owner } = (event as CustomEvent).detail;
       nodeIds.forEach((id: string) => useCanvasStore.getState().updateNode(id, {
@@ -58,7 +72,8 @@ export const useGlobalPolling = (
       }, true));
     };
     window.addEventListener('image-job-submitting', submitting);
-    return () => window.removeEventListener('image-job-submitting', submitting);
+    window.addEventListener('image-job-metadata', metadata);
+    return () => { window.removeEventListener('image-job-submitting', submitting); window.removeEventListener('image-job-metadata', metadata); };
   }, []);
 
   useEffect(() => {
@@ -75,7 +90,7 @@ export const useGlobalPolling = (
         setOwnerId(owner);
         if (Date.now() - lastPreviewCheck > 120000) {
           const taskIds = [...new Set(useCanvasStore.getState().nodes.filter(node => node.generationOwnerId === owner
-            && node.taskId?.startsWith('job-') && !node.loading && !isRetainedPreview(node.thumbnailSrc)).map(node => node.taskId!))];
+            && node.taskId && !node.loading && (!isRetainedPreview(node.thumbnailSrc) || !node.generationInfo?.modelName || !node.generationInfo?.routeLabel)).map(node => node.taskId!))];
           if (taskIds.length) {
             lastPreviewCheck = Date.now();
             void (async () => {
@@ -85,6 +100,8 @@ export const useGlobalPolling = (
                 if (!active || session !== getStoredAuthSessionToken()) return;
                 canvasHistoryPreviewUpdates(useCanvasStore.getState().nodes, result.records, owner)
                   .forEach(({ id, thumbnailSrc }) => useCanvasStore.getState().updateNode(id, { thumbnailSrc }, true));
+                canvasGenerationInfoUpdates(useCanvasStore.getState().nodes, result.records, owner)
+                  .forEach(({ id, generationInfo }) => useCanvasStore.getState().updateNode(id, { generationInfo }, true));
               }
             })().catch(() => {});
           }
@@ -98,6 +115,7 @@ export const useGlobalPolling = (
             if (existing.loading && (!existing.generationOwnerId || existing.generationOwnerId === owner)) state.updateNode(id, {
               clientRequestId: request.requestId, generationOwnerId: owner, generationStartedAt: request.createdAt,
               taskId: request.taskId || `request-${request.requestId}`,
+              ...(request.generationInfo ? { generationInfo: request.generationInfo } : {}),
             }, true);
             continue;
           }
@@ -105,6 +123,7 @@ export const useGlobalPolling = (
             width: 512, height: 512, opacity: 1, locked: false, loading: true, src: '', prompt: request.prompt,
             clientRequestId: request.requestId, generationOwnerId: owner, generationStartedAt: request.createdAt,
             taskId: request.taskId || `request-${request.requestId}`, history: [], historyIndex: 0,
+            generationInfo: request.generationInfo,
           }, true);
         }
         const data = await fetchWithTimeout('/api/image-jobs?uiMode=canvas&limit=100', { headers },
@@ -134,6 +153,10 @@ export const useGlobalPolling = (
             const originalAssetId = imageResultStore.resultId(owner, taskId, node.generationResultIndex || 0);
             const displaysOriginal = node.src ? !node.generationResultSrc || node.src === node.generationResultSrc
               : !node.assetId || node.assetId === originalAssetId;
+            const generationInfo = sanitizeGenerationInfo(job.generationInfo);
+            if (generationInfo && (node.loading || displaysOriginal) && (!node.generationInfo || node.generationInfo.source === 'generated')
+              && (!node.generationInfo?.recordId || node.generationInfo.recordId === generationInfo.recordId)
+              && JSON.stringify(node.generationInfo) !== JSON.stringify(generationInfo)) state.updateNode(node.id, { generationInfo }, true);
             // Upgrade the URL without a second download/log.
             if (!node.loading && !node.error && displaysOriginal && ['succeeded', 'success'].includes(String(job.status).toLowerCase())) {
               const urls = job.results || job.images || job.data?.map((item: any) => item.url) || [];
@@ -299,6 +322,10 @@ export const useGlobalPolling = (
       if (!targetNodes.length) return;
 
       targetNodes.forEach((node) => {
+        const generationInfo = sanitizeGenerationInfo(data.raw?.generationInfo);
+        if (node.type === 'IMAGE' && generationInfo && JSON.stringify(node.generationInfo) !== JSON.stringify(generationInfo)) {
+          useCanvasStore.getState().updateNode(node.id, { generationInfo }, true);
+        }
         // A request lookup can finish before its original POST acknowledgement.
         // Promote the durable ID before completion so a late acknowledgement
         // cannot reopen the same completed task under its synthetic alias.

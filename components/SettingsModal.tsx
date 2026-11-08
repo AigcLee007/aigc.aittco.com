@@ -1,6 +1,7 @@
 import { AssetImage } from '../src/components/AssetImage';
 import { ImageRetentionNotice } from '../src/components/ImageRetentionNotice';
 import { LocalStoragePanel } from '../src/components/LocalStoragePanel';
+import { ImageInfoButton } from './ImageGenerationDetails';
 import { assetActionSource } from '../src/services/imageAssetActions';
 import { readOriginalBlob } from '../src/services/imageAssetCache';
 ﻿import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
@@ -135,6 +136,8 @@ const ResolvedHistoryItem = ({
             </div>
           )}
           <div className="flex justify-center gap-2 mb-2">
+            {historyMediaType === 'image' && <ImageInfoButton image={{ generationInfo: log.generationInfo, prompt: log.prompt, createdAt: log.time }} iconOnly
+              className="pointer-events-auto p-1.5 bg-white/20 hover:bg-blue-500 text-white rounded-lg backdrop-blur-sm transition-colors" />}
             <button 
               onClick={() => onViewImage && onViewImage(originalUrl)}
               className="pointer-events-auto p-1.5 bg-white/20 hover:bg-blue-500 text-white rounded-lg backdrop-blur-sm transition-colors"
@@ -245,6 +248,7 @@ const ResolvedHistoryItem = ({
           </div>
         )}
         <div className="flex items-center gap-1.5 flex-wrap">
+          {historyMediaType === 'image' && !blockActions && <ImageInfoButton image={{ generationInfo: log.generationInfo, prompt: log.prompt, createdAt: log.time }} iconOnly className={actionBtnClass} />}
           <button
             type="button"
             onClick={() => runActionSafely(() => onViewImage && onViewImage(originalUrl))}

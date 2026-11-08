@@ -4,6 +4,7 @@ import { useSelectionStore } from '../src/store/selectionStore';
 import { useCanvasStore } from '../src/store/canvasStore';
 import { ToolMode, type NodeData } from '../types';
 import { UpscaleMark, UPSCALE_MODE_LABEL } from './UpscaleMark';
+import { ImageInfoButton } from './ImageGenerationDetails';
 
 interface SingleImageToolbarProps {
   onUpscale: (node: NodeData) => void;
@@ -31,21 +32,22 @@ const SingleImageToolbar: React.FC<SingleImageToolbarProps> = ({ onUpscale, onCo
     <div
       role="toolbar"
       aria-label="图片快捷操作"
-      className="fixed bottom-8 canvas-center-x z-50 flex -translate-x-1/2 items-center gap-1 rounded-2xl border border-white/10 bg-[#1e1e1e]/90 p-2 shadow-[0_20px_40px_rgba(0,0,0,0.5)] backdrop-blur-xl"
+      className="fixed bottom-8 canvas-center-x z-50 flex max-w-[calc(100vw-24px)] -translate-x-1/2 items-center gap-1 rounded-2xl border border-white/10 bg-[#1e1e1e]/90 p-2 shadow-[0_20px_40px_rgba(0,0,0,0.5)] backdrop-blur-xl"
     >
       <button
         type="button"
         onClick={() => onUpscale(node)}
-        className="flex items-center gap-2 rounded-xl bg-white px-4 py-2 text-sm font-medium text-black transition-colors hover:bg-gray-200"
+        className="flex shrink-0 items-center gap-2 whitespace-nowrap rounded-xl bg-white px-3 py-2 text-sm font-medium text-black transition-colors hover:bg-gray-200"
       >
         <UpscaleMark size={20} />
         {UPSCALE_MODE_LABEL}
       </button>
+      <ImageInfoButton key={node.id} image={node} />
       {canCompare && (
         <button
           type="button"
           onClick={() => onCompare(node, source!)}
-          className="flex items-center gap-2 rounded-xl px-4 py-2 text-sm text-gray-200 transition-colors hover:bg-white/10"
+          className="flex items-center gap-2 rounded-xl px-2 py-2 text-xs text-gray-200 transition-colors hover:bg-white/10"
         >
           <GitCompare size={16} aria-hidden="true" />
           对比放大前后

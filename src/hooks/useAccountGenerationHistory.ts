@@ -4,6 +4,7 @@ import { clearGenerationRecords, fetchGenerationRecords, type GenerationRecord }
 import type { GenerationLog } from '../store/historyStore';
 import { imageResultStore } from '../services/imageResultStore';
 import { getLocalLine4ThumbnailUrl } from '../utils/generatedImageStorage';
+import { generationInfoFromRecord } from '../services/imageGenerationInfo';
 
 const usableUrl = (value: unknown) => typeof value === 'string' && value.length <= 8192
   && !/\[truncated\]/i.test(value) && /^(https?:\/\/|\/(?!\/))/i.test(value) && !/^\/9j\//.test(value) ? value : '';
@@ -18,7 +19,7 @@ function toLogs(records: GenerationRecord[], ownerId: string): GenerationLog[] {
       const imageUrl = usableUrl(source);
       const thumbnailUrl = usableUrl(previews[slot]) || (slot === 0 ? usableUrl(record.previewUrl) : '') || getLocalLine4ThumbnailUrl(imageUrl) || undefined;
       return { id: `account:${record.id}:${slot}`, time: record.createdAt || record.completedAt || '', prompt: record.prompt,
-        imageUrl, thumbnailUrl, assetId, type: record.mediaType };
+        imageUrl, thumbnailUrl, assetId, type: record.mediaType, generationInfo: generationInfoFromRecord(record) };
     });
   });
 }

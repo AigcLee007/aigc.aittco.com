@@ -1,7 +1,8 @@
 import { createStore, get, set, del, keys } from 'idb-keyval';
+import type { ImageGenerationInfo } from '../../types';
 
 const store = createStore('image-job-recovery-v1', 'requests');
-export type PendingImageRequest = { owner: string; requestId: string; endpoint: string; payload: any; createdAt: number; admittedTaskId?: string };
+export type PendingImageRequest = { owner: string; requestId: string; endpoint: string; payload: any; createdAt: number; admittedTaskId?: string; generationInfo?: ImageGenerationInfo };
 const key = (owner: string, requestId: string) => `${owner}:${requestId}`;
 export async function saveImageRequest(request: PendingImageRequest) {
   await pruneImageRequests();
@@ -17,12 +18,12 @@ export async function markImageRequestAccepted(owner: string, requestId: string,
   } }, store);
 }
 export async function listImageRequests(owner: string) {
-  const result: Array<{requestId: string; nodeIds: string[]; prompt: string; createdAt: number; taskId?: string}> = [];
+  const result: Array<{requestId: string; nodeIds: string[]; prompt: string; createdAt: number; taskId?: string; generationInfo?: ImageGenerationInfo}> = [];
   for (const id of await keys<string>(store)) {
     if (!id.startsWith(`${owner}:`)) continue;
     const value = await get<PendingImageRequest>(id, store);
     if (value?.payload.uiMode === 'canvas' && Date.now() - value.createdAt < 20 * 60 * 1000) {
-      result.push({ requestId: value.requestId, nodeIds: value.payload.clientLiveTaskIds || [], prompt: value.payload.prompt || '', createdAt: value.createdAt, ...(value.admittedTaskId ? { taskId: value.admittedTaskId } : {}) });
+      result.push({ requestId: value.requestId, nodeIds: value.payload.clientLiveTaskIds || [], prompt: value.payload.prompt || '', createdAt: value.createdAt, ...(value.admittedTaskId ? { taskId: value.admittedTaskId } : {}), ...(value.generationInfo ? { generationInfo: value.generationInfo } : {}) });
     }
   }
   return result;

@@ -106,7 +106,7 @@ const ContextMenu: React.FC<ContextMenuProps> = ({
       sourceNode.history && sourceNode.history.length > 0
         ? sourceNode.history
         : sourceNode.src
-          ? [{ src: sourceNode.src, assetId:sourceNode.assetId, thumbnailSrc:sourceNode.thumbnailSrc, prompt: sourceNode.prompt }]
+          ? [{ src: sourceNode.src, assetId:sourceNode.assetId, thumbnailSrc:sourceNode.thumbnailSrc, prompt: sourceNode.prompt, generationInfo: sourceNode.generationInfo, createdAt: sourceNode.createdAt }]
           : [];
     const previousIndex =
       typeof sourceNode.historyIndex === 'number'
@@ -119,6 +119,8 @@ const ContextMenu: React.FC<ContextMenuProps> = ({
         assetId: node.assetId,
         thumbnailSrc: node.thumbnailSrc,
         prompt: node.prompt || sourceNode.prompt,
+        generationInfo: node.generationInfo,
+        createdAt: node.createdAt,
       },
     ];
 
@@ -127,6 +129,8 @@ const ContextMenu: React.FC<ContextMenuProps> = ({
       assetId: node.assetId,
       thumbnailSrc: node.thumbnailSrc,
       prompt: node.prompt || sourceNode.prompt,
+      generationInfo: node.generationInfo,
+      createdAt: node.createdAt,
       width: node.width,
       height: node.height,
       error: false,

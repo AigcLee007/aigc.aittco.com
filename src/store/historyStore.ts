@@ -2,6 +2,8 @@ import { create } from 'zustand';
 import { createJSONStorage, persist, type StateStorage } from 'zustand/middleware';
 import { get, set, del } from 'idb-keyval';
 import { bounded } from '../services/imageAssetTypes';
+import type { ImageGenerationInfo } from '../../types';
+import { sanitizeGenerationInfo } from '../services/imageGenerationInfo';
 import { beginLocalRead, deferLocalRecoveryWrite, finishLocalRead, localStoreWritable, mergeRecoveredLocalState, setLocalReadFailed } from '../services/localHydrationSafety';
 
 const MAX_HISTORY_LOGS = 50;
@@ -14,11 +16,12 @@ export interface GenerationLog {
   thumbnailUrl?: string;
   assetId?: string;
   type: 'IMAGE' | 'VIDEO';
+  generationInfo?: ImageGenerationInfo;
 }
 
 interface HistoryStore {
   logs: GenerationLog[];
-  addLog: (prompt: string, imageUrl: string, assetId?: string, type?: 'IMAGE' | 'VIDEO', thumbnailUrl?: string) => string;
+  addLog: (prompt: string, imageUrl: string, assetId?: string, type?: 'IMAGE' | 'VIDEO', thumbnailUrl?: string, generationInfo?: ImageGenerationInfo) => string;
   updateLogAsset: (id: string, assetId: string, imageUrl?: string, thumbnailUrl?: string) => void;
   compactLogs: () => void;
   clearLogs: () => void;
@@ -48,6 +51,7 @@ const sanitizeHistoryLog = (log: Partial<GenerationLog> | null | undefined): Gen
     ...(thumbnailUrl ? { thumbnailUrl } : {}),
     ...(assetId ? { assetId } : {}),
     type: log.type === 'VIDEO' ? 'VIDEO' : 'IMAGE',
+    ...(sanitizeGenerationInfo(log.generationInfo) ? { generationInfo: sanitizeGenerationInfo(log.generationInfo) } : {}),
   };
 };
 
@@ -86,7 +90,7 @@ export const useHistoryStore = create<HistoryStore>()(
     (set, get) => ({
       logs: [],
 
-      addLog: (prompt: string, imageUrl: string, assetId?: string, type: 'IMAGE' | 'VIDEO' = 'IMAGE', thumbnailUrl?: string) => {
+      addLog: (prompt: string, imageUrl: string, assetId?: string, type: 'IMAGE' | 'VIDEO' = 'IMAGE', thumbnailUrl?: string, generationInfo?: ImageGenerationInfo) => {
         const id = `log-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
         const newLog = sanitizeHistoryLog({
           id,
@@ -94,6 +98,7 @@ export const useHistoryStore = create<HistoryStore>()(
           prompt,
           imageUrl,
           thumbnailUrl,
+          generationInfo,
           assetId,
           type,
         });

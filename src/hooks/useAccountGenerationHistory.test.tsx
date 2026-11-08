@@ -13,6 +13,12 @@ const page = (records: GenerationRecord[], number = 1, totalPages = 1) => ({ suc
 beforeEach(() => { vi.resetAllMocks(); localStorage.setItem('auth-session-v1', 'session-one'); });
 
 describe('account history independent of browser image cache', () => {
+  it('uses saved model and route names from each generation record', async () => {
+    vi.mocked(fetchGenerationRecords).mockResolvedValue(page([{ ...record('snapshot'), modelId: 'old-model', modelName: '历史模型', routeId: 'old-route', routeLabel: '历史线路', outputSize: '1K', aspectRatio: '16:9' }]));
+    const { result } = renderHook(() => useAccountGenerationHistory({ enabled: true, ownerId: 'owner', mediaType: 'image', localLogs: [] }));
+    await waitFor(() => expect(result.current.logs).toHaveLength(1));
+    expect((result.current.logs[0] as any).generationInfo).toMatchObject({ source: 'generated', modelName: '历史模型', routeLabel: '历史线路', recordId: 'snapshot' });
+  });
   it('loads old account records with permanent previews when local history is empty, and pages older records', async () => {
     vi.mocked(fetchGenerationRecords).mockResolvedValueOnce(page([record('first')], 1, 2)).mockResolvedValueOnce(page([record('older')], 2, 2));
     const { result } = renderHook(() => useAccountGenerationHistory({ enabled: true, ownerId: 'owner', mediaType: 'image', localLogs: [] }));

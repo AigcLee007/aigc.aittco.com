@@ -162,6 +162,7 @@ const BatchProcessModal: React.FC<BatchProcessModalProps> = ({
                 routeId: selectedImageRoute.id,
                 model: selectedImageModel,
                 modelId: imageModel,
+                clientLiveTaskIds: [generationId],
               },
             )
           : await editImage(
@@ -176,6 +177,7 @@ const BatchProcessModal: React.FC<BatchProcessModalProps> = ({
                 routeId: selectedImageRoute.id,
                 model: selectedImageModel,
                 modelId: imageModel,
+                clientLiveTaskIds: [generationId],
               },
             );
 

@@ -6,6 +6,14 @@ const imageJobContext = new AsyncLocalStorage();
 const statusError = (message, status = 500) => Object.assign(new Error(message), {status});
 const positive = (value, fallback) => Number.isFinite(Number(value)) && Number(value)>0 ? Number(value) : fallback;
 const terminal = job => ['succeeded','failed'].includes(job?.status);
+const publicGenerationInfo = value => {
+  if (!value || value.source !== 'generated') return undefined;
+  const info = {source:'generated'};
+  for (const key of ['modelId','modelName','routeId','routeLabel','recordId','outputSize','aspectRatio']) {
+    if (typeof value[key] === 'string' && value[key].trim()) info[key] = value[key].trim().slice(0,256);
+  }
+  return info;
+};
 const state = payload => String(payload?.status || payload?.state || payload?.data?.status || payload?.data?.state || '').trim().toUpperCase();
 const readProgress = (payload, depth=0) => {
   if(!payload || typeof payload!=='object' || depth>4)return undefined;
@@ -184,6 +192,7 @@ function createImageJobService(options = {}) {
   const publicStatus = job => job.status==='running' ? ['QUEUED','IN_QUEUE'].includes(job.upstreamStatus) ? 'queued' : 'processing' : job.status;
   const ack = job => ({id:job.taskId,task_id:job.taskId,request_id:job.requestId,status:publicStatus(job),progress:job.progress||0,results:[],created_at:job.createdAt});
   const publicJob = job => ({...ack(job),...smallPayload(job,job.resultUrls||[]),
+    ...(job.generationInfo ? { generationInfo: publicGenerationInfo(job.generationInfo) } : {}),
     clientRequestId:job.requestId,clientLiveTaskIds:job.clientLiveTaskIds||[],
     prompt:job.prompt||'',model:job.model||null,modelId:job.modelId||null,routeId:job.routeId||null,
     outputSize:job.outputSize||null,aspectRatio:job.aspectRatio||null,uiMode:job.uiMode||'canvas',

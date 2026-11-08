@@ -22,7 +22,7 @@ export const useImageProcessor = () => {
            const meta = await assetStorage.getMeta(assetId);
            const ratio = (meta?.height || 512) / (meta?.width || 512);
            const width = ratio > 1 ? 512 / ratio : 512;
-           return {id:generateId(),type:'IMAGE',x:0,y:0,width,height:width*ratio,assetId,src:'',prompt,createdAt:importedAt,history:[{src:'',assetId,prompt}],historyIndex:0};
+           return {id:generateId(),type:'IMAGE',x:0,y:0,width,height:width*ratio,assetId,src:'',prompt,createdAt:importedAt,generationInfo:{source:'uploaded'},history:[{src:'',assetId,prompt,createdAt:importedAt,generationInfo:{source:'uploaded'}}],historyIndex:0};
         };
 
         const createNodeFromSrc = async (src: string, prompt: string): Promise<NodeData> => {
@@ -33,7 +33,7 @@ export const useImageProcessor = () => {
           const ratio = (meta?.height || 512) / (meta?.width || 512);
           const width = ratio > 1 ? 512 / ratio : 512;
           const canonical = /^(blob:|data:)/i.test(src) ? '' : src;
-          return {id:generateId(),type:'IMAGE',x:0,y:0,width,height:width*ratio,src:canonical,assetId:cached.assetId,prompt,createdAt:importedAt,history:[{src:canonical,assetId:cached.assetId,prompt}],historyIndex:0};
+          return {id:generateId(),type:'IMAGE',x:0,y:0,width,height:width*ratio,src:canonical,assetId:cached.assetId,prompt,createdAt:importedAt,generationInfo:{source:'uploaded'},history:[{src:canonical,assetId:cached.assetId,prompt,createdAt:importedAt,generationInfo:{source:'uploaded'}}],historyIndex:0};
         };
 
         const results:Array<NodeData|null> = [];
