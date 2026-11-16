@@ -3,14 +3,46 @@ const fs = require("fs");
 const path = require("path");
 
 describe("image route store schema seeding", () => {
-  it("seeds static routes only through the one-time catalog initializer", () => {
+  it("adds only static routes missing from the managed catalog", () => {
     const source = fs.readFileSync(path.join(__dirname, "imageRouteStore.cjs"), "utf8");
 
-    assert.ok(source.includes('catalogName: "image-routes"'));
-    assert.ok(source.includes('countSql: "SELECT COUNT(*) AS total FROM image_routes"'));
-    assert.ok(source.includes("seed: async () => {"));
-    assert.ok(source.includes("for (const row of buildStaticRows())"));
-    assert.ok(source.includes("initializeCatalogOnce(connection"));
+    assert.ok(source.includes("const missingRows = getMissingStaticRows("));
+    assert.ok(source.includes('SELECT route_id, model_family, line_value, is_default_route, is_default_nano_banana_line FROM image_routes'));
+  });
+
+  it("skips existing IDs and family-line duplicates without changing existing defaults", () => {
+    const { getMissingStaticRows } = require("./imageRouteStore.cjs");
+    const existingRows = [
+      { route_id: "managed", model_family: "seedream", line_value: "SD专线", is_default_route: 1 },
+      { route_id: "custom", model_family: "seedream", line_value: "自定义", is_default_route: 0 },
+    ];
+    const staticRows = [
+      { route_id: "managed", model_family: "seedream", line_value: "renamed", is_default_route: 0 },
+      { route_id: "new-id-same-line", model_family: "seedream", line_value: "SD专线", is_default_route: 0 },
+      { route_id: "new-default", model_family: "seedream", line_value: "稳定线路", is_default_route: 1 },
+      { route_id: "new-family-default", model_family: "another", line_value: "默认", is_default_route: 1 },
+    ];
+
+    const missing = getMissingStaticRows(staticRows, existingRows);
+
+    assert.deepEqual(missing.map((row) => row.route_id), ["new-default", "new-family-default"]);
+    assert.equal(missing[0].is_default_route, false);
+    assert.equal(missing[1].is_default_route, true);
+    assert.equal(existingRows[0].is_default_route, 1);
+    assert.equal(staticRows[2].is_default_route, 1);
+  });
+
+  it("does not import duplicate family-line pairs from the static catalog", () => {
+    const { getMissingStaticRows } = require("./imageRouteStore.cjs");
+    const staticRows = [
+      { route_id: "first", model_family: "seedream", line_value: "稳定线路", is_default_route: 0 },
+      { route_id: "second", model_family: "seedream", line_value: "稳定线路", is_default_route: 0 },
+    ];
+
+    assert.deepEqual(
+      getMissingStaticRows(staticRows, []).map((row) => row.route_id),
+      ["first"],
+    );
   });
 
   it("normalizes mapped VISON routes through the compatibility layer", () => {
