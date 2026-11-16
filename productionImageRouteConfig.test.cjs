@@ -83,3 +83,32 @@ test("Visionary Seedream stable route matches the documented model, endpoint, an
     assert.equal(route.sizeOverrides["2k"].pointCost, 5);
   }
 });
+
+test("Seedream-5.5 production routes mirror the Seedream-5-pro routes and use the 5.5 upstream model", () => {
+  const routes = catalog.routes.filter((route) => route.modelFamily === "seedream-5.5");
+  assert.equal(routes.length, 3);
+
+  const dedicated = routes.find((route) => route.id === "seedream-5.5-seedream-dedicated");
+  const backup = routes.find((route) => route.id === "seedream-5.5-backup");
+  const visionary = routes.find((route) => route.id === "seedream-5.5-visionary-stable");
+
+  assert.ok(dedicated);
+  assert.equal(dedicated.upstreamModel, "seedream-5.5");
+  assert.equal(dedicated.pointCost, 3);
+  assert.equal(dedicated.isDefaultRoute, true);
+  assert.ok(backup);
+  assert.equal(backup.upstreamModel, "seedream-5.5");
+  assert.equal(backup.pointCost, 6);
+  assert.ok(visionary);
+  assert.equal(visionary.label, "稳定线路");
+  assert.equal(visionary.baseUrl, "https://api.visionary.beer");
+  assert.equal(visionary.upstreamModel, "seedream-5.5");
+  assert.equal(visionary.apiKeyEnv, "Nanobananapro_visionary");
+  assert.equal(visionary.sizeOverrides["1k"].pointCost, 4);
+  assert.equal(visionary.sizeOverrides["2k"].pointCost, 5);
+
+  const runtimeRoutes = runtimeCatalog.routes.filter((route) => route.modelFamily === "seedream-5.5");
+  assert.equal(runtimeRoutes.length, 2);
+  assert.ok(runtimeRoutes.some((route) => route.id === "seedream-5.5-default" && route.upstreamModel === "seedream-5.5"));
+  assert.ok(runtimeRoutes.some((route) => route.id === "seedream-5.5-visionary-stable" && route.upstreamModel === "seedream-5.5"));
+});

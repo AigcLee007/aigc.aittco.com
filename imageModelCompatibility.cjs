@@ -1,8 +1,8 @@
 const GPT_IMAGE_COMPATIBLE_PATTERN = /^gpt-image-2(?:$|-|\.[56](?:-|$))/i;
 
 const isGptImageCompatibleModel = (value = '') => {
-  const normalized = String(value || '').trim();
-  return normalized === 'seedream-5-pro' || GPT_IMAGE_COMPATIBLE_PATTERN.test(normalized);
+  const normalized = String(value || '').trim().toLowerCase();
+  return normalized.startsWith('seedream-') || GPT_IMAGE_COMPATIBLE_PATTERN.test(normalized);
 };
 
 module.exports = {

@@ -18,6 +18,7 @@ describe('Seedream quality request policy', () => {
   it('omits quality for every Seedream route, even when the UI retained a custom value', () => {
     assert.deepEqual(getGptImageQualityFields('seedream-5-pro', 'medium'), {});
     assert.deepEqual(getGptImageQualityFields('seedream-5-pro', 'auto'), {});
+    assert.deepEqual(getGptImageQualityFields('seedream-5.5', 'high'), {});
   });
 
   it('keeps GPT Image quality selection and its default for other models', () => {

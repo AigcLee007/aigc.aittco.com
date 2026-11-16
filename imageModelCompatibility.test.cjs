@@ -13,6 +13,7 @@ describe('GPT-compatible image model detection', () => {
 
   it('preserves Seedream compatibility and rejects unrelated names', () => {
     assert.strictEqual(isGptImageCompatibleModel('seedream-5-pro'), true);
+    assert.strictEqual(isGptImageCompatibleModel('seedream-5.5'), true);
     assert.strictEqual(isGptImageCompatibleModel('gpt-image-20'), false);
     assert.strictEqual(isGptImageCompatibleModel('gemini-3.1-flash-image-preview'), false);
   });
