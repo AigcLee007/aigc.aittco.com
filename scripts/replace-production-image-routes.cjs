@@ -4,7 +4,7 @@ const path = require("node:path");
 const { closePool, getPool, isMySqlConfigured, withTransaction } = require("../db.cjs");
 
 const CONFIG_PATH = path.join(__dirname, "../config/production-image-routes.json");
-const REQUIRED_ROUTE_COUNT = 28;
+const REQUIRED_ROUTE_COUNT = 32;
 const ACTIVE_JOB_STATES = ["queued", "running"];
 
 const validateRouteConfig = (catalog) => {
