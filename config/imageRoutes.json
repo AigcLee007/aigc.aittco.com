@@ -253,6 +253,46 @@
       "sortOrder": 1
     },
     {
+      "id": "seedream-5.5-default",
+      "label": "线路一",
+      "description": "",
+      "modelFamily": "seedream-5.5",
+      "line": "线路一",
+      "transport": "openai-image",
+      "mode": "sync",
+      "baseUrl": "https://api.pixellelabs.com",
+      "generatePath": "/v1/images/generations",
+      "editPath": "/v1/images/edits",
+      "upstreamModel": "seedream-5.5",
+      "apiKeyEnv": "IMAGE_ROUTE_SEEDREAM_5_PRO_KEY",
+      "pointCost": 3,
+      "sortOrder": 0
+    },
+    {
+      "id": "seedream-5.5-visionary-stable",
+      "label": "稳定线路",
+      "description": "",
+      "modelFamily": "seedream-5.5",
+      "line": "稳定线路",
+      "transport": "openai-image",
+      "mode": "async",
+      "baseUrl": "https://api.visionary.beer",
+      "generatePath": "/v1/images/generations",
+      "taskPath": "/v1/tasks/{taskId}",
+      "upstreamModel": "seedream-5.5",
+      "apiKeyEnv": "Nanobananapro_visionary",
+      "pointCost": 5,
+      "sizeOverrides": {
+        "1k": {
+          "pointCost": 4
+        },
+        "2k": {
+          "pointCost": 5
+        }
+      },
+      "sortOrder": 1
+    },
+    {
       "id": "gpt-image-2.5-flare-stable",
       "label": "稳定线路",
       "description": "",

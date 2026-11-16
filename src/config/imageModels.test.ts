@@ -85,6 +85,7 @@ describe('GPT-compatible image model detection', () => {
     expect(isGptImageCompatibleModel('gpt-image-2.5-flare')).toBe(true);
     expect(isGptImageCompatibleModel('gpt-image-2.5-sunburst')).toBe(true);
     expect(isGptImageCompatibleModel('seedream-5-pro')).toBe(true);
+    expect(isGptImageCompatibleModel('seedream-5.5')).toBe(true);
     expect(isGptImageCompatibleModel('gemini-3.1-flash-image-preview')).toBe(false);
   });
 });
@@ -113,6 +114,44 @@ describe('Seedream-5-pro catalog', () => {
       generatePath: '/v1/images/generations',
       taskPath: '/v1/tasks/{taskId}',
       upstreamModel: 'seedream-5.0-pro',
+      apiKeyEnv: 'Nanobananapro_visionary',
+      mode: 'async',
+    });
+    expect(visionary?.sizeOverrides).toEqual({
+      '1k': { pointCost: 4 },
+      '2k': { pointCost: 5 },
+    });
+    expect(getImageRoutePointCost(visionary, '1k')).toBe(4);
+    expect(getImageRoutePointCost(visionary, '2k')).toBe(5);
+  });
+});
+
+describe('Seedream-5.5 catalog', () => {
+  it('registers the 5.5 model with the same runtime lines and pricing as Seedream-5-pro', () => {
+    const model = getImageModelById('seedream-5.5');
+    const routes = getImageRoutesByModelFamily('seedream-5.5');
+
+    expect(model.label).toBe('Seedream-5.5');
+    expect(model.requestModel).toBe('seedream-5.5');
+    expect(model.selectorCost).toBe(3);
+    expect(getImageModelSizeOptions(model.id)).toEqual(['1k', '2k']);
+    expect(routes).toHaveLength(2);
+    expect(routes.find((route) => route.id === 'seedream-5.5-default')).toMatchObject({
+      baseUrl: 'https://api.pixellelabs.com',
+      generatePath: '/v1/images/generations',
+      editPath: '/v1/images/edits',
+      upstreamModel: 'seedream-5.5',
+      pointCost: 3,
+    });
+
+    const visionary = routes.find((route) => route.id === 'seedream-5.5-visionary-stable');
+    expect(visionary).toMatchObject({
+      label: '稳定线路',
+      line: '稳定线路',
+      baseUrl: 'https://api.visionary.beer',
+      generatePath: '/v1/images/generations',
+      taskPath: '/v1/tasks/{taskId}',
+      upstreamModel: 'seedream-5.5',
       apiKeyEnv: 'Nanobananapro_visionary',
       mode: 'async',
     });

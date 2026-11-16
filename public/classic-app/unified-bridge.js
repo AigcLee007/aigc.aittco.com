@@ -880,7 +880,7 @@
       .filter(Boolean);
     return values.some(
       (value) =>
-        value === "seedream-5-pro" ||
+        value.toLowerCase().startsWith("seedream-") ||
         /^gpt-image-2(?:$|-|\.5(?:-|$))/i.test(value),
     );
   };

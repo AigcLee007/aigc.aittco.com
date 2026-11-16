@@ -3522,7 +3522,7 @@ const legacyImageGenerateHandler = async (req, res) => {
     if (!route) {
       return sendUserFacingGenerationError(res, 400, new Error("图片线路不存在或已停用，请联系管理员"));
     }
-    if (requestedImageModel?.id === "seedream-5-pro") {
+    if (requestedImageModel?.id?.toLowerCase().startsWith("seedream-")) {
       const sizeError = getSeedreamSizeError(requestBody);
       if (sizeError) {
         return sendUserFacingGenerationError(res, 400, new Error(sizeError));
@@ -4830,7 +4830,7 @@ const legacyImageEditHandler = async (req, res) => {
     if (!route || (!route.editPath && route.transport !== 'openai-image')) {
       return sendUserFacingGenerationError(res, 400, new Error("图片编辑线路不存在或已停用，请联系管理员"));
     }
-    if (requestedImageModel?.id === "seedream-5-pro") {
+    if (requestedImageModel?.id?.toLowerCase().startsWith("seedream-")) {
       const sizeError = getSeedreamSizeError(requestBody);
       if (sizeError) {
         return sendUserFacingGenerationError(res, 400, new Error(sizeError));
@@ -6066,7 +6066,7 @@ const validateImageJobRequest = async (req, endpoint) => {
   if (isGeminiNativeRoute(route)) {
     const countError = getGeminiSingleImageRequestError(body); if (countError) throw Object.assign(new Error(countError), { status: 400 });
   }
-  if (model?.id === "seedream-5-pro") { const error = getSeedreamSizeError(body); if (error) throw Object.assign(new Error(error), { status: 400 }); }
+  if (model?.id?.toLowerCase().startsWith("seedream-")) { const error = getSeedreamSizeError(body); if (error) throw Object.assign(new Error(error), { status: 400 }); }
   if (endpoint === "/api/edit" && !(typeof body.image === "string" && body.image.trim()) && !(Array.isArray(body.images) && body.images.some(value => typeof value === "string" && value.trim()))) throw Object.assign(new Error("图片编辑需要参考图"), { status: 400 });
   if (!shouldUseUserProvidedApiKey(route, req.headers.authorization)) await requireBillingAccount(req);
   return user;

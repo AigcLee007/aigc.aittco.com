@@ -108,6 +108,41 @@ const buildStaticRows = () =>
     : [];
 const getStaticModelDefaults = (modelId) =>
   buildStaticRows().find((row) => trimToString(row.model_id) === trimToString(modelId)) || null;
+const insertImageModelRow = async (connection, row, nowDb, { ignoreConflict = false } = {}) => {
+  await connection.execute(
+    `
+      ${ignoreConflict ? "INSERT IGNORE" : "INSERT"} INTO image_models (
+        model_id, label, description, model_family, route_family,
+        request_model, selector_cost, icon_kind, panel_layout, size_behavior,
+        default_size, size_options_json, extra_aspect_ratios_json,
+        show_size_selector, supports_custom_ratio, is_active,
+        is_default_model, sort_order, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `,
+    [
+      row.model_id,
+      row.label,
+      row.description,
+      row.model_family,
+      row.route_family,
+      row.request_model,
+      row.selector_cost,
+      row.icon_kind,
+      row.panel_layout,
+      row.size_behavior,
+      row.default_size,
+      row.size_options_json,
+      row.extra_aspect_ratios_json,
+      row.show_size_selector ? 1 : 0,
+      row.supports_custom_ratio ? 1 : 0,
+      row.is_active ? 1 : 0,
+      row.is_default_model ? 1 : 0,
+      row.sort_order,
+      nowDb,
+      nowDb,
+    ],
+  );
+};
 
 const mapRowToModel = (row) => ({
   id: trimToString(row.model_id),
@@ -203,7 +238,6 @@ const ensureImageModelSchema = async () => {
           MODIFY COLUMN selector_cost DECIMAL(10,1) NOT NULL DEFAULT 0
         `);
       }
-
       await withTransaction(async (connection) => {
         const nowDb = toDbDateTime();
         await initializeCatalogOnce(connection, {
@@ -211,40 +245,16 @@ const ensureImageModelSchema = async () => {
           countSql: "SELECT COUNT(*) AS total FROM image_models",
           seed: async () => {
             for (const row of buildStaticRows()) {
-              await connection.execute(
-                `
-                  INSERT INTO image_models (
-                    model_id, label, description, model_family, route_family,
-                    request_model, selector_cost, icon_kind, panel_layout, size_behavior,
-                    default_size, size_options_json, extra_aspect_ratios_json,
-                    show_size_selector, supports_custom_ratio, is_active,
-                    is_default_model, sort_order, created_at, updated_at
-                  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                `,
-                [
-                  row.model_id,
-                  row.label,
-                  row.description,
-                  row.model_family,
-                  row.route_family,
-                  row.request_model,
-                  row.selector_cost,
-                  row.icon_kind,
-                  row.panel_layout,
-                  row.size_behavior,
-                  row.default_size,
-                  row.size_options_json,
-                  row.extra_aspect_ratios_json,
-                  row.show_size_selector ? 1 : 0,
-                  row.supports_custom_ratio ? 1 : 0,
-                  row.is_active ? 1 : 0,
-                  row.is_default_model ? 1 : 0,
-                  row.sort_order,
-                  nowDb,
-                  nowDb,
-                ],
-              );
+              await insertImageModelRow(connection, row, nowDb);
             }
+          },
+        });
+        await initializeCatalogOnce(connection, {
+          catalogName: "image-models-seedream-5.5",
+          countSql: "SELECT COUNT(*) AS total FROM image_models WHERE model_id = 'seedream-5.5'",
+          seed: async () => {
+            const row = getStaticModelDefaults("seedream-5.5");
+            if (row) await insertImageModelRow(connection, row, nowDb, { ignoreConflict: true });
           },
         });
       });

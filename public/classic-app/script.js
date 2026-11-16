@@ -93,6 +93,14 @@ let classicPricingCatalog = {
       selectorCost: 3,
     },
     {
+      id: "seedream-5.5",
+      label: "Seedream-5.5",
+      routeFamily: "seedream-5.5",
+      sizeOptions: ["1k", "2k"],
+      defaultSize: "2k",
+      selectorCost: 3,
+    },
+    {
       id: "gpt-image-2.5",
       label: "GPT-Image-2.5",
       routeFamily: "gpt-image-2.5",
@@ -150,6 +158,25 @@ let classicPricingCatalog = {
       modelFamily: "seedream-5-pro",
       line: "line1",
       pointCost: 3,
+    },
+    {
+      id: "seedream-5.5-default",
+      label: "Line 1",
+      modelFamily: "seedream-5.5",
+      line: "line1",
+      pointCost: 3,
+      isDefaultRoute: true,
+    },
+    {
+      id: "seedream-5.5-visionary-stable",
+      label: "稳定线路",
+      modelFamily: "seedream-5.5",
+      line: "稳定线路",
+      pointCost: 5,
+      sizeOverrides: {
+        "1k": { pointCost: 4 },
+        "2k": { pointCost: 5 },
+      },
     },
     {
       id: "gpt-image-2.5-flare",
@@ -1427,7 +1454,7 @@ function getClassicSelectedModelId(fallback = imageModel) {
 function isClassicGptImageModel(modelId = null) {
   const selected = getClassicSelectedModelId(modelId || imageModel);
   return (
-    selected === "seedream-5-pro" ||
+    selected.toLowerCase().startsWith("seedream-") ||
     /^gpt-image-2(?:$|-|\.5(?:-|$))/i.test(String(selected || "").trim())
   );
 }
