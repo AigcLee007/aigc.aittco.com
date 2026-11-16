@@ -2,10 +2,6 @@ const staticCatalog = require("./config/imageRoutes.json");
 const {
   normalizeImageRouteCompatibility,
 } = require("./imageRouteCompatibility.cjs");
-const {
-  ensureCatalogInitializationSchema,
-  initializeCatalogOnce,
-} = require("./imageCatalogInitialization.cjs");
 const { toNonNegativePoint } = require("./pointMath.cjs");
 const {
   fromDbDateTime,
@@ -178,6 +174,44 @@ const buildStaticRows = () =>
     ? staticCatalog.routes.map((route, index) => normalizeStaticRoute(route, index))
     : [];
 
+const getMissingStaticRows = (staticRows = [], existingRows = []) => {
+  const existingRouteIds = new Set(existingRows.map((row) => trimToString(row.route_id)));
+  const existingFamilyLines = new Set(existingRows.map((row) =>
+    `${trimToString(row.model_family)}\u0000${trimToString(row.line_value)}`,
+  ));
+  const defaultFamilies = new Set(existingRows
+    .filter((row) => parseBoolean(row.is_default_route, false))
+    .map((row) => trimToString(row.model_family)));
+  let hasDefaultNanoLine = existingRows.some((row) =>
+    parseBoolean(row.is_default_nano_banana_line, false),
+  );
+  const missing = [];
+
+  for (const row of staticRows) {
+    const routeId = trimToString(row.route_id);
+    const modelFamily = trimToString(row.model_family);
+    const familyLine = `${modelFamily}\u0000${trimToString(row.line_value)}`;
+    if (!routeId || existingRouteIds.has(routeId) || existingFamilyLines.has(familyLine)) continue;
+
+    const isDefaultRoute = parseBoolean(row.is_default_route, false) && !defaultFamilies.has(modelFamily);
+    const isDefaultNanoLine =
+      modelFamily === "nano-banana" &&
+      parseBoolean(row.is_default_nano_banana_line, false) &&
+      !hasDefaultNanoLine;
+    missing.push({
+      ...row,
+      is_default_route: isDefaultRoute,
+      is_default_nano_banana_line: isDefaultNanoLine,
+    });
+    existingRouteIds.add(routeId);
+    existingFamilyLines.add(familyLine);
+    if (isDefaultRoute) defaultFamilies.add(modelFamily);
+    if (isDefaultNanoLine) hasDefaultNanoLine = true;
+  }
+
+  return missing;
+};
+
 const getStaticRouteDefaults = (routeId) =>
   buildStaticRows().find((row) => trimToString(row.route_id) === trimToString(routeId)) || null;
 
@@ -309,8 +343,6 @@ const ensureImageRouteSchema = async () => {
           INDEX idx_image_routes_family_line (model_family, line_value)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
       `);
-      await ensureCatalogInitializationSchema(pool);
-
       const [allowUserKeyColumns] = await pool.execute(
         "SHOW COLUMNS FROM image_routes LIKE 'allow_user_api_key_without_login'",
       );
@@ -362,56 +394,54 @@ const ensureImageRouteSchema = async () => {
         `);
       }
       await withTransaction(async (connection) => {
+        const [existingRows] = await connection.execute(
+          "SELECT route_id, model_family, line_value, is_default_route, is_default_nano_banana_line FROM image_routes",
+        );
+        const missingRows = getMissingStaticRows(buildStaticRows(), existingRows || []);
         const nowDb = toDbDateTime();
-        await initializeCatalogOnce(connection, {
-          catalogName: "image-routes",
-          countSql: "SELECT COUNT(*) AS total FROM image_routes",
-          seed: async () => {
-            for (const row of buildStaticRows()) {
-              await connection.execute(
-                `
-                  INSERT INTO image_routes (
-                    route_id, label, description, model_family, line_value,
-                    transport, mode, base_url, generate_path, task_path,
-                    edit_path, chat_path, upstream_model, use_request_model,
-                    allow_user_api_key_without_login,
-                    api_key, api_key_env, point_cost, size_overrides, supported_qualities,
-                    sort_order, is_active,
-                    is_default_route, is_default_nano_banana_line, created_at, updated_at
-                  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                `,
-                [
-                  row.route_id,
-                  row.label,
-                  row.description,
-                  row.model_family,
-                  row.line_value,
-                  row.transport,
-                  row.mode,
-                  row.base_url,
-                  row.generate_path,
-                  row.task_path,
-                  row.edit_path,
-                  row.chat_path,
-                  row.upstream_model,
-                  row.use_request_model ? 1 : 0,
-                  row.allow_user_api_key_without_login ? 1 : 0,
-                  row.api_key,
-                  row.api_key_env,
-                  row.point_cost,
-                  row.size_overrides,
-                  row.supported_qualities,
-                  row.sort_order,
-                  row.is_active ? 1 : 0,
-                  row.is_default_route ? 1 : 0,
-                  row.is_default_nano_banana_line ? 1 : 0,
-                  nowDb,
-                  nowDb,
-                ],
-              );
-            }
-          },
-        });
+        for (const row of missingRows) {
+          await connection.execute(
+            `
+              INSERT INTO image_routes (
+                route_id, label, description, model_family, line_value,
+                transport, mode, base_url, generate_path, task_path,
+                edit_path, chat_path, upstream_model, use_request_model,
+                allow_user_api_key_without_login,
+                api_key, api_key_env, point_cost, size_overrides, supported_qualities,
+                sort_order, is_active,
+                is_default_route, is_default_nano_banana_line, created_at, updated_at
+              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            `,
+            [
+              row.route_id,
+              row.label,
+              row.description,
+              row.model_family,
+              row.line_value,
+              row.transport,
+              row.mode,
+              row.base_url,
+              row.generate_path,
+              row.task_path,
+              row.edit_path,
+              row.chat_path,
+              row.upstream_model,
+              row.use_request_model ? 1 : 0,
+              row.allow_user_api_key_without_login ? 1 : 0,
+              row.api_key,
+              row.api_key_env,
+              row.point_cost,
+              row.size_overrides,
+              row.supported_qualities,
+              row.sort_order,
+              row.is_active ? 1 : 0,
+              row.is_default_route ? 1 : 0,
+              row.is_default_nano_banana_line ? 1 : 0,
+              nowDb,
+              nowDb,
+            ],
+          );
+        }
 
         const rollDekRouteIds = [
           "gpt-image-2.5-sunburst-native",
@@ -964,6 +994,7 @@ const deleteManagedImageRoute = async (routeId) => {
 };
 
 module.exports = {
+  getMissingStaticRows,
   normalizeResultKind,
   createManagedImageRoute,
   deleteManagedImageRoute,
