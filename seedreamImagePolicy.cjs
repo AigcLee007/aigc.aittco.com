@@ -17,4 +17,9 @@ const getSeedreamSizeError = (requestBody = {}) => {
   return 'Seedream-5-pro 仅支持 1K 和 2K 尺寸';
 };
 
-module.exports = { getSeedreamSizeError };
+const getGptImageQualityFields = (modelId, quality) =>
+  String(modelId || '').trim().toLowerCase().startsWith('seedream-')
+    ? {}
+    : { quality: quality || 'auto' };
+
+module.exports = { getSeedreamSizeError, getGptImageQualityFields };

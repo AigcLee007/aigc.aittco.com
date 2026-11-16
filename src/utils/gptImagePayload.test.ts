@@ -20,6 +20,7 @@ describe('GPT-compatible image payload', () => {
       aspect_ratio: '16:9',
       routeId: 'seedream-5-pro-visionary-stable',
     });
+    expect(payload).not.toHaveProperty('quality');
   });
 
   it('does not add the Seedream-specific ratio field to GPT Image requests', () => {
@@ -35,6 +36,7 @@ describe('GPT-compatible image payload', () => {
     });
 
     expect(payload).not.toHaveProperty('aspect_ratio');
+    expect(payload.quality).toBe('medium');
   });
 
   it('does not add the Visionary ratio field to the default Seedream route', () => {
@@ -50,5 +52,6 @@ describe('GPT-compatible image payload', () => {
     });
 
     expect(payload).not.toHaveProperty('aspect_ratio');
+    expect(payload).not.toHaveProperty('quality');
   });
 });

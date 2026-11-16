@@ -1031,7 +1031,7 @@
       prompt,
       size: calculateClassicGptImageSize(size, ratio),
       image_size: size,
-      quality: gptSettings.quality,
+      ...window.ClassicImageQualityPolicy.getQualityPayloadFields(selectedModel.id, gptSettings.quality),
       output_format: gptSettings.outputFormat,
       moderation: gptSettings.moderation,
       n,
