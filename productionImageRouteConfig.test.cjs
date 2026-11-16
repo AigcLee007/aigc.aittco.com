@@ -3,11 +3,12 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { test } = require("node:test");
 const catalog = require("./config/production-image-routes.json");
+const runtimeCatalog = require("./config/imageRoutes.json");
 const { validateRouteConfig } = require("./scripts/replace-production-image-routes.cjs");
 
-test("production workbook config contains 23 unique routes and one default per family", () => {
+test("production route config contains 24 unique routes and one default per family", () => {
   validateRouteConfig(catalog);
-  assert.equal(catalog.routes.length, 23);
+  assert.equal(catalog.routes.length, 24);
   assert.equal(new Set(catalog.routes.map((route) => route.modelFamily)).size, 5);
   assert.deepEqual(
     [...new Set(catalog.routes.map((route) => route.modelFamily))].sort(),
@@ -60,4 +61,25 @@ test("Visionary Nano Banana Pro backup route matches its documented async endpoi
   assert.equal(route.taskPath, "/v1/tasks/{taskId}");
   assert.equal(route.upstreamModel, "nano-banana-pro");
   assert.equal(route.mode, "async");
+});
+
+test("Visionary Seedream stable route matches the documented model, endpoint, and size pricing", () => {
+  const routeId = "seedream-5-pro-visionary-stable";
+  const productionRoute = catalog.routes.find((item) => item.id === routeId);
+  const runtimeRoute = runtimeCatalog.routes.find((item) => item.id === routeId);
+
+  for (const route of [productionRoute, runtimeRoute]) {
+    assert.ok(route);
+    assert.equal(route.label, "稳定线路");
+    assert.equal(route.line, "稳定线路");
+    assert.equal(route.modelFamily, "seedream-5-pro");
+    assert.equal(route.baseUrl, "https://api.visionary.beer");
+    assert.equal(route.generatePath, "/v1/images/generations");
+    assert.equal(route.taskPath, "/v1/tasks/{taskId}");
+    assert.equal(route.upstreamModel, "seedream-5.0-pro");
+    assert.equal(route.apiKeyEnv, "Nanobananapro_visionary");
+    assert.equal(route.mode, "async");
+    assert.equal(route.sizeOverrides["1k"].pointCost, 4);
+    assert.equal(route.sizeOverrides["2k"].pointCost, 5);
+  }
 });

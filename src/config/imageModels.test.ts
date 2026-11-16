@@ -92,17 +92,36 @@ describe('GPT-compatible image model detection', () => {
 describe('Seedream-5-pro catalog', () => {
   it('registers a PixelleLabs GPT-compatible model with only 1K and 2K sizes', () => {
     const model = getImageModelById('seedream-5-pro');
+    const routes = getImageRoutesByModelFamily('seedream-5-pro');
 
     expect(model.label).toBe('Seedream-5-pro');
     expect(model.requestModel).toBe('seedream-5-pro');
     expect(getImageModelSizeOptions(model.id)).toEqual(['1k', '2k']);
-    expect(getImageRoutesByModelFamily('seedream-5-pro')).toHaveLength(1);
-    expect(getImageRoutesByModelFamily('seedream-5-pro')[0]).toMatchObject({
+    expect(routes).toHaveLength(2);
+    expect(routes.find((route) => route.id === 'seedream-5-pro-default')).toMatchObject({
       baseUrl: 'https://api.pixellelabs.com',
       generatePath: '/v1/images/generations',
       editPath: '/v1/images/edits',
       upstreamModel: 'seedream-5-pro',
     });
+
+    const visionary = routes.find((route) => route.id === 'seedream-5-pro-visionary-stable');
+    expect(visionary).toMatchObject({
+      label: '稳定线路',
+      line: '稳定线路',
+      baseUrl: 'https://api.visionary.beer',
+      generatePath: '/v1/images/generations',
+      taskPath: '/v1/tasks/{taskId}',
+      upstreamModel: 'seedream-5.0-pro',
+      apiKeyEnv: 'Nanobananapro_visionary',
+      mode: 'async',
+    });
+    expect(visionary?.sizeOverrides).toEqual({
+      '1k': { pointCost: 4 },
+      '2k': { pointCost: 5 },
+    });
+    expect(getImageRoutePointCost(visionary, '1k')).toBe(4);
+    expect(getImageRoutePointCost(visionary, '2k')).toBe(5);
   });
 });
 
