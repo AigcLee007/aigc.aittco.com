@@ -1,5 +1,5 @@
 const assert = require('assert');
-const { getSeedreamSizeError } = require('./seedreamImagePolicy.cjs');
+const { getSeedreamSizeError, getGptImageQualityFields } = require('./seedreamImagePolicy.cjs');
 
 describe('Seedream-5-pro size policy', () => {
   it('accepts 1K and 2K tiers and rejects 4K', () => {
@@ -11,5 +11,17 @@ describe('Seedream-5-pro size policy', () => {
   it('rejects explicit dimensions outside the 2K envelope', () => {
     assert.match(getSeedreamSizeError({ size: '3840x2160' }), /1K.*2K/);
     assert.strictEqual(getSeedreamSizeError({ size: '2048x2048' }), null);
+  });
+});
+
+describe('Seedream quality request policy', () => {
+  it('omits quality for every Seedream route, even when the UI retained a custom value', () => {
+    assert.deepEqual(getGptImageQualityFields('seedream-5-pro', 'medium'), {});
+    assert.deepEqual(getGptImageQualityFields('seedream-5-pro', 'auto'), {});
+  });
+
+  it('keeps GPT Image quality selection and its default for other models', () => {
+    assert.deepEqual(getGptImageQualityFields('gpt-image-2', 'high'), { quality: 'high' });
+    assert.deepEqual(getGptImageQualityFields('gpt-image-2', ''), { quality: 'auto' });
   });
 });

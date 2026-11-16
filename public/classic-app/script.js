@@ -1455,6 +1455,7 @@ function readClassicGptOutputCompression() {
 function getClassicSupportedGptQualities() {
   if (isClassicMidjourneyModel()) return ['0.25', '0.5', '1', '2'];
   if (!isClassicGptImageModel()) return GPT_IMAGE_QUALITY_VALUES.slice(0, 6);
+  if (window.ClassicImageQualityPolicy.isSeedreamModel(getClassicSelectedModelId())) return ["auto"];
   const route = getClassicSelectedRoute();
   const configured = Array.isArray(route?.supportedQualities)
     ? route.supportedQualities
@@ -1559,7 +1560,7 @@ function enforceCurrentRefImageLimit() {
 function updateClassicGptSettingsUi() {
   // Quality is a GPT-only fourth cell in the main parameter row.
   const qualityModule = document.getElementById("gptImageSettingsRow");
-  const isVisible = isClassicGptImageModel() || isClassicMidjourneyModel();
+  const isVisible = isClassicMidjourneyModel() || (isClassicGptImageModel() && window.ClassicImageQualityPolicy.shouldShowQualitySelector(getClassicSelectedModelId()));
   if (qualityModule) {
     qualityModule.style.display = isVisible ? "" : "none";
     qualityModule.closest(".params-row")?.classList.toggle("has-quality", isVisible);

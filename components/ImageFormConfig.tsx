@@ -122,6 +122,7 @@ export const ImageFormConfig: React.FC<ImageFormConfigProps> = ({
   const showSizeSelector = shouldShowImageSizeSelector(currentModel.id);
   const isGptImage2 = isGptImageCompatibleModel(currentModel.id);
   const isMidjourney = isMidjourneyImageModel(currentModel.id);
+  const showQualitySelector = isGptImage2 && !currentModel.id.toLowerCase().startsWith('seedream-');
   const selectedRoute = getSelectedImageRoute(currentModel.id, imageLine);
   const supportsAnimation = isGptImageAnimationRoute(selectedRoute);
   const sizeOptions = getImageRouteSizeOptions(selectedRoute, baseSizeOptions);
@@ -339,7 +340,7 @@ export const ImageFormConfig: React.FC<ImageFormConfigProps> = ({
           </div>
         )}
 
-        {(isGptImage2 || isMidjourney) && (
+        {showQualitySelector && (
           <div>
             <label className="mb-1 block text-[10px] text-gray-500">质量</label>
             <DropUpSelect

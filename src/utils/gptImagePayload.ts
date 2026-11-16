@@ -26,7 +26,7 @@ export const buildGptImagePayload = ({
   prompt,
   size: calculateGptImageSize(imageSize, aspectRatio),
   image_size: imageSize,
-  quality,
+  ...(modelId.toLowerCase().startsWith('seedream-') ? {} : { quality }),
   output_format: 'png',
   moderation: 'auto',
   n,

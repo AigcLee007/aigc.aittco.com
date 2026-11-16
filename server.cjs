@@ -38,7 +38,7 @@ const {
   normalizeMouxihubGptImageModelName,
   normalizeGptImageRouteQuality,
 } = require("./imageRouteCompatibility.cjs");
-const { getSeedreamSizeError } = require("./seedreamImagePolicy.cjs");
+const { getSeedreamSizeError, getGptImageQualityFields } = require("./seedreamImagePolicy.cjs");
 const { isGptImageCompatibleModel } = require("./imageModelCompatibility.cjs");
 const { isGptImageAnimationRoute, getGptImageAnimationFields, normalizeAnimationSize } = require("./gptImageAnimationPolicy.cjs");
 const { isMidjourneyImageRoute, normalizeMidjourneyImageRequest, normalizeMidjourneyImageTask } = require("./midjourneyImagePolicy.cjs");
@@ -3515,6 +3515,9 @@ const legacyImageGenerateHandler = async (req, res) => {
       requestBody.clientLiveTaskIds || requestBody.clientLiveTaskId,
     );
     const requestedImageModel = await resolveRequestedImageModel(requestBody);
+    if (requestedImageModel?.id?.toLowerCase().startsWith("seedream-")) {
+      delete requestBody.quality;
+    }
     const route = await resolveImageRoute(requestBody.routeId, {
       routeFamily: requestedImageModel?.routeFamily,
     });
@@ -4027,7 +4030,7 @@ const legacyImageGenerateHandler = async (req, res) => {
         model: requestBody.model,
         prompt: requestBody.prompt,
         size: requestBody.size || "auto",
-        quality: normalizeGptImageRouteQuality(route, requestBody.quality),
+        ...getGptImageQualityFields(requestedImageModel?.id, normalizeGptImageRouteQuality(route, requestBody.quality)),
         output_format: requestBody.output_format || "png",
         moderation: requestBody.moderation || "auto",
       };
@@ -4829,6 +4832,9 @@ const legacyImageEditHandler = async (req, res) => {
     delete requestBody.clientLiveTaskIds;
     delete requestBody.clientLiveTaskId;
     const requestedImageModel = await resolveRequestedImageModel(requestBody);
+    if (requestedImageModel?.id?.toLowerCase().startsWith("seedream-")) {
+      delete requestBody.quality;
+    }
     const requestedRoute = await resolveImageRoute(requestBody.routeId, {
       routeFamily: requestedImageModel?.routeFamily,
     });
