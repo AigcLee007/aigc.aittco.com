@@ -20,6 +20,21 @@ describe('Visionary image API contract', () => {
     });
   });
 
+  it('maps Seedream 2K landscape dimensions to the selected Visionary ratio', () => {
+    expect(normalizeVisionaryImageRequest({
+      model: 'seedream-5.0-pro',
+      prompt: 'cinematic dreamscape',
+      size: '2048x1152',
+      image_size: '2k',
+      aspect_ratio: '16:9',
+    })).toEqual({
+      model: 'seedream-5.0-pro',
+      prompt: 'cinematic dreamscape',
+      size: '16:9',
+      resolution: '2K',
+    });
+  });
+
   it('reads the async task id and submitted status from the documented response envelope', () => {
     expect(extractVisionarySubmission({
       code: 200,
