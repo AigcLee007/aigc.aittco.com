@@ -57,6 +57,7 @@ import {
   extractErrorMessage,
 } from '../src/utils/errorDebug';
 import { buildPerImageRequestPlan } from '../src/utils/perImageRequestPlan';
+import { buildGptImagePayload } from '../src/utils/gptImagePayload';
 
 // Branding Icons are now in Logos.tsx
 
@@ -857,23 +858,17 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
       });
     };
 
-    const getGptImagePayload = (basePrompt: string, n = 1) => {
-      const payload: any = {
+    const getGptImagePayload = (basePrompt: string, n = 1) =>
+      buildGptImagePayload({
         model: modelName,
         modelId: selectedImageModelConfig.id,
         prompt: basePrompt,
-        size: calculateGptImageSize(imageSize, effectiveRatio),
-        image_size: imageSize,
+        imageSize,
+        aspectRatio: effectiveRatio,
         quality: gptImageQuality,
-        // Format and moderation are fixed: PNG with automatic moderation.
-        output_format: 'png',
-        moderation: 'auto',
         n,
         routeId: selectedImageRoute.id,
-      };
-
-      return payload;
-    };
+      });
 
     const referenceToDataUrl = async (ref: {src?:string;assetId?:string;blob?:Blob}): Promise<string | null> => {
       try {
