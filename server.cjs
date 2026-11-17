@@ -3888,7 +3888,8 @@ const legacyImageGenerateHandler = async (req, res) => {
       delete requestBody.reference_image_urls;
     }
 
-    if (isVisionaryImageRoute(route)) {
+    const isVisionaryRoute = isVisionaryImageRoute(route);
+    if (isVisionaryRoute) {
       applyVisionaryImageCompat(requestBody);
     }
 
@@ -3911,7 +3912,7 @@ const legacyImageGenerateHandler = async (req, res) => {
       }
     };
 
-    const shouldRunVisionaryInBackground = isVisionaryImageRoute(route) && !imageJobContext.getStore();
+    const shouldRunVisionaryInBackground = isVisionaryRoute && !imageJobContext.getStore();
     const isSyncLine = requestBody.isSync === true || routeMode === "sync";
     if (isSyncLine) {
       delete requestBody.isSync;
@@ -3961,7 +3962,7 @@ const legacyImageGenerateHandler = async (req, res) => {
       }
     }
 
-    if (isGptImage2RequestModel(requestBody.model)) {
+    if (!isVisionaryRoute && isGptImage2RequestModel(requestBody.model)) {
       const gptImage2Size = requestBody.size || requestBody.image_size;
       if (gptImage2Size) {
         requestBody.size = normalizeGptImage2RequestSize(
@@ -4016,7 +4017,7 @@ const legacyImageGenerateHandler = async (req, res) => {
         messages: [{ role: "user", content: requestBody.prompt }],
         stream: false,
       };
-    } else if (isGptImage2RequestModel(requestBody.model)) {
+    } else if (!isVisionaryRoute && isGptImage2RequestModel(requestBody.model)) {
       finalRequestBody = {
         model: requestBody.model,
         prompt: requestBody.prompt,
