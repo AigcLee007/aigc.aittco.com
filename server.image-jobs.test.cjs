@@ -16,13 +16,14 @@ test('image routes durably acknowledge before provider work and settle without a
   let upstreamCalls=0,pollCalls=0;let finish;let providerResult={data:[{url:'https://images.example/a.png'}]};let delayed=true;
   let forceProviderFailure=false;
   let nativePhases=false,releaseProgress,releaseNative;
-  let visionaryPollCalls=0,visionaryRequestBody=null;
+  let visionaryPollCalls=0,visionaryRequestBodies=[],visionarySubmissionCount=0;
   const polledPaths=[],visionaryPolledPaths=[];
   const upstream=http.createServer(async(req,res)=>{
     if(req.method==='GET'){
       if(req.url.startsWith('/v1/tasks/')){
         visionaryPollCalls++;visionaryPolledPaths.push(req.url);res.setHeader('Content-Type','application/json');
-        return res.end(JSON.stringify({code:200,data:{id:'visionary-task-1',status:'completed',result:{images:[{url:['https://images.example/visionary.png']}]}}}));
+        const taskId=req.url.split('/').pop();
+        return res.end(JSON.stringify({code:200,data:{id:taskId,status:'completed',result:{images:[{url:['https://images.example/visionary.png']}]}}}));
       }
       pollCalls++;res.setHeader('Content-Type','application/json');
       polledPaths.push(req.url);
@@ -33,8 +34,8 @@ test('image routes durably acknowledge before provider work and settle without a
     }
     upstreamCalls++;const chunks=[];for await(const chunk of req)chunks.push(chunk);
     if(req.url==='/v1/images/generations'){
-      visionaryRequestBody=JSON.parse(Buffer.concat(chunks).toString());res.setHeader('Content-Type','application/json');
-      return res.end(JSON.stringify({code:200,data:[{task_id:'visionary-task-1',status:'submitted',retry_after:1}]}));
+      visionaryRequestBodies.push(JSON.parse(Buffer.concat(chunks).toString()));res.setHeader('Content-Type','application/json');
+      return res.end(JSON.stringify({code:200,data:[{task_id:`visionary-task-${++visionarySubmissionCount}`,status:'submitted',retry_after:1}]}));
     }
     if(delayed)await new Promise(resolve=>{finish=resolve;});
     if(forceProviderFailure){req.socket.destroy();return;}
@@ -47,7 +48,8 @@ test('image routes durably acknowledge before provider work and settle without a
   const editWithoutPath={...route,id:'edit-without-path',editPath:''};
   const disabledRoute={...route,id:'disabled-route',isActive:false};
   const visionaryRoute={...route,id:'nano-banana-pro-backup',baseUrl:`http://127.0.0.1:${upstream.address()?.port||0}`,generatePath:'/v1/images/generations',taskPath:'/v1/tasks/{taskId}',upstreamModel:'nano-banana-pro',pointCost:5};
-  const testRoutes=[route,geminiKeyRoute,nativeRoute,editWithoutPath,disabledRoute,visionaryRoute];
+  const visionarySeedreamRoute={...visionaryRoute,id:'nano-banana-pro-line4',modelFamily:'seedream-5-pro',upstreamModel:'seedream-5.0-pro',pointCost:0};
+  const testRoutes=[route,geminiKeyRoute,nativeRoute,editWithoutPath,disabledRoute,visionaryRoute,visionarySeedreamRoute];
   routeModule.getImageRouteById=async id=>testRoutes.find(item=>item.id===id)||null;routeModule.getImageRouteCatalog=async()=>({defaultRouteId:route.id,routes:[route,nativeRoute]});
   // Records are isolated from the checkout by replacing only the persistence boundary.
   const recordModule=require('./generationRecordStore.cjs');const records=new Map();
@@ -109,10 +111,27 @@ test('image routes durably acknowledge before provider work and settle without a
   const visionaryAck=await visionaryResponse.json();
   const visionaryDone=await pollUntilDone(visionaryAck.task_id);
   assert.equal(visionaryDone.status,'succeeded','Visionary array-shaped task submissions must be tracked through completion');
-  assert.deepEqual(visionaryRequestBody,{model:'nano-banana-pro',prompt:'a tree',size:'16:9',resolution:'4K',n:1});
+  assert.deepEqual(visionaryRequestBodies[0],{model:'nano-banana-pro',prompt:'a tree',size:'16:9',resolution:'4K',n:1});
   assert.equal(visionaryPollCalls,1);
   assert.deepEqual(visionaryPolledPaths,['/v1/tasks/visionary-task-1']);
   assert.deepEqual(visionaryDone.results,['https://images.example/visionary.png']);
+  for(const seedream of [
+    {modelId:'seedream-5-pro',modelFamily:'seedream-5-pro',upstreamModel:'seedream-5.0-pro',clientRequestId:'visionary-seedream-50'},
+    {modelId:'seedream-5.5',modelFamily:'seedream-5.5',upstreamModel:'seedream-5.5',clientRequestId:'visionary-seedream-55'},
+  ]){
+    visionarySeedreamRoute.modelFamily=seedream.modelFamily;
+    visionarySeedreamRoute.upstreamModel=seedream.upstreamModel;
+    const requestIndex=visionaryRequestBodies.length;
+    const seedreamResponse=await request('/api/generate',{method:'POST',body:JSON.stringify({...body,routeId:visionarySeedreamRoute.id,model:seedream.modelId,modelId:seedream.modelId,size:'2048x1152',image_size:'2K',aspect_ratio:'16:9',clientRequestId:seedream.clientRequestId})});
+    assert.equal(seedreamResponse.status,202);
+    const seedreamAck=await seedreamResponse.json();
+    assert.equal((await pollUntilDone(seedreamAck.task_id)).status,'succeeded');
+    assert.equal(visionaryRequestBodies[requestIndex].model,seedream.upstreamModel);
+    assert.equal(visionaryRequestBodies[requestIndex].size,'16:9','Visionary receives the selected ratio, not GPT pixel dimensions');
+    assert.equal(visionaryRequestBodies[requestIndex].resolution,'2K','Visionary receives the selected resolution');
+    assert.equal(visionaryRequestBodies[requestIndex].aspect_ratio,undefined,'Visionary represents the ratio in size');
+    assert.equal(visionaryRequestBodies[requestIndex].quality,undefined,'Seedream quality stays omitted');
+  }
   const edit=await request('/api/edit',{method:'POST',body:JSON.stringify({...body,routeId:editWithoutPath.id,clientRequestId:'valid-edit',image:'data:image/png;base64,AAAA'})});assert.equal(edit.status,202);
   const editAck=await edit.json();assert.equal((await pollUntilDone(editAck.task_id)).status,'succeeded');
   assert.ok((await store.get(editAck.task_id)).generationRecordId,'edit task must bind a generation record');
