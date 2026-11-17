@@ -17,6 +17,7 @@ export default defineConfig({
       '.codex-chrome-profile*/**',
       '.playwright-cli/**',
       // These suites use node:test directly and run via npm run test:node.
+      'announcementMarkup.test.cjs',
       'operationsDashboardStore.test.cjs',
       'operationsRuntimeMetrics.test.cjs',
       'operationsDashboard.test.cjs',

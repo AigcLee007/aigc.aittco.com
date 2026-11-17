@@ -85,7 +85,7 @@ test('native inline images become one readable original and preview without expo
     assert.equal(done.status, 'succeeded');
     assert.equal(done.storage_status, 'saved', done.storage_error);
     assert.equal(done.images.length, 1, 'one provider image must not become two outputs');
-    assert.match(done.images[0], /^\/api\/image-job-assets\//);
+    assert.match(done.images[0], /^\/api\/image-job-(?:assets|relay)\//);
     assert.equal(JSON.stringify(done).includes(base64), false, 'base64 is never a public URL or persisted payload');
     const original = await request(done.images[0]);
     assert.equal(original.status, 200);

@@ -60,7 +60,7 @@ import {
   extractErrorMessage,
 } from '../src/utils/errorDebug';
 import { buildPerImageRequestPlan } from '../src/utils/perImageRequestPlan';
-import { buildGptImagePayload } from '../src/utils/gptImagePayload';
+import { buildGptImagePayload, shouldUseVisionaryEditUpload } from '../src/utils/gptImagePayload';
 
 // Branding Icons are now in Logos.tsx
 
@@ -1190,7 +1190,7 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
 	          // Doubao models support multi-image array natively
 	          const imageArray = refSrcs.map(src => src.includes(',') ? src.split(',')[1] : src);
 	          processSubmission({ image: imageArray });
-          } else if (isGptImage2) {
+          } else if (shouldUseVisionaryEditUpload(selectedImageRoute.id) || isGptImage2) {
             const imageDataUrls = (await Promise.all(
               effectiveReferenceImages.map((ref) => referenceToDataUrl(ref)),
             )).filter((value): value is string => !!value);

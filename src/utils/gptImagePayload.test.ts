@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { buildGptImagePayload } from './gptImagePayload';
+import { buildGptImagePayload, shouldUseVisionaryEditUpload } from './gptImagePayload';
 
 describe('GPT-compatible image payload', () => {
+  it('uses multipart edit uploads for Visionary Seedream references', () => {
+    expect(shouldUseVisionaryEditUpload('seedream-5-pro-visionary-stable')).toBe(true);
+    expect(shouldUseVisionaryEditUpload('seedream-5.5-visionary-stable')).toBe(true);
+    expect(shouldUseVisionaryEditUpload('seedream-5-pro-default')).toBe(false);
+  });
+
   it('includes the selected ratio for Seedream 2K requests', () => {
     const payload = buildGptImagePayload({
       model: 'seedream-5.0-pro',

@@ -46,6 +46,7 @@ describe('GPT Image 2.6 Sunburst', () => {
     const end = source.indexOf('function setClassicGptCompression(', start);
     let storedQuality: string | null = null;
     const context = vm.createContext({
+      window: {},
       imageModel: modelId,
       getClassicSelectedModelId: () => modelId,
       getClassicSelectedRoute: () => ({ supportedQualities: ['low', 'medium', 'high'] }),
@@ -55,6 +56,7 @@ describe('GPT Image 2.6 Sunburst', () => {
       GPT_IMAGE_QUALITY_VALUES: ['auto', 'low', 'medium', 'high', 'xhigh', 'max'],
       localStorage: { getItem: () => storedQuality },
     });
+    vm.runInContext(fs.readFileSync('public/classic-app/image-quality-policy.js', 'utf8'), context);
     vm.runInContext(source.slice(start, end), context);
     expect(vm.runInContext('isClassicGptImageModel()', context)).toBe(true);
     for (const value of [null, 'auto', 'xhigh', 'max', 'invalid']) {
