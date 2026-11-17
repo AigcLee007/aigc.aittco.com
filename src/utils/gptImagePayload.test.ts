@@ -23,6 +23,27 @@ describe('GPT-compatible image payload', () => {
     expect(payload).not.toHaveProperty('quality');
   });
 
+  it('includes the selected ratio for Seedream-5.5 Visionary requests', () => {
+    const payload = buildGptImagePayload({
+      model: 'seedream-5.5',
+      modelId: 'seedream-5.5',
+      prompt: 'cinematic dreamscape',
+      imageSize: '2k',
+      aspectRatio: '16:9',
+      quality: 'high',
+      n: 1,
+      routeId: 'seedream-5.5-visionary-stable',
+    });
+
+    expect(payload).toMatchObject({
+      size: '2048x1152',
+      image_size: '2k',
+      aspect_ratio: '16:9',
+      routeId: 'seedream-5.5-visionary-stable',
+    });
+    expect(payload).not.toHaveProperty('quality');
+  });
+
   it('does not add the Seedream-specific ratio field to GPT Image requests', () => {
     const payload = buildGptImagePayload({
       model: 'gpt-image-2',
