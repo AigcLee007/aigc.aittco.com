@@ -539,6 +539,8 @@ const isVisionaryImageRoute = (route) => {
     generatePath.includes("/openapi/v1/images/generations")
   );
 };
+const isVisionarySeedreamRoute = (route) =>
+  isVisionaryImageRoute(route) && /^seedream-/i.test(String(route?.modelFamily || "").trim());
 const isGeminiNativeRoute = (route) =>
   route?.transport === "gemini-native" || isGeminiNativeStylePath(route);
 const isOpenAiImageRoute = (route) =>
@@ -4007,16 +4009,11 @@ const legacyImageGenerateHandler = async (req, res) => {
     const chatPath = String(route?.chatPath || "").trim();
     const shouldUseChatSyncEndpoint =
       isSyncLine && chatPath.length > 0 && !shouldRunVisionaryInBackground;
-    const hasVisionaryReferenceImages =
-      isVisionaryRoute && Array.isArray(requestBody.images) && requestBody.images.length > 0;
-    const generatePath = hasVisionaryReferenceImages
-      ? withVisionaryCompatibilityPrefix(route.generatePath)
-      : route.generatePath;
     const upstreamUrl = shouldUseChatSyncEndpoint
       ? buildRouteUrl(route, chatPath, {
           model: requestBody.model,
         })
-      : buildRouteUrl(route, generatePath, {
+      : buildRouteUrl(route, route.generatePath, {
           model: requestBody.model,
         });
 
@@ -4832,6 +4829,10 @@ const legacyImageEditHandler = async (req, res) => {
       routeFamily: requestedImageModel?.routeFamily,
     });
     const route = requestedRoute;
+    const editPath = route?.editPath || "/v1/images/edits?async=true";
+    const upstreamEditPath = isVisionarySeedreamRoute(route)
+      ? withVisionaryCompatibilityPrefix(editPath)
+      : editPath;
     const useUserProvidedApiKey = shouldUseUserProvidedApiKey(
       route,
       fallbackAuthorization,
@@ -4862,7 +4863,14 @@ const legacyImageEditHandler = async (req, res) => {
       requestedImageModel?.requestModel || requestBody.model,
     );
 
-    if (isGptImage2RequestModel(requestBody.model)) {
+    if (isVisionarySeedreamRoute(route)) {
+      const aspectRatio = requestBody.aspect_ratio || requestBody.aspectRatio;
+      const resolution = requestBody.image_size || requestBody.imageSize;
+      if (aspectRatio) requestBody.size = String(aspectRatio).trim();
+      if (resolution) requestBody.resolution = String(resolution).trim().toUpperCase();
+    }
+
+    if (!isVisionarySeedreamRoute(route) && isGptImage2RequestModel(requestBody.model)) {
       const gptImage2Size = requestBody.size || requestBody.image_size;
       if (gptImage2Size) {
         requestBody.size = normalizeGptImage2RequestSize(
@@ -4926,10 +4934,18 @@ const legacyImageEditHandler = async (req, res) => {
     const isGptImage2Edit = isGptImage2RequestModel(requestBody.model);
     if (isGptImage2Edit) {
       if (requestBody.size) formData.append("size", requestBody.size);
+      if (isVisionarySeedreamRoute(route) && requestBody.resolution) {
+        formData.append("resolution", requestBody.resolution);
+      }
       if (requestBody.quality) formData.append("quality", requestBody.quality);
-      if (requestBody.output_format) formData.append("output_format", requestBody.output_format);
-      if (requestBody.moderation) formData.append("moderation", requestBody.moderation);
+      if (!isVisionarySeedreamRoute(route) && requestBody.output_format) {
+        formData.append("output_format", requestBody.output_format);
+      }
+      if (!isVisionarySeedreamRoute(route) && requestBody.moderation) {
+        formData.append("moderation", requestBody.moderation);
+      }
       if (
+        !isVisionarySeedreamRoute(route) &&
         requestBody.output_format &&
         requestBody.output_format !== "png" &&
         requestBody.output_compression !== undefined &&
@@ -5019,7 +5035,7 @@ const legacyImageEditHandler = async (req, res) => {
           const response = await requestWithRetry(
             () =>
               axios.post(
-                buildRouteUrl(route, route.editPath || "/v1/images/edits"),
+                buildRouteUrl(route, upstreamEditPath),
                 formData,
                 {
                   headers: {
@@ -5145,7 +5161,7 @@ const legacyImageEditHandler = async (req, res) => {
     const response = await requestWithRetry(
       () =>
         axios.post(
-          buildRouteUrl(route, route.editPath || "/v1/images/edits?async=true"),
+          buildRouteUrl(route, upstreamEditPath),
           formData,
           {
             headers: {

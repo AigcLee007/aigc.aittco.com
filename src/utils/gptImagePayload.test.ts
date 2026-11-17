@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { buildGptImagePayload, getReferenceImageSubmissionMode } from './gptImagePayload';
+import { buildGptImagePayload, shouldUseVisionaryEditUpload } from './gptImagePayload';
 
 describe('GPT-compatible image payload', () => {
-  it('sends Visionary Seedream reference images through the generation API', () => {
-    expect(getReferenceImageSubmissionMode('seedream-5-pro-visionary-stable')).toBe('generate');
-    expect(getReferenceImageSubmissionMode('seedream-5.5-visionary-stable')).toBe('generate');
-    expect(getReferenceImageSubmissionMode('seedream-5-pro-default')).toBe('edit');
+  it('uses multipart edit uploads for Visionary Seedream reference images', () => {
+    expect(shouldUseVisionaryEditUpload('seedream-5-pro-visionary-stable')).toBe(true);
+    expect(shouldUseVisionaryEditUpload('seedream-5.5-visionary-stable')).toBe(true);
+    expect(shouldUseVisionaryEditUpload('seedream-5-pro-default')).toBe(false);
   });
 
   it('includes the selected ratio for Seedream 2K requests', () => {

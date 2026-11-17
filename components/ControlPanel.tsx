@@ -57,7 +57,7 @@ import {
   extractErrorMessage,
 } from '../src/utils/errorDebug';
 import { buildPerImageRequestPlan } from '../src/utils/perImageRequestPlan';
-import { buildGptImagePayload, getReferenceImageSubmissionMode } from '../src/utils/gptImagePayload';
+import { buildGptImagePayload, shouldUseVisionaryEditUpload } from '../src/utils/gptImagePayload';
 
 // Branding Icons are now in Logos.tsx
 
@@ -1145,16 +1145,7 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
 	          // Doubao models support multi-image array natively
 	          const imageArray = refSrcs.map(src => src.includes(',') ? src.split(',')[1] : src);
 	          processSubmission({ image: imageArray });
-          } else if (getReferenceImageSubmissionMode(selectedImageRoute.id) === 'generate') {
-            const imageDataUrls = (await Promise.all(
-              effectiveReferenceImages.map((ref) => referenceToDataUrl(ref)),
-            )).filter((value): value is string => !!value);
-            if (imageDataUrls.length !== effectiveReferenceImages.length) {
-              setError("参考图处理失败，请重新上传后再试");
-              return;
-            }
-            processSubmission({ images: imageDataUrls }, currentPrompt);
-          } else if (isGptImage2) {
+          } else if (shouldUseVisionaryEditUpload(selectedImageRoute.id) || isGptImage2) {
             const imageDataUrls = (await Promise.all(
               effectiveReferenceImages.map((ref) => referenceToDataUrl(ref)),
             )).filter((value): value is string => !!value);

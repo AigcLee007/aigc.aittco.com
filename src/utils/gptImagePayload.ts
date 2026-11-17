@@ -1,10 +1,7 @@
 import { calculateGptImageSize } from './imageUtils';
 
-const isSeedreamVisionaryStableRoute = (routeId: string) =>
+export const shouldUseVisionaryEditUpload = (routeId: string) =>
   /^seedream-.+-visionary-stable$/i.test(String(routeId || '').trim());
-
-export const getReferenceImageSubmissionMode = (routeId: string): 'generate' | 'edit' =>
-  isSeedreamVisionaryStableRoute(routeId) ? 'generate' : 'edit';
 
 interface GptImagePayloadOptions {
   model: string;
@@ -37,5 +34,5 @@ export const buildGptImagePayload = ({
   moderation: 'auto',
   n,
   routeId,
-  ...(isSeedreamVisionaryStableRoute(routeId) ? { aspect_ratio: aspectRatio } : {}),
+  ...(shouldUseVisionaryEditUpload(routeId) ? { aspect_ratio: aspectRatio } : {}),
 });

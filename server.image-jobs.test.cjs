@@ -16,7 +16,7 @@ test('image routes durably acknowledge before provider work and settle without a
   let upstreamCalls=0,pollCalls=0;let finish;let providerResult={data:[{url:'https://images.example/a.png'}]};let delayed=true;
   let forceProviderFailure=false;
   let nativePhases=false,releaseProgress,releaseNative;
-  let visionaryPollCalls=0,visionaryRequestBodies=[],visionaryRequestPaths=[],visionarySubmissionCount=0;
+  let visionaryPollCalls=0,visionaryRequestBodies=[],visionaryRequestPaths=[],visionaryEditRequestPaths=[],visionaryEditContentTypes=[],visionaryEditBodies=[],visionarySubmissionCount=0;
   const polledPaths=[],visionaryPolledPaths=[];
   const upstream=http.createServer(async(req,res)=>{
     if(req.method==='GET'){
@@ -33,6 +33,10 @@ test('image routes durably acknowledge before provider work and settle without a
       return res.end(JSON.stringify({status:'succeeded',results:['https://images.example/native.png']}));
     }
     upstreamCalls++;const chunks=[];for await(const chunk of req)chunks.push(chunk);
+    if(req.url.includes('/images/edits')){
+      visionaryEditRequestPaths.push(req.url);visionaryEditContentTypes.push(req.headers['content-type']);visionaryEditBodies.push(Buffer.concat(chunks).toString('latin1'));
+      res.setHeader('Content-Type','application/json');return res.end(JSON.stringify(providerResult));
+    }
     if(req.url==='/v1/images/generations'||req.url==='/compat/v1/images/generations'){
       visionaryRequestPaths.push(req.url);visionaryRequestBodies.push(JSON.parse(Buffer.concat(chunks).toString()));res.setHeader('Content-Type','application/json');
       return res.end(JSON.stringify({code:200,data:[{task_id:`visionary-task-${++visionarySubmissionCount}`,status:'submitted',retry_after:1}]}));
@@ -47,7 +51,7 @@ test('image routes durably acknowledge before provider work and settle without a
   const nativeRoute={...route,id:'native-progress',taskPath:'/nondefault/tasks/{taskId}'};
   const editWithoutPath={...route,id:'edit-without-path',editPath:''};
   const disabledRoute={...route,id:'disabled-route',isActive:false};
-  const visionaryRoute={...route,id:'nano-banana-pro-backup',baseUrl:`http://127.0.0.1:${upstream.address()?.port||0}`,generatePath:'/v1/images/generations',taskPath:'/v1/tasks/{taskId}',upstreamModel:'nano-banana-pro',pointCost:5};
+  const visionaryRoute={...route,id:'nano-banana-pro-backup',baseUrl:`http://127.0.0.1:${upstream.address()?.port||0}`,generatePath:'/v1/images/generations',editPath:'',taskPath:'/v1/tasks/{taskId}',upstreamModel:'nano-banana-pro',pointCost:5};
   const visionarySeedreamRoute={...visionaryRoute,id:'nano-banana-pro-line4',modelFamily:'seedream-5-pro',upstreamModel:'seedream-5.0-pro',pointCost:0};
   const testRoutes=[route,geminiKeyRoute,nativeRoute,editWithoutPath,disabledRoute,visionaryRoute,visionarySeedreamRoute];
   routeModule.getImageRouteById=async id=>testRoutes.find(item=>item.id===id)||null;routeModule.getImageRouteCatalog=async()=>({defaultRouteId:route.id,routes:[route,nativeRoute]});
@@ -133,20 +137,24 @@ test('image routes durably acknowledge before provider work and settle without a
     assert.equal(visionaryRequestBodies[requestIndex].quality,undefined,'Seedream quality stays omitted');
     assert.equal(visionaryRequestPaths[requestIndex],'/v1/images/generations','text-only requests keep the documented native endpoint');
 
-    const referenceRequestIndex=visionaryRequestBodies.length;
-    const referenceResponse=await request('/api/generate',{method:'POST',body:JSON.stringify({...body,routeId:visionarySeedreamRoute.id,model:seedream.modelId,modelId:seedream.modelId,size:'2048x1152',image_size:'2K',aspect_ratio:'16:9',images:['data:image/png;base64,AAAA'],clientRequestId:`${seedream.clientRequestId}-reference`})});
+    const editRequestIndex=visionaryEditRequestPaths.length;
+    const referenceResponse=await request('/api/edit',{method:'POST',body:JSON.stringify({...body,routeId:visionarySeedreamRoute.id,model:seedream.modelId,modelId:seedream.modelId,size:'2048x1152',image_size:'2K',aspect_ratio:'16:9',quality:'high',output_format:'jpeg',moderation:'low',images:['data:image/png;base64,AAAA'],clientRequestId:`${seedream.clientRequestId}-reference`})});
     assert.equal(referenceResponse.status,202);
     const referenceAck=await referenceResponse.json();
     assert.equal((await pollUntilDone(referenceAck.task_id)).status,'succeeded');
-    assert.equal(visionaryRequestBodies[referenceRequestIndex].size,'16:9');
-    assert.equal(visionaryRequestBodies[referenceRequestIndex].resolution,'2K');
-    assert.deepEqual(visionaryRequestBodies[referenceRequestIndex].images,['data:image/png;base64,AAAA'],'Visionary references use the documented JSON images field');
-    assert.equal(visionaryRequestPaths[referenceRequestIndex],'/compat/v1/images/generations','Seedream reference requests use Visionary compatibility endpoint');
+    assert.equal(visionaryEditRequestPaths[editRequestIndex],'/compat/v1/images/edits?async=true');
+    assert.match(visionaryEditContentTypes[editRequestIndex],/^multipart\/form-data;/i);
+    assert.match(visionaryEditBodies[editRequestIndex],/name="image"; filename="input-1\.png"/);
+    assert.ok(visionaryEditBodies[editRequestIndex].includes(Buffer.from('AAAA','base64').toString('latin1')),'the multipart file contains the decoded reference bytes');
+    assert.match(visionaryEditBodies[editRequestIndex],/name="size"\r\n\r\n16:9/);
+    assert.match(visionaryEditBodies[editRequestIndex],/name="resolution"\r\n\r\n2K/);
+    assert.doesNotMatch(visionaryEditBodies[editRequestIndex],/data:image\/png;base64/);
+    assert.doesNotMatch(visionaryEditBodies[editRequestIndex],/name="(?:quality|output_format|moderation)"/);
   }
   const edit=await request('/api/edit',{method:'POST',body:JSON.stringify({...body,routeId:editWithoutPath.id,clientRequestId:'valid-edit',image:'data:image/png;base64,AAAA'})});assert.equal(edit.status,202);
   const editAck=await edit.json();assert.equal((await pollUntilDone(editAck.task_id)).status,'succeeded');
   assert.ok((await store.get(editAck.task_id)).generationRecordId,'edit task must bind a generation record');
-  const editRecords=[...records.values()].filter(record=>record.action==='edit' || record.actionName==='edit');
+  const editRecords=[...records.values()].filter(record=>(record.action==='edit' || record.actionName==='edit')&&record.routeId===editWithoutPath.id);
   assert.equal(editRecords.length,1,'one durable edit creates exactly one generation record');
   assert.equal(editRecords[0].routeId,editWithoutPath.id,'missing editPath uses the selected OpenAI-compatible provider, never the default provider');
   assert.equal(editRecords[0].status,'SUCCESS','no duplicate pending edit record remains');
