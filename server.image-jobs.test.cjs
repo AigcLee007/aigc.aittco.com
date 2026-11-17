@@ -16,7 +16,7 @@ test('image routes durably acknowledge before provider work and settle without a
   let upstreamCalls=0,pollCalls=0;let finish;let providerResult={data:[{url:'https://images.example/a.png'}]};let delayed=true;
   let forceProviderFailure=false;
   let nativePhases=false,releaseProgress,releaseNative;
-  let visionaryPollCalls=0,visionaryRequestBodies=[],visionarySubmissionCount=0;
+  let visionaryPollCalls=0,visionaryRequestBodies=[],visionaryRequestPaths=[],visionarySubmissionCount=0;
   const polledPaths=[],visionaryPolledPaths=[];
   const upstream=http.createServer(async(req,res)=>{
     if(req.method==='GET'){
@@ -33,8 +33,8 @@ test('image routes durably acknowledge before provider work and settle without a
       return res.end(JSON.stringify({status:'succeeded',results:['https://images.example/native.png']}));
     }
     upstreamCalls++;const chunks=[];for await(const chunk of req)chunks.push(chunk);
-    if(req.url==='/v1/images/generations'){
-      visionaryRequestBodies.push(JSON.parse(Buffer.concat(chunks).toString()));res.setHeader('Content-Type','application/json');
+    if(req.url==='/v1/images/generations'||req.url==='/compat/v1/images/generations'){
+      visionaryRequestPaths.push(req.url);visionaryRequestBodies.push(JSON.parse(Buffer.concat(chunks).toString()));res.setHeader('Content-Type','application/json');
       return res.end(JSON.stringify({code:200,data:[{task_id:`visionary-task-${++visionarySubmissionCount}`,status:'submitted',retry_after:1}]}));
     }
     if(delayed)await new Promise(resolve=>{finish=resolve;});
@@ -131,6 +131,17 @@ test('image routes durably acknowledge before provider work and settle without a
     assert.equal(visionaryRequestBodies[requestIndex].resolution,'2K','Visionary receives the selected resolution');
     assert.equal(visionaryRequestBodies[requestIndex].aspect_ratio,undefined,'Visionary represents the ratio in size');
     assert.equal(visionaryRequestBodies[requestIndex].quality,undefined,'Seedream quality stays omitted');
+    assert.equal(visionaryRequestPaths[requestIndex],'/v1/images/generations','text-only requests keep the documented native endpoint');
+
+    const referenceRequestIndex=visionaryRequestBodies.length;
+    const referenceResponse=await request('/api/generate',{method:'POST',body:JSON.stringify({...body,routeId:visionarySeedreamRoute.id,model:seedream.modelId,modelId:seedream.modelId,size:'2048x1152',image_size:'2K',aspect_ratio:'16:9',images:['data:image/png;base64,AAAA'],clientRequestId:`${seedream.clientRequestId}-reference`})});
+    assert.equal(referenceResponse.status,202);
+    const referenceAck=await referenceResponse.json();
+    assert.equal((await pollUntilDone(referenceAck.task_id)).status,'succeeded');
+    assert.equal(visionaryRequestBodies[referenceRequestIndex].size,'16:9');
+    assert.equal(visionaryRequestBodies[referenceRequestIndex].resolution,'2K');
+    assert.deepEqual(visionaryRequestBodies[referenceRequestIndex].images,['data:image/png;base64,AAAA'],'Visionary references use the documented JSON images field');
+    assert.equal(visionaryRequestPaths[referenceRequestIndex],'/compat/v1/images/generations','Seedream reference requests use Visionary compatibility endpoint');
   }
   const edit=await request('/api/edit',{method:'POST',body:JSON.stringify({...body,routeId:editWithoutPath.id,clientRequestId:'valid-edit',image:'data:image/png;base64,AAAA'})});assert.equal(edit.status,202);
   const editAck=await edit.json();assert.equal((await pollUntilDone(editAck.task_id)).status,'succeeded');

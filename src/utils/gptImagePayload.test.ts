@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { buildGptImagePayload } from './gptImagePayload';
+import { buildGptImagePayload, getReferenceImageSubmissionMode } from './gptImagePayload';
 
 describe('GPT-compatible image payload', () => {
+  it('sends Visionary Seedream reference images through the generation API', () => {
+    expect(getReferenceImageSubmissionMode('seedream-5-pro-visionary-stable')).toBe('generate');
+    expect(getReferenceImageSubmissionMode('seedream-5.5-visionary-stable')).toBe('generate');
+    expect(getReferenceImageSubmissionMode('seedream-5-pro-default')).toBe('edit');
+  });
+
   it('includes the selected ratio for Seedream 2K requests', () => {
     const payload = buildGptImagePayload({
       model: 'seedream-5.0-pro',

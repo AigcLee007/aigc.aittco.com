@@ -398,6 +398,11 @@ const applyRoutePathTemplate = (template, params = {}) =>
   );
 const buildRouteUrl = (route, template, params = {}) =>
   `${trimTrailingSlash(route.baseUrl)}${applyRoutePathTemplate(template, params)}`;
+const withVisionaryCompatibilityPrefix = (template = "") => {
+  const path = String(template || "");
+  if (path.startsWith("/compat/")) return path;
+  return `/compat/${path.replace(/^\/+/, "")}`;
+};
 const buildImageTaskToken = (routeId, upstreamTaskId) =>
   Buffer.from(
     JSON.stringify({ routeId, upstreamTaskId }),
@@ -4002,11 +4007,16 @@ const legacyImageGenerateHandler = async (req, res) => {
     const chatPath = String(route?.chatPath || "").trim();
     const shouldUseChatSyncEndpoint =
       isSyncLine && chatPath.length > 0 && !shouldRunVisionaryInBackground;
+    const hasVisionaryReferenceImages =
+      isVisionaryRoute && Array.isArray(requestBody.images) && requestBody.images.length > 0;
+    const generatePath = hasVisionaryReferenceImages
+      ? withVisionaryCompatibilityPrefix(route.generatePath)
+      : route.generatePath;
     const upstreamUrl = shouldUseChatSyncEndpoint
       ? buildRouteUrl(route, chatPath, {
           model: requestBody.model,
         })
-      : buildRouteUrl(route, route.generatePath, {
+      : buildRouteUrl(route, generatePath, {
           model: requestBody.model,
         });
 
