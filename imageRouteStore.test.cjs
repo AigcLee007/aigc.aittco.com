@@ -45,6 +45,41 @@ describe("image route store schema seeding", () => {
     );
   });
 
+  it("restores the deleted Seedream-5-pro stable route from the runtime catalog", () => {
+    const { getMissingStaticRows } = require("./imageRouteStore.cjs");
+    const route = require("./config/imageRoutes.json").routes.find(
+      (item) => item.id === "seedream-5-pro-visionary-stable",
+    );
+    assert.ok(route);
+
+    const missingRows = getMissingStaticRows(
+      [{
+        ...route,
+        route_id: route.id,
+        model_family: route.modelFamily,
+        line_value: route.line,
+        is_default_route: route.isDefaultRoute ? 1 : 0,
+        is_default_nano_banana_line: 0,
+      }],
+      [{
+        route_id: "seedream-5-pro-default",
+        model_family: "seedream-5-pro",
+        line_value: "线路一",
+        is_default_route: 0,
+      }],
+    );
+
+    expect(missingRows).toHaveLength(1);
+    expect(missingRows[0]).toMatchObject({
+      route_id: "seedream-5-pro-visionary-stable",
+      model_family: "seedream-5-pro",
+      line_value: "稳定线路",
+      baseUrl: "https://api.visionary.beer",
+      upstreamModel: "seedream-5.0-pro",
+      apiKeyEnv: "Nanobananapro_visionary",
+    });
+  });
+
   it("normalizes mapped VISON routes through the compatibility layer", () => {
     const source = fs.readFileSync(path.join(__dirname, "imageRouteStore.cjs"), "utf8");
 
