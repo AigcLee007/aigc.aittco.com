@@ -477,6 +477,23 @@ const ensureImageRouteSchema = async () => {
           );
         }
 
+        // Repair the defaults shipped before ff5c271 for already-managed catalogs.
+        // Compare each old value so administrator edits and credentials stay intact.
+        const seedreamMouxihub = getStaticRouteDefaults("seedream-5.5-mouxihub");
+        if (seedreamMouxihub) {
+          for (const [column, previousValue, nextValue] of [
+            ["label", "眸析云", seedreamMouxihub.label],
+            ["line_value", "眸析云", seedreamMouxihub.line_value],
+            ["upstream_model", "seedream-5.5", seedreamMouxihub.upstream_model],
+          ]) {
+            if (previousValue === nextValue) continue;
+            await connection.execute(
+              `UPDATE image_routes SET ${column} = ?, updated_at = ? WHERE route_id = ? AND model_family = ? AND base_url = ? AND ${column} = ?`,
+              [nextValue, nowDb, seedreamMouxihub.route_id, seedreamMouxihub.model_family, seedreamMouxihub.base_url, previousValue],
+            );
+          }
+        }
+
         const rollDekRouteIds = [
           "gpt-image-2.5-sunburst-native",
           "gpt-image-2.5-sunburst-max",

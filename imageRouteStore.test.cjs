@@ -1,6 +1,108 @@
 const assert = require("assert");
 const fs = require("fs");
 const path = require("path");
+const vm = require("node:vm");
+const { createRequire } = require("node:module");
+
+const createManagedCatalogHarness = (overrides = {}) => {
+  const catalog = require("./config/imageRoutes.json");
+  const rows = catalog.routes.map((route) => ({
+    route_id: route.id, label: route.label, model_family: route.modelFamily,
+    line_value: route.line, transport: route.transport, mode: route.mode,
+    base_url: route.baseUrl, generate_path: route.generatePath,
+    task_path: route.taskPath, edit_path: route.editPath, upstream_model: route.upstreamModel,
+    api_key_env: route.apiKeyEnv, api_key: "managed-key", point_cost: route.pointCost,
+    size_overrides: JSON.stringify(route.sizeOverrides || {}), is_active: 1,
+    is_default_route: route.isDefaultRoute ? 1 : 0,
+    is_default_nano_banana_line: 0, updated_at: "2026-11-01 00:00:00.000",
+    ...(route.id === "seedream-5.5-mouxihub" ? overrides : {}),
+  }));
+  const changes = [];
+  const execute = async (sql, params = []) => {
+    const text = sql.replace(/\s+/g, " ").trim();
+    if (text.startsWith("CREATE TABLE")) return [{}];
+    if (text.startsWith("SHOW COLUMNS")) return [[{ Type: "decimal(10,1)" }]];
+    if (text.startsWith("SELECT")) {
+      return [rows.filter((row) => !text.includes("WHERE route_id = ?") || row.route_id === params[0])
+        .map((row) => ({ ...row }))];
+    }
+    // Execute bound equality updates against persisted rows, including their WHERE guards.
+    const update = text.match(/^UPDATE image_routes SET (.+?) WHERE (.+)$/);
+    if (update) {
+      const assignments = update[1].split(", ").map((term) => term.match(/^(\w+) = \?$/)?.[1]);
+      const conditions = update[2].split(" AND ").map((term) => term.match(/^(\w+) = \?$/)?.[1]);
+      assert.ok(assignments.every(Boolean) && conditions.every(Boolean), `Unsupported SQL: ${text}`);
+      assert.equal(params.length, assignments.length + conditions.length);
+      let affectedRows = 0;
+      for (const row of rows) {
+        if (!conditions.every((key, index) => row[key] === params[assignments.length + index])) continue;
+        assignments.forEach((key, index) => { row[key] = params[index]; });
+        changes.push({ routeId: row.route_id, columns: assignments });
+        affectedRows++;
+      }
+      return [{ affectedRows }];
+    }
+    throw new Error(`Unexpected SQL: ${text}`);
+  };
+  const db = {
+    isMySqlConfigured: () => true,
+    getPool: async () => ({ execute }),
+    withTransaction: async (runner) => runner({ execute }),
+    toDbDateTime: () => "2026-11-19 00:00:00.000",
+    fromDbDateTime: (value) => value,
+  };
+  const loadStore = () => {
+    const filename = path.join(__dirname, "imageRouteStore.cjs");
+    const localRequire = createRequire(filename);
+    const module = { exports: {} };
+    vm.runInNewContext(fs.readFileSync(filename, "utf8"), {
+      module, exports: module.exports,
+      require: (name) => name === "./db.cjs" ? db : localRequire(name),
+    }, { filename });
+    return module.exports;
+  };
+  return { loadStore, changes, rows };
+};
+
+describe("Seedream Mouxihub managed catalog upgrade", () => {
+  it("repairs a pre-existing database route before catalog reads and upstream resolution", async () => {
+    const harness = createManagedCatalogHarness({
+      label: "眸析云", line_value: "眸析云", upstream_model: "seedream-5.5",
+      point_cost: 7, is_default_route: 1,
+    });
+    const store = harness.loadStore();
+    const catalog = await store.getImageRouteCatalog();
+    const publicRoute = catalog.routes.find((route) => route.id === "seedream-5.5-mouxihub");
+    expect(publicRoute).toMatchObject({ label: "官转线路", line: "官转线路", upstreamModel: "seedream-v5.5" });
+    const route = await store.getImageRouteById(publicRoute.id, { includeSecrets: true });
+    expect(route).toMatchObject({ upstreamModel: "seedream-v5.5", apiKey: "managed-key", pointCost: 7, isDefaultRoute: true });
+    expect(route.sizeOverrides["2k"].inputImagePointCost).toBe(1.25);
+    expect(harness.changes.every((change) => change.routeId === route.id)).toBe(true);
+    const writes = harness.changes.length;
+    await harness.loadStore().ensureImageRouteSchema();
+    expect(harness.changes.length).toBe(writes);
+  });
+
+  it("repairs only legacy fields while preserving an administrator's custom name and disabled state", async () => {
+    const { loadStore } = createManagedCatalogHarness({
+      label: "我的专线", line_value: "官转线路", upstream_model: "seedream-5.5", is_active: 0,
+    });
+    const route = await loadStore().getImageRouteById("seedream-5.5-mouxihub");
+    expect(route).toMatchObject({ label: "我的专线", line: "官转线路", upstreamModel: "seedream-v5.5", isActive: false });
+  });
+
+  it("preserves custom models and the same route ID repointed to another provider", async () => {
+    for (const overrides of [
+      { label: "自定义名称", line_value: "自定义线路", upstream_model: "custom-model" },
+      { label: "眸析云", line_value: "眸析云", upstream_model: "seedream-5.5", base_url: "https://other.example" },
+    ]) {
+      const { loadStore, changes } = createManagedCatalogHarness(overrides);
+      const route = await loadStore().getImageRouteById("seedream-5.5-mouxihub");
+      expect(route).toMatchObject({ label: overrides.label, line: overrides.line_value, upstreamModel: overrides.upstream_model });
+      expect(changes).toHaveLength(0);
+    }
+  });
+});
 
 describe("image route store schema seeding", () => {
   it("adds only static routes missing from the managed catalog", () => {
