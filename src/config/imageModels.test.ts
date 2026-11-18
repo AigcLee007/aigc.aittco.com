@@ -165,6 +165,11 @@ describe('Seedream-5.5 catalog', () => {
     expect(getImageRoutePointCost(visionary, '1k')).toBe(4);
     expect(getImageRoutePointCost(visionary, '2k')).toBe(5);
     const mouxihub = routes.find((route) => route.id === 'seedream-5.5-mouxihub');
+    expect(mouxihub).toMatchObject({
+      label: '官转线路',
+      line: '官转线路',
+      upstreamModel: 'seedream-v5.5',
+    });
     expect(mouxihub?.sizeOverrides).toEqual({
       '1k': { pointCost: 4, inputImagePointCost: 1.25 },
       '2k': { pointCost: 4, inputImagePointCost: 1.25 },

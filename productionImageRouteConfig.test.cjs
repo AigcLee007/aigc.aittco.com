@@ -138,13 +138,13 @@ test("Seedream-5.5 production routes mirror the Seedream-5-pro routes and use th
   assert.equal(visionary.sizeOverrides["1k"].pointCost, 4);
   assert.equal(visionary.sizeOverrides["2k"].pointCost, 5);
   assert.ok(mouxihub);
-  assert.equal(mouxihub.label, "眸析云");
-  assert.equal(mouxihub.line, "眸析云");
+  assert.equal(mouxihub.label, "官转线路");
+  assert.equal(mouxihub.line, "官转线路");
   assert.equal(mouxihub.baseUrl, "https://api.mouxihub.com");
   assert.equal(mouxihub.generatePath, "/v1/images/generations?async=true");
   assert.equal(mouxihub.taskPath, "/v1/images/tasks/{taskId}");
   assert.equal(mouxihub.editPath, "/v1/images/edits?async=true");
-  assert.equal(mouxihub.upstreamModel, "seedream-5.5");
+  assert.equal(mouxihub.upstreamModel, "seedream-v5.5");
   assert.equal(mouxihub.apiKeyEnv, "seedream-5.5_mouxi");
   assert.equal(mouxihub.mode, "async");
   assert.deepEqual(mouxihub.sizeOverrides, {
@@ -156,5 +156,5 @@ test("Seedream-5.5 production routes mirror the Seedream-5-pro routes and use th
   assert.equal(runtimeRoutes.length, 3);
   assert.ok(runtimeRoutes.some((route) => route.id === "seedream-5.5-default" && route.upstreamModel === "seedream-5.5"));
   assert.ok(runtimeRoutes.some((route) => route.id === "seedream-5.5-visionary-stable" && route.upstreamModel === "seedream-5.5"));
-  assert.ok(runtimeRoutes.some((route) => route.id === "seedream-5.5-mouxihub" && route.upstreamModel === "seedream-5.5"));
+  assert.ok(runtimeRoutes.some((route) => route.id === "seedream-5.5-mouxihub" && route.upstreamModel === "seedream-v5.5" && route.label === "官转线路" && route.line === "官转线路"));
 });
