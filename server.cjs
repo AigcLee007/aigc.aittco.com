@@ -183,6 +183,7 @@ const {
   cleanupExpiredLocalAssets,
 } = require("./generatedAssetService.cjs");
 const { toPointNumber } = require("./pointMath.cjs");
+const { getRoutePointCost } = require("./imageRoutePricing.cjs");
 const {
   getGeminiSingleImageRequestError,
 } = require("./imageRequestCount.cjs");
@@ -308,6 +309,10 @@ const toPublicImageRouteSizeOverrides = (overrides) => {
       rawValue?.pointCost !== null &&
       rawValue?.pointCost !== "";
     const pointCost = hasPointCost ? toPointNumber(rawValue.pointCost, 0) : null;
+    const rawInputImagePointCost = Number.parseFloat(String(rawValue?.inputImagePointCost ?? ""));
+    const inputImagePointCost = Number.isFinite(rawInputImagePointCost) && rawInputImagePointCost >= 0
+      ? rawInputImagePointCost
+      : null;
     if (!["1k", "2k", "4k"].includes(key)) {
       return accumulator;
     }
@@ -318,7 +323,10 @@ const toPublicImageRouteSizeOverrides = (overrides) => {
     if (hasPointCost && Number.isFinite(pointCost) && pointCost >= 0) {
       entry.pointCost = pointCost;
     }
-    if (entry.upstreamModel || Number.isFinite(entry.pointCost)) {
+    if (inputImagePointCost !== null) {
+      entry.inputImagePointCost = inputImagePointCost;
+    }
+    if (entry.upstreamModel || Number.isFinite(entry.pointCost) || Number.isFinite(entry.inputImagePointCost)) {
       accumulator[key] = entry;
     }
     return accumulator;
@@ -620,11 +628,6 @@ const applyVisionaryImageCompat = (requestBody = {}) => {
   const normalized = normalizeVisionaryImageRequest(requestBody);
   for (const key of Object.keys(requestBody)) delete requestBody[key];
   Object.assign(requestBody, normalized);
-};
-const getRoutePointCost = (route, quantity = 1, requestBody = {}) => {
-  const sizeOverride = getRouteSizeOverride(route, requestBody);
-  const pointCost = toPointNumber(sizeOverride?.pointCost ?? route?.pointCost ?? 0);
-  return toPointNumber(Math.max(0, pointCost) * Math.max(1, Number(quantity || 1)), 0);
 };
 const getVideoDurationSeconds = (requestBody = {}, model = null) => {
   const parsed = Number.parseFloat(String(requestBody.duration || model?.defaultDuration || 0));

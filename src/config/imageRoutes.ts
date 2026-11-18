@@ -19,6 +19,7 @@ export const DEFAULT_IMAGE_ROUTE_QUALITIES: ImageRouteQuality[] = [
 export interface ImageRouteSizeOverrideConfig {
   upstreamModel?: string;
   pointCost?: number;
+  inputImagePointCost?: number;
   apiKeyEnv?: string;
 }
 
@@ -109,6 +110,7 @@ const normalizeSizeOverrides = (
 
     const upstreamModel = String(rawValue.upstreamModel || '').trim();
     const parsedPointCost = Number.parseFloat(String(rawValue.pointCost ?? ''));
+    const parsedInputImagePointCost = Number.parseFloat(String(rawValue.inputImagePointCost ?? ''));
     const apiKeyEnv = String(rawValue.apiKeyEnv || '').trim();
     const entry: ImageRouteSizeOverrideConfig = {};
     if (upstreamModel) {
@@ -117,10 +119,13 @@ const normalizeSizeOverrides = (
     if (Number.isFinite(parsedPointCost) && parsedPointCost >= 0) {
       entry.pointCost = roundNonNegativePoint(parsedPointCost, 0);
     }
+    if (Number.isFinite(parsedInputImagePointCost) && parsedInputImagePointCost >= 0) {
+      entry.inputImagePointCost = parsedInputImagePointCost;
+    }
     if (apiKeyEnv) {
       entry.apiKeyEnv = apiKeyEnv;
     }
-    if (entry.upstreamModel || Number.isFinite(entry.pointCost) || entry.apiKeyEnv) {
+    if (entry.upstreamModel || Number.isFinite(entry.pointCost) || Number.isFinite(entry.inputImagePointCost) || entry.apiKeyEnv) {
       next[key] = entry;
     }
   });
@@ -437,6 +442,28 @@ export const getImageRoutePointCost = (
     return roundNonNegativePoint(sizeOverride.pointCost, 0);
   }
   return roundNonNegativePoint(route?.pointCost || 0, 0);
+};
+
+export const getImageRouteEstimatedPointCost = (
+  route: ImageRouteConfig | null | undefined,
+  imageSize: string | undefined,
+  quantity = 1,
+  inputImageCount = 0,
+): number => {
+  const sizeOverride = getImageRouteSizeOverride(route, imageSize);
+  const outputPointCost = sizeOverride && Number.isFinite(sizeOverride.pointCost)
+    ? roundNonNegativePoint(sizeOverride.pointCost, 0)
+    : roundNonNegativePoint(route?.pointCost || 0, 0);
+  const rawInputPointCost = Number(sizeOverride?.inputImagePointCost ?? 0);
+  const inputPointCost = Number.isFinite(rawInputPointCost) && rawInputPointCost >= 0
+    ? rawInputPointCost
+    : 0;
+  const outputCount = Math.max(1, Number(quantity || 1));
+  const referenceCount = Math.max(0, Number(inputImageCount || 0));
+  return roundNonNegativePoint(
+    (outputPointCost + inputPointCost * referenceCount) * outputCount,
+    0,
+  );
 };
 
 export const getImageRouteSupportedQualities = (

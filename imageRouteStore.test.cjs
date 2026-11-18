@@ -169,6 +169,14 @@ describe("image route store schema seeding", () => {
       "4k": { pointCost: 6, apiKeyEnv: "GPT-image-2.6-sunburst_mouxihub_4k" },
     });
   });
+
+  it("preserves fractional per-input-image point rates in size overrides", () => {
+    const { mergeSizeOverrides } = require("./imageRouteStore.cjs");
+    expect(mergeSizeOverrides(
+      JSON.stringify({ "1k": { pointCost: 4, inputImagePointCost: 1.25 } }),
+      null,
+    )).toEqual({ "1k": { pointCost: 4, inputImagePointCost: 1.25 } });
+  });
 });
 
 describe("image route result kind", () => {

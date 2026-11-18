@@ -2141,6 +2141,9 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
               ) : (
                 <ImageFormConfig
                   restrictToDirectKeyCompatible={generationAccessState === 'valid_api_key'}
+                  referenceImageCount={promptReferenceMentionState.hasMentions
+                    ? promptReferenceMentionState.validOneBased.length
+                    : referenceImages.length}
                 />
               )
             ) : (

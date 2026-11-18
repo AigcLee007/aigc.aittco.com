@@ -26,6 +26,7 @@ export default defineConfig({
       'appVersion.test.cjs',
       'imageCatalogInitialization.test.cjs',
       'imageRouteResolution.test.cjs',
+      'imageRoutePricing.test.cjs',
       'productionImageRouteConfig.test.cjs',
       'classicImageJobs.test.cjs',
       'imageHistoryRetention.test.cjs',

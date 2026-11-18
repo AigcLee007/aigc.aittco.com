@@ -419,6 +419,33 @@
       "sortOrder": 1
     },
     {
+      "id": "seedream-5.5-mouxihub",
+      "label": "眸析云",
+      "description": "",
+      "modelFamily": "seedream-5.5",
+      "line": "眸析云",
+      "transport": "openai-image",
+      "mode": "async",
+      "baseUrl": "https://api.mouxihub.com",
+      "generatePath": "/v1/images/generations?async=true",
+      "taskPath": "/v1/images/tasks/{taskId}",
+      "editPath": "/v1/images/edits?async=true",
+      "upstreamModel": "seedream-5.5",
+      "apiKeyEnv": "seedream-5.5_mouxi",
+      "pointCost": 4,
+      "sizeOverrides": {
+        "1k": {
+          "pointCost": 4,
+          "inputImagePointCost": 1.25
+        },
+        "2k": {
+          "pointCost": 4,
+          "inputImagePointCost": 1.25
+        }
+      },
+      "sortOrder": 2
+    },
+    {
       "id": "gpt-image-2.5-flare-stable",
       "label": "稳定线路",
       "description": "",

@@ -10,6 +10,7 @@ import {
   getImageModelNameForRoute,
   getImageRouteOptions,
   getImageRoutesByModelFamily,
+  getImageRouteEstimatedPointCost,
   getImageRoutePointCost,
   getImageRouteSupportedQualities,
 } from './imageRoutes';
@@ -137,7 +138,7 @@ describe('Seedream-5.5 catalog', () => {
     expect(model.requestModel).toBe('seedream-5.5');
     expect(model.selectorCost).toBe(3);
     expect(getImageModelSizeOptions(model.id)).toEqual(['1k', '2k']);
-    expect(routes).toHaveLength(2);
+    expect(routes).toHaveLength(3);
     expect(routes.find((route) => route.id === 'seedream-5.5-default')).toMatchObject({
       baseUrl: 'https://api.pixellelabs.com',
       generatePath: '/v1/images/generations',
@@ -163,6 +164,30 @@ describe('Seedream-5.5 catalog', () => {
     });
     expect(getImageRoutePointCost(visionary, '1k')).toBe(4);
     expect(getImageRoutePointCost(visionary, '2k')).toBe(5);
+    const mouxihub = routes.find((route) => route.id === 'seedream-5.5-mouxihub');
+    expect(mouxihub?.sizeOverrides).toEqual({
+      '1k': { pointCost: 4, inputImagePointCost: 1.25 },
+      '2k': { pointCost: 4, inputImagePointCost: 1.25 },
+    });
+  });
+});
+
+describe('image route estimate with input image pricing', () => {
+  it('includes references in each single-image request and rounds the aggregate once', () => {
+    const route = {
+      id: 'mouxihub', label: '眸析云', modelFamily: 'seedream-5.5', line: '眸析云',
+      transport: 'openai-image' as const, mode: 'async' as const,
+      baseUrl: 'https://api.mouxihub.com', generatePath: '/v1/images/generations?async=true',
+      pointCost: 4,
+      sizeOverrides: {
+        '1k': { pointCost: 4, inputImagePointCost: 1.25 },
+        '2k': { pointCost: 4, inputImagePointCost: 1.25 },
+      },
+    };
+
+    expect(getImageRouteEstimatedPointCost(route, '1k', 2, 2)).toBe(13);
+    expect(getImageRouteEstimatedPointCost(route, '2k', 1, 1)).toBe(5.3);
+    expect(getImageRouteEstimatedPointCost({ ...route, sizeOverrides: { '1k': { pointCost: 4 } } }, '1k', 2, 2)).toBe(8);
   });
 });
 

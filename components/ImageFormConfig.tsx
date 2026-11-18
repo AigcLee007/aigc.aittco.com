@@ -22,6 +22,7 @@ import {
 import {
   canUseDirectUserApiKeyForImageModel,
   getLowestCostImageRouteForModel,
+  getImageRouteEstimatedPointCost,
   getImageRoutePointCost,
   getImageRouteOptions,
   getImageRouteSizeOptions,
@@ -50,10 +51,12 @@ const BASE_RATIO_OPTIONS = [
 
 interface ImageFormConfigProps {
   restrictToDirectKeyCompatible?: boolean;
+  referenceImageCount?: number;
 }
 
 export const ImageFormConfig: React.FC<ImageFormConfigProps> = ({
   restrictToDirectKeyCompatible = false,
+  referenceImageCount = 0,
 }) => {
   useImageRouteCatalog();
   useImageModelCatalog();
@@ -130,7 +133,21 @@ export const ImageFormConfig: React.FC<ImageFormConfigProps> = ({
     ? normalizedSize
     : sizeOptions[0] || getDefaultImageSizeForModel(currentModel.id);
   const currentUnitCost = getImageRoutePointCost(selectedRoute, effectiveSize);
-  const currentTotalCost = currentUnitCost * Math.max(1, Number(quantity || 1));
+  const currentPerImageEstimate = getImageRouteEstimatedPointCost(
+    selectedRoute,
+    effectiveSize,
+    1,
+    referenceImageCount,
+  );
+  const currentTotalCost = getImageRouteEstimatedPointCost(
+    selectedRoute,
+    effectiveSize,
+    quantity,
+    referenceImageCount,
+  );
+  const inputImagePointCost = Number(
+    selectedRoute.sizeOverrides?.[effectiveSize as '1k' | '2k' | '4k']?.inputImagePointCost || 0,
+  );
   const supportedQualities = useMemo(
     () => getImageRouteSupportedQualities(selectedRoute),
     [selectedRoute],
@@ -424,7 +441,11 @@ export const ImageFormConfig: React.FC<ImageFormConfigProps> = ({
           </div>
         </div>
         <div className="mt-2 text-[10px] leading-4 text-gray-500">
-          {isMidjourney ? `每张 ${(currentUnitCost / 4).toFixed(0)} 金币，每组 4 张，共 ${currentUnitCost.toFixed(0)} 金币。` : `单张 ${currentUnitCost.toFixed(1)} 点，最终按数量自动合计。`}
+          {isMidjourney
+            ? `每张 ${(currentUnitCost / 4).toFixed(0)} 金币，每组 4 张，共 ${currentUnitCost.toFixed(0)} 金币。`
+            : inputImagePointCost > 0 && referenceImageCount > 0
+              ? `单张预计 ${currentPerImageEstimate.toFixed(1)} 点（含 ${referenceImageCount} 张参考图），最终按数量自动合计。`
+              : `单张 ${currentUnitCost.toFixed(1)} 点，最终按数量自动合计。`}
         </div>
       </div>
     </>

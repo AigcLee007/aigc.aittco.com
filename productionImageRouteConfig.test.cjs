@@ -6,9 +6,9 @@ const catalog = require("./config/production-image-routes.json");
 const runtimeCatalog = require("./config/imageRoutes.json");
 const { getRequiredApiKeyEnvNames, validateRouteConfig } = require("./scripts/replace-production-image-routes.cjs");
 
-test("production config contains 33 unique routes and one default per family", () => {
+test("production config contains 34 unique routes and one default per family", () => {
   validateRouteConfig(catalog);
-  assert.equal(catalog.routes.length, 33);
+  assert.equal(catalog.routes.length, 34);
   assert.equal(new Set(catalog.routes.map((route) => route.modelFamily)).size, 8);
   assert.deepEqual(
     [...new Set(catalog.routes.map((route) => route.modelFamily))].sort(),
@@ -116,11 +116,12 @@ test("Visionary Seedream stable route matches the documented model, endpoint, an
 
 test("Seedream-5.5 production routes mirror the Seedream-5-pro routes and use the 5.5 upstream model", () => {
   const routes = catalog.routes.filter((route) => route.modelFamily === "seedream-5.5");
-  assert.equal(routes.length, 3);
+  assert.equal(routes.length, 4);
 
   const dedicated = routes.find((route) => route.id === "seedream-5.5-seedream-dedicated");
   const backup = routes.find((route) => route.id === "seedream-5.5-backup");
   const visionary = routes.find((route) => route.id === "seedream-5.5-visionary-stable");
+  const mouxihub = routes.find((route) => route.id === "seedream-5.5-mouxihub");
 
   assert.ok(dedicated);
   assert.equal(dedicated.upstreamModel, "seedream-5.5");
@@ -136,9 +137,24 @@ test("Seedream-5.5 production routes mirror the Seedream-5-pro routes and use th
   assert.equal(visionary.apiKeyEnv, "Nanobananapro_visionary");
   assert.equal(visionary.sizeOverrides["1k"].pointCost, 4);
   assert.equal(visionary.sizeOverrides["2k"].pointCost, 5);
+  assert.ok(mouxihub);
+  assert.equal(mouxihub.label, "眸析云");
+  assert.equal(mouxihub.line, "眸析云");
+  assert.equal(mouxihub.baseUrl, "https://api.mouxihub.com");
+  assert.equal(mouxihub.generatePath, "/v1/images/generations?async=true");
+  assert.equal(mouxihub.taskPath, "/v1/images/tasks/{taskId}");
+  assert.equal(mouxihub.editPath, "/v1/images/edits?async=true");
+  assert.equal(mouxihub.upstreamModel, "seedream-5.5");
+  assert.equal(mouxihub.apiKeyEnv, "seedream-5.5_mouxi");
+  assert.equal(mouxihub.mode, "async");
+  assert.deepEqual(mouxihub.sizeOverrides, {
+    "1k": { pointCost: 4, inputImagePointCost: 1.25 },
+    "2k": { pointCost: 4, inputImagePointCost: 1.25 },
+  });
 
   const runtimeRoutes = runtimeCatalog.routes.filter((route) => route.modelFamily === "seedream-5.5");
-  assert.equal(runtimeRoutes.length, 2);
+  assert.equal(runtimeRoutes.length, 3);
   assert.ok(runtimeRoutes.some((route) => route.id === "seedream-5.5-default" && route.upstreamModel === "seedream-5.5"));
   assert.ok(runtimeRoutes.some((route) => route.id === "seedream-5.5-visionary-stable" && route.upstreamModel === "seedream-5.5"));
+  assert.ok(runtimeRoutes.some((route) => route.id === "seedream-5.5-mouxihub" && route.upstreamModel === "seedream-5.5"));
 });

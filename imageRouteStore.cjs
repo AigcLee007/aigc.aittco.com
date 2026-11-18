@@ -43,6 +43,10 @@ const parseInteger = (value, fallback = 0) => {
   return Number.isFinite(parsed) ? parsed : fallback;
 };
 const parsePoint = (value, fallback = 0) => toNonNegativePoint(value, fallback);
+const parsePointRate = (value) => {
+  const parsed = Number.parseFloat(String(value ?? ""));
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+};
 const normalizeSupportedQualities = (value) => {
   let source = value;
   if (typeof source === "string") {
@@ -97,6 +101,12 @@ const normalizeSizeOverrides = (value) => {
       pointCostRaw === null || pointCostRaw === undefined || pointCostRaw === ""
         ? null
         : parsePoint(pointCostRaw, 0);
+    const inputImagePointCost =
+      rawEntry.inputImagePointCost === null ||
+      rawEntry.inputImagePointCost === undefined ||
+      rawEntry.inputImagePointCost === ""
+        ? null
+        : parsePointRate(rawEntry.inputImagePointCost);
 
     const entry = {};
     if (upstreamModel) {
@@ -108,7 +118,10 @@ const normalizeSizeOverrides = (value) => {
     if (apiKeyEnv) {
       entry.apiKeyEnv = apiKeyEnv;
     }
-    if (entry.upstreamModel || Number.isFinite(entry.pointCost) || entry.apiKeyEnv) {
+    if (inputImagePointCost !== null) {
+      entry.inputImagePointCost = inputImagePointCost;
+    }
+    if (entry.upstreamModel || Number.isFinite(entry.pointCost) || entry.apiKeyEnv || Number.isFinite(entry.inputImagePointCost)) {
       next[key] = entry;
     }
   }

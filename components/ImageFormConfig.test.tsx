@@ -42,4 +42,12 @@ describe('ImageFormConfig transfer controls', () => {
     expect((screen.getByLabelText('自动下载') as HTMLInputElement).checked).toBe(true);
     for (const removed of ['格式', '压缩率', '审核强度']) expect(screen.queryByText(removed)).toBeNull();
   });
+
+  it('estimates the Mouxihub input-image fee for every single-image request', () => {
+    useSelectionStore.setState({ imageModel: 'seedream-5.5', imageSize: '1k', quantity: 2 });
+    render(<ImageFormConfig referenceImageCount={2} />);
+    act(() => useSelectionStore.getState().setImageLine('眸析云'));
+    expect(screen.getByText('13.0')).toBeTruthy();
+    expect(screen.getByText(/单张预计 6.5 点（含 2 张参考图）/)).toBeTruthy();
+  });
 });

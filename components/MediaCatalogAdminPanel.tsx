@@ -160,13 +160,17 @@ const buildImageRouteSizeOverrides = (
     const { modelField, costField } = IMAGE_ROUTE_SIZE_FIELD_MAP[key];
     const upstreamModel = String(form[modelField] || '').trim();
     const pointCost = roundNonNegativePoint(form[costField], 0);
-    if (upstreamModel || pointCost > 0) {
+    const inputImagePointCost = Number(form.sizeOverrides?.[key]?.inputImagePointCost);
+    if (upstreamModel || pointCost > 0 || (Number.isFinite(inputImagePointCost) && inputImagePointCost > 0)) {
       next[key] = {};
       if (upstreamModel) {
         next[key]!.upstreamModel = upstreamModel;
       }
       if (pointCost > 0) {
         next[key]!.pointCost = pointCost;
+      }
+      if (Number.isFinite(inputImagePointCost) && inputImagePointCost > 0) {
+        next[key]!.inputImagePointCost = inputImagePointCost;
       }
     }
   });
