@@ -27,7 +27,7 @@ describe('GPT Image 2.6 Sunburst', () => {
     expect(mouxihub?.sizeOverrides).toEqual({
       '1k': { pointCost: 4 },
       '2k': { pointCost: 4 },
-      '4k': { pointCost: 4, apiKeyEnv: 'GPT-image-2.6-sunburst_mouxihub_4k' },
+      '4k': { pointCost: 6, apiKeyEnv: 'GPT-image-2.6-sunburst_mouxihub_4k' },
     });
     expect(productionCatalog.routes.filter(route => route.modelFamily === modelId)).toEqual(staticCatalog.routes.filter(route => route.modelFamily === modelId));
   });

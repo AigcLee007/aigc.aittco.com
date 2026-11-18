@@ -33,7 +33,7 @@ test("table sync modes and task paths remain independent values", () => {
   assert.equal(gptRelay.generatePath, "/v1/images/generations");
 });
 
-test("GPT-Image-2.6 Sunburst Mouxihub stable route is async and flat-priced", () => {
+test("GPT-Image-2.6 Sunburst Mouxihub stable route charges 4 points at 1K/2K and 6 points at 4K", () => {
   const routeId = "gpt-image-2.6-sunburst-mouxihub";
   const productionRoute = catalog.routes.find((item) => item.id === routeId);
   const runtimeRoute = runtimeCatalog.routes.find((item) => item.id === routeId);
@@ -56,7 +56,7 @@ test("GPT-Image-2.6 Sunburst Mouxihub stable route is async and flat-priced", ()
     assert.deepEqual(route.sizeOverrides, {
       "1k": { pointCost: 4 },
       "2k": { pointCost: 4 },
-      "4k": { pointCost: 4, apiKeyEnv: "GPT-image-2.6-sunburst_mouxihub_4k" },
+      "4k": { pointCost: 6, apiKeyEnv: "GPT-image-2.6-sunburst_mouxihub_4k" },
     });
   }
 

@@ -122,7 +122,7 @@
       "sizeOverrides": {
         "1k": { "pointCost": 4 },
         "2k": { "pointCost": 4 },
-        "4k": { "pointCost": 4, "apiKeyEnv": "GPT-image-2.6-sunburst_mouxihub_4k" }
+        "4k": { "pointCost": 6, "apiKeyEnv": "GPT-image-2.6-sunburst_mouxihub_4k" }
       },
       "supportedQualities": ["low", "medium", "high", "xhigh", "max"],
       "sortOrder": 3,

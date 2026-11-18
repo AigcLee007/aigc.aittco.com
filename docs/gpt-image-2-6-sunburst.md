@@ -8,6 +8,8 @@
 - 1K：4 分/张；2K：4.5 分/张；4K：5 分/张。默认 2K。
 - 三个尺寸均发送同一个上游模型名，像素转换及约束沿用 2.5。
 
+Mouxihub「稳定线路」线路 ID 为 `gpt-image-2.6-sunburst-mouxihub`，异步生成和编辑，支持 `low`、`medium`、`high`、`xhigh`、`max`。1K/2K 每次 4 积分，4K 每次 6 积分；1K/2K 使用 `GPT-image-2.6-sunburst_mouxihub`，4K 使用 `GPT-image-2.6-sunburst_mouxihub_4k`。
+
 MochiAI「特价4K」线路 ID 为 `gpt-image-2.6-sunburst-mochiai`，同步调用 `https://mochiai.art/v1/images/generations` 和 `/v1/images/edits`。支持 `low`、`medium`、`high`、`xhigh`、`max`，默认 `medium`。1K、2K、4K 分别为 2、2.5、3 金币/张。
 
 OSODM「动态图片」线路 ID 为 `gpt-image-2.6-sunburst-osodm-1k`。上游为 `https://api.osodm.com`，模型 ID 为 `gpt-image-2.6-sunburst`，同步生成和编辑。静态 PNG 与动态 GIF 均为每张 2 积分，仅支持 1K，质量为 `low/medium/high`。

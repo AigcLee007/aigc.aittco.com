@@ -150,12 +150,23 @@ describe("image route store schema seeding", () => {
   });
 
   it("merges persisted size prices without dropping static size-specific API keys", () => {
-    const { mergeSizeOverrides } = require("./imageRouteStore.cjs");
-    expect(mergeSizeOverrides(
-      { "4k": { pointCost: 4, apiKeyEnv: "GPT-image-2.6-sunburst_mouxihub_4k" } },
-      { "4k": { pointCost: 4 } },
-    )).toEqual({
+    const { mergeSizeOverrides, upgradeSizeOverridePointCost } = require("./imageRouteStore.cjs");
+    const upgraded = upgradeSizeOverridePointCost({
+      "1k": { pointCost: 4 },
+      "2k": { pointCost: 4 },
       "4k": { pointCost: 4, apiKeyEnv: "GPT-image-2.6-sunburst_mouxihub_4k" },
+    }, "4k", 4, 6);
+    expect(upgraded).toEqual({
+      "1k": { pointCost: 4 },
+      "2k": { pointCost: 4 },
+      "4k": { pointCost: 6, apiKeyEnv: "GPT-image-2.6-sunburst_mouxihub_4k" },
+    });
+    expect(upgradeSizeOverridePointCost({ "4k": { pointCost: 5 } }, "4k", 4, 6)).toBeNull();
+    expect(mergeSizeOverrides(
+      { "4k": { pointCost: 6, apiKeyEnv: "GPT-image-2.6-sunburst_mouxihub_4k" } },
+      upgraded["4k"],
+    )).toEqual({
+      "4k": { pointCost: 6, apiKeyEnv: "GPT-image-2.6-sunburst_mouxihub_4k" },
     });
   });
 });

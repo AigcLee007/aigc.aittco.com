@@ -119,6 +119,16 @@ const stringifySizeOverrides = (value) => {
   const normalized = normalizeSizeOverrides(value);
   return Object.keys(normalized).length ? JSON.stringify(normalized) : null;
 };
+const upgradeSizeOverridePointCost = (value, size, previousPointCost, nextPointCost) => {
+  const normalized = normalizeSizeOverrides(value);
+  const key = normalizeSizeKey(size);
+  const entry = normalized[key];
+  if (!entry || entry.pointCost !== previousPointCost) return null;
+  return {
+    ...normalized,
+    [key]: { ...entry, pointCost: nextPointCost },
+  };
+};
 const mergeSizeOverrides = (staticValue, databaseValue) => {
   const staticOverrides = normalizeSizeOverrides(staticValue);
   const databaseOverrides = normalizeSizeOverrides(databaseValue);
@@ -472,6 +482,28 @@ const ensureImageRouteSchema = async () => {
             "UPDATE image_routes SET size_overrides = ?, updated_at = ? WHERE route_id = ?",
             [defaults.size_overrides, nowDb, routeId],
           );
+        }
+
+        const mouxihubRouteId = "gpt-image-2.6-sunburst-mouxihub";
+        const mouxihubDefaults = getStaticRouteDefaults(mouxihubRouteId);
+        const mouxihub4kPointCost = normalizeSizeOverrides(mouxihubDefaults?.size_overrides)["4k"]?.pointCost;
+        if (mouxihub4kPointCost === 6) {
+          const [existingRouteRows] = await connection.execute(
+            "SELECT size_overrides FROM image_routes WHERE route_id = ? LIMIT 1",
+            [mouxihubRouteId],
+          );
+          const upgradedOverrides = upgradeSizeOverridePointCost(
+            existingRouteRows?.[0]?.size_overrides,
+            "4k",
+            4,
+            mouxihub4kPointCost,
+          );
+          if (upgradedOverrides) {
+            await connection.execute(
+              "UPDATE image_routes SET size_overrides = ?, updated_at = ? WHERE route_id = ?",
+              [stringifySizeOverrides(upgradedOverrides), nowDb, mouxihubRouteId],
+            );
+          }
         }
       });
     })();
@@ -1015,5 +1047,6 @@ module.exports = {
   getImageRouteCatalog,
   getImageRoutePricing,
   mergeSizeOverrides,
+  upgradeSizeOverridePointCost,
   updateManagedImageRoute,
 };

@@ -53,7 +53,7 @@ test('GPT Image route selects size-specific keys for generation, edit, and async
     sizeOverrides: {
       '1k': { pointCost: 4 },
       '2k': { pointCost: 4 },
-      '4k': { pointCost: 4, apiKeyEnv: largeKeyEnv },
+      '4k': { pointCost: 6, apiKeyEnv: largeKeyEnv },
     },
     supportedQualities: ['low', 'medium', 'high', 'xhigh', 'max'],
     isActive: true,
@@ -159,6 +159,7 @@ test('GPT Image route selects size-specific keys for generation, edit, and async
     'Bearer mouxihub-4k-test-key',
   ]);
   assert.deepEqual(polls, submissions, 'each asynchronous poll must reuse the generation key for that size');
+  assert.equal((await billing.getAccountSummary(account.accountId)).points, 0, '1K/2K charge 4 points and 4K generation/edit charge 6 each');
 
   delete process.env[largeKeyEnv];
   const missingKeyResponse = await request('/api/generate', {
