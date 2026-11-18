@@ -91,6 +91,7 @@ const normalizeSizeOverrides = (value) => {
     }
 
     const upstreamModel = trimToString(rawEntry.upstreamModel || "");
+    const apiKeyEnv = trimToString(rawEntry.apiKeyEnv || "");
     const pointCostRaw = rawEntry.pointCost;
     const pointCost =
       pointCostRaw === null || pointCostRaw === undefined || pointCostRaw === ""
@@ -104,7 +105,10 @@ const normalizeSizeOverrides = (value) => {
     if (pointCost !== null) {
       entry.pointCost = pointCost;
     }
-    if (entry.upstreamModel || Number.isFinite(entry.pointCost)) {
+    if (apiKeyEnv) {
+      entry.apiKeyEnv = apiKeyEnv;
+    }
+    if (entry.upstreamModel || Number.isFinite(entry.pointCost) || entry.apiKeyEnv) {
       next[key] = entry;
     }
   }
@@ -114,6 +118,15 @@ const normalizeSizeOverrides = (value) => {
 const stringifySizeOverrides = (value) => {
   const normalized = normalizeSizeOverrides(value);
   return Object.keys(normalized).length ? JSON.stringify(normalized) : null;
+};
+const mergeSizeOverrides = (staticValue, databaseValue) => {
+  const staticOverrides = normalizeSizeOverrides(staticValue);
+  const databaseOverrides = normalizeSizeOverrides(databaseValue);
+  const merged = {};
+  for (const key of new Set([...Object.keys(staticOverrides), ...Object.keys(databaseOverrides)])) {
+    merged[key] = { ...staticOverrides[key], ...databaseOverrides[key] };
+  }
+  return merged;
 };
 const hasSizeOverrideModel = (value) =>
   Object.values(normalizeSizeOverrides(value)).some((entry) => trimToString(entry.upstreamModel || ""));
@@ -215,10 +228,8 @@ const getMissingStaticRows = (staticRows = [], existingRows = []) => {
 const getStaticRouteDefaults = (routeId) =>
   buildStaticRows().find((row) => trimToString(row.route_id) === trimToString(routeId)) || null;
 
-const getMergedSizeOverrides = (row) => ({
-  ...normalizeSizeOverrides(getStaticRouteDefaults(row.route_id)?.size_overrides),
-  ...normalizeSizeOverrides(row.size_overrides),
-});
+const getMergedSizeOverrides = (row) =>
+  mergeSizeOverrides(getStaticRouteDefaults(row.route_id)?.size_overrides, row.size_overrides);
 const getMergedSupportedQualities = (row) => {
   const staticValue = getStaticRouteDefaults(row.route_id)?.supported_qualities;
   return normalizeSupportedQualities(
@@ -1003,5 +1014,6 @@ module.exports = {
   getImageRouteById,
   getImageRouteCatalog,
   getImageRoutePricing,
+  mergeSizeOverrides,
   updateManagedImageRoute,
 };

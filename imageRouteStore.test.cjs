@@ -121,6 +121,43 @@ describe("image route store schema seeding", () => {
       });
     }
   });
+
+  it("retains a per-size API key environment mapping from the static route catalog", async () => {
+    const mysqlKeys = [
+      "MYSQL_URL",
+      "MYSQL_HOST",
+      "MYSQL_PORT",
+      "MYSQL_USER",
+      "MYSQL_PASSWORD",
+      "MYSQL_DATABASE",
+      "MYSQL_CONNECTION_LIMIT",
+    ];
+    const previousValues = Object.fromEntries(mysqlKeys.map((key) => [key, process.env[key]]));
+    mysqlKeys.forEach((key) => {
+      process.env[key] = "";
+    });
+
+    try {
+      const { getImageRouteById } = require("./imageRouteStore.cjs");
+      const route = await getImageRouteById("gpt-image-2.6-sunburst-mouxihub");
+      expect(route.sizeOverrides["4k"].apiKeyEnv).toBe("GPT-image-2.6-sunburst_mouxihub_4k");
+    } finally {
+      mysqlKeys.forEach((key) => {
+        if (previousValues[key] === undefined) delete process.env[key];
+        else process.env[key] = previousValues[key];
+      });
+    }
+  });
+
+  it("merges persisted size prices without dropping static size-specific API keys", () => {
+    const { mergeSizeOverrides } = require("./imageRouteStore.cjs");
+    expect(mergeSizeOverrides(
+      { "4k": { pointCost: 4, apiKeyEnv: "GPT-image-2.6-sunburst_mouxihub_4k" } },
+      { "4k": { pointCost: 4 } },
+    )).toEqual({
+      "4k": { pointCost: 4, apiKeyEnv: "GPT-image-2.6-sunburst_mouxihub_4k" },
+    });
+  });
 });
 
 describe("image route result kind", () => {

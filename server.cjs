@@ -370,10 +370,19 @@ const toPublicVideoRouteCatalog = (catalog = {}) => ({
 const getRouteAuthorization = (
   route,
   fallbackAuthorization,
-  { preferUserProvided = false } = {},
+  { preferUserProvided = false, imageSize = "" } = {},
 ) => {
   const normalizedFallback = normalizeAuthorization(fallbackAuthorization);
   if (preferUserProvided && normalizedFallback) return normalizedFallback;
+
+  const normalizedSize = String(imageSize || "").trim().toLowerCase();
+  const sizeKey = ["1k", "2k", "4k"].includes(normalizedSize) ? normalizedSize : "";
+  const sizeApiKeyEnv = sizeKey ? String(route?.sizeOverrides?.[sizeKey]?.apiKeyEnv || "").trim() : "";
+  if (sizeApiKeyEnv) {
+    const sizeConfigured = normalizeAuthorization(process.env[sizeApiKeyEnv]);
+    if (sizeConfigured) return sizeConfigured;
+    throw new Error(`Missing API key for image route ${route?.id || "unknown"} (${sizeApiKeyEnv})`);
+  }
 
   const isMouxihubRoute = String(route?.transport || '').trim().toLowerCase() === "mouxihub-video";
   if (!isMouxihubRoute) {
@@ -407,11 +416,12 @@ const withVisionaryCompatibilityPrefix = (template = "") => {
   if (path.startsWith("/compat/")) return path;
   return `/compat/${path.replace(/^\/+/, "")}`;
 };
-const buildImageTaskToken = (routeId, upstreamTaskId) =>
-  Buffer.from(
-    JSON.stringify({ routeId, upstreamTaskId }),
-    "utf8",
-  ).toString("base64url");
+const buildImageTaskToken = (routeId, upstreamTaskId, imageSize = "") => {
+  const normalizedSize = String(imageSize || "").trim().toLowerCase();
+  const task = { routeId, upstreamTaskId };
+  if (["1k", "2k", "4k"].includes(normalizedSize)) task.imageSize = normalizedSize;
+  return Buffer.from(JSON.stringify(task), "utf8").toString("base64url");
+};
 const buildVideoTaskToken = (routeId, upstreamTaskId) =>
   Buffer.from(
     JSON.stringify({ routeId, upstreamTaskId }),
@@ -3614,7 +3624,7 @@ const legacyImageGenerateHandler = async (req, res) => {
 
       if (isAsyncGeminiRoute && !imageJobContext.getStore()) {
         const localJobId = createLocalImageJobId();
-        localTaskId = buildImageTaskToken(route.id, localJobId);
+        localTaskId = buildImageTaskToken(route.id, localJobId, getRequestedRouteSizeKey(requestBody));
         setLocalImageJob(localJobId, {
           localTaskId,
           routeId: route.id,
@@ -3832,6 +3842,7 @@ const legacyImageGenerateHandler = async (req, res) => {
 
     const userKey = getRouteAuthorization(route, fallbackAuthorization, {
       preferUserProvided: useUserProvidedApiKey,
+      imageSize: getRequestedRouteSizeKey(requestBody),
     });
     const isGrokModel = requestBody.model?.startsWith("grok");
 
@@ -4099,7 +4110,7 @@ const legacyImageGenerateHandler = async (req, res) => {
         model: requestBody.model,
       });
       const localJobId = createLocalImageJobId();
-      localTaskId = buildImageTaskToken(route.id, localJobId);
+      localTaskId = buildImageTaskToken(route.id, localJobId, getRequestedRouteSizeKey(requestBody));
       setLocalImageJob(localJobId, {
         localTaskId,
         routeId: route.id,
@@ -4296,7 +4307,7 @@ const legacyImageGenerateHandler = async (req, res) => {
 
     if (shouldRunGptImage2SyncRouteInBackground(route, requestBody) && !shouldUseChatSyncEndpoint && !imageJobContext.getStore()) {
       const localJobId = createLocalImageJobId();
-      localTaskId = buildImageTaskToken(route.id, localJobId);
+      localTaskId = buildImageTaskToken(route.id, localJobId, getRequestedRouteSizeKey(requestBody));
       setLocalImageJob(localJobId, {
         localTaskId,
         routeId: route.id,
@@ -4536,7 +4547,7 @@ const legacyImageGenerateHandler = async (req, res) => {
         syncUpstreamTaskId &&
         ["PROCESSING", "PENDING", "RUNNING", "QUEUED", "IN_PROGRESS"].includes(syncUpstreamStatus);
       if (shouldTreatSyncAsPendingTask) {
-        localTaskId = buildImageTaskToken(route.id, syncUpstreamTaskId);
+        localTaskId = buildImageTaskToken(route.id, syncUpstreamTaskId, getRequestedRouteSizeKey(requestBody));
         if (shouldUseBilling) {
           await registerPendingTask(localTaskId, {
             accountId: billingAccount.accountId,
@@ -4719,7 +4730,7 @@ const legacyImageGenerateHandler = async (req, res) => {
       response.data?.data?.task_id;
 
     if (upstreamTaskId) {
-      localTaskId = buildImageTaskToken(route.id, upstreamTaskId);
+      localTaskId = buildImageTaskToken(route.id, upstreamTaskId, getRequestedRouteSizeKey(requestBody));
       if (shouldUseBilling) {
         await registerPendingTask(localTaskId, {
           accountId: billingAccount.accountId,
@@ -5024,6 +5035,7 @@ const legacyImageEditHandler = async (req, res) => {
 
     const authorization = getRouteAuthorization(route, fallbackAuthorization, {
       preferUserProvided: useUserProvidedApiKey,
+      imageSize: getRequestedRouteSizeKey(requestBody),
     });
     if (shouldUseBilling) {
       billingCharge = await reservePoints(billingAccount.accountId, pointCost, {
@@ -5046,7 +5058,7 @@ const legacyImageEditHandler = async (req, res) => {
 
     if (shouldRunGptImage2SyncRouteInBackground(route, requestBody) && !imageJobContext.getStore()) {
       const localJobId = createLocalImageJobId();
-      localTaskId = buildImageTaskToken(route.id, localJobId);
+      localTaskId = buildImageTaskToken(route.id, localJobId, getRequestedRouteSizeKey(requestBody));
       setLocalImageJob(localJobId, {
         localTaskId,
         routeId: route.id,
@@ -5256,7 +5268,7 @@ const legacyImageEditHandler = async (req, res) => {
       response.data?.data?.task_id;
 
     if (upstreamTaskId) {
-      localTaskId = buildImageTaskToken(route.id, upstreamTaskId);
+      localTaskId = buildImageTaskToken(route.id, upstreamTaskId, getRequestedRouteSizeKey(requestBody));
       if (shouldUseBilling) {
         await registerPendingTask(localTaskId, {
           accountId: billingAccount.accountId,
@@ -5679,6 +5691,7 @@ const pollImageTaskAndSettle = async ({
 
   const authorization = getRouteAuthorization(route, fallbackAuthorization, {
     preferUserProvided: preferUserProvidedAuth && shouldUseUserProvidedApiKey(route, fallbackAuthorization),
+    imageSize: decodedTask?.imageSize,
   });
   let responseData = null;
 

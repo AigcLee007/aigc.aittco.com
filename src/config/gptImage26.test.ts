@@ -23,6 +23,12 @@ describe('GPT Image 2.6 Sunburst', () => {
     expect(animation).toMatchObject({ upstreamModel: modelId, mode: 'sync', baseUrl: 'https://api.osodm.com', apiKeyEnv: 'GPT-image-2.6-sunburst_osodm-1k', pointCost: 2 });
     expect(getImageRouteSizeOptions(animation, ['1k', '2k', '4k'])).toEqual(['1k']);
     expect(getImageRouteSupportedQualities(animation)).toEqual(['low', 'medium', 'high']);
+    const mouxihub = routes.find(route => route.id === `${modelId}-mouxihub`);
+    expect(mouxihub?.sizeOverrides).toEqual({
+      '1k': { pointCost: 4 },
+      '2k': { pointCost: 4 },
+      '4k': { pointCost: 4, apiKeyEnv: 'GPT-image-2.6-sunburst_mouxihub_4k' },
+    });
     expect(productionCatalog.routes.filter(route => route.modelFamily === modelId)).toEqual(staticCatalog.routes.filter(route => route.modelFamily === modelId));
   });
 

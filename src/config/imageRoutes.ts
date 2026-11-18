@@ -19,6 +19,7 @@ export const DEFAULT_IMAGE_ROUTE_QUALITIES: ImageRouteQuality[] = [
 export interface ImageRouteSizeOverrideConfig {
   upstreamModel?: string;
   pointCost?: number;
+  apiKeyEnv?: string;
 }
 
 export type ImageRouteSizeOverrideMap = Partial<
@@ -108,6 +109,7 @@ const normalizeSizeOverrides = (
 
     const upstreamModel = String(rawValue.upstreamModel || '').trim();
     const parsedPointCost = Number.parseFloat(String(rawValue.pointCost ?? ''));
+    const apiKeyEnv = String(rawValue.apiKeyEnv || '').trim();
     const entry: ImageRouteSizeOverrideConfig = {};
     if (upstreamModel) {
       entry.upstreamModel = upstreamModel;
@@ -115,7 +117,10 @@ const normalizeSizeOverrides = (
     if (Number.isFinite(parsedPointCost) && parsedPointCost >= 0) {
       entry.pointCost = roundNonNegativePoint(parsedPointCost, 0);
     }
-    if (entry.upstreamModel || Number.isFinite(entry.pointCost)) {
+    if (apiKeyEnv) {
+      entry.apiKeyEnv = apiKeyEnv;
+    }
+    if (entry.upstreamModel || Number.isFinite(entry.pointCost) || entry.apiKeyEnv) {
       next[key] = entry;
     }
   });

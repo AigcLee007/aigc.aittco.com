@@ -30,6 +30,13 @@ const validateRouteConfig = (catalog) => {
   return catalog;
 };
 
+const getRequiredApiKeyEnvNames = (catalog) => [...new Set(
+  catalog.routes.flatMap((route) => [
+    route.apiKeyEnv,
+    ...Object.values(route.sizeOverrides || {}).map((override) => override?.apiKeyEnv),
+  ]).map((name) => String(name || "").trim()).filter(Boolean),
+)];
+
 const main = async () => {
   const apply = process.argv.includes("--apply");
   if (process.argv.some((arg) => arg.startsWith("--") && arg !== "--apply")) {
@@ -38,7 +45,7 @@ const main = async () => {
   const catalog = validateRouteConfig(JSON.parse(await fs.readFile(CONFIG_PATH, "utf8")));
   if (!isMySqlConfigured()) throw new Error("Run inside the app container with its MySQL environment configured");
 
-  const requiredEnvNames = [...new Set(catalog.routes.map((route) => route.apiKeyEnv))];
+  const requiredEnvNames = getRequiredApiKeyEnvNames(catalog);
   const missingEnvNames = requiredEnvNames.filter((name) => !String(process.env[name] || "").trim());
   if (missingEnvNames.length) throw new Error(`Missing .env variables: ${missingEnvNames.join(", ")}`);
 
@@ -138,4 +145,4 @@ if (require.main === module) {
   }).finally(() => closePool().catch(() => {}));
 }
 
-module.exports = { validateRouteConfig };
+module.exports = { getRequiredApiKeyEnvNames, validateRouteConfig };

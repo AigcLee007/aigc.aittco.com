@@ -4,7 +4,7 @@ const path = require("node:path");
 const { test } = require("node:test");
 const catalog = require("./config/production-image-routes.json");
 const runtimeCatalog = require("./config/imageRoutes.json");
-const { validateRouteConfig } = require("./scripts/replace-production-image-routes.cjs");
+const { getRequiredApiKeyEnvNames, validateRouteConfig } = require("./scripts/replace-production-image-routes.cjs");
 
 test("production config contains 33 unique routes and one default per family", () => {
   validateRouteConfig(catalog);
@@ -53,8 +53,14 @@ test("GPT-Image-2.6 Sunburst Mouxihub stable route is async and flat-priced", ()
     assert.equal(route.apiKeyEnv, "GPT-image-2.6-sunburst_mouxihub");
     assert.equal(route.pointCost, 4);
     assert.deepEqual(route.supportedQualities, ["low", "medium", "high", "xhigh", "max"]);
-    assert.equal(route.sizeOverrides, undefined);
+    assert.deepEqual(route.sizeOverrides, {
+      "1k": { pointCost: 4 },
+      "2k": { pointCost: 4 },
+      "4k": { pointCost: 4, apiKeyEnv: "GPT-image-2.6-sunburst_mouxihub_4k" },
+    });
   }
+
+  assert.ok(getRequiredApiKeyEnvNames(catalog).includes("GPT-image-2.6-sunburst_mouxihub_4k"));
 });
 
 test("production Docker image copies the route resolver required by server.cjs", () => {
