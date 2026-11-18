@@ -13,7 +13,7 @@ describe('GPT Image 2.6 Sunburst', () => {
     expect(getImageModelById(modelId)).toMatchObject({ id: modelId, label: 'GPT-Image-2.6-Sunburst', requestModel: modelId, defaultSize: '2k', isActive: true });
     expect(getImageModelSizeOptions(modelId)).toEqual(['1k', '2k', '4k']);
     const routes = getImageRoutesByModelFamily(modelId);
-    expect(routes).toHaveLength(3);
+    expect(routes).toHaveLength(4);
     expect(routes[0]).toMatchObject({ id: `${modelId}-native`, line: '原生线路', upstreamModel: modelId, transport: 'openai-image', mode: 'sync', baseUrl: 'https://rolldek.com', generatePath: '/v1/images/generations', editPath: '/v1/images/edits', apiKeyEnv: 'GPT-image-2.6-sunburst_rolldek_yuansheng', isDefaultRoute: true });
     expect(getImageRouteSupportedQualities(routes[0])).toEqual(['low', 'medium', 'high']);
     const mochiai = routes.find(route => route.id === `${modelId}-mochiai`);

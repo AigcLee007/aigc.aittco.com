@@ -104,6 +104,25 @@
       "isDefaultRoute": false
     },
     {
+      "id": "gpt-image-2.6-sunburst-mouxihub",
+      "label": "稳定线路",
+      "description": "",
+      "modelFamily": "gpt-image-2.6-sunburst",
+      "line": "稳定线路",
+      "transport": "openai-image",
+      "mode": "async",
+      "baseUrl": "https://api.mouxihub.com",
+      "generatePath": "/v1/images/generations?async=true",
+      "taskPath": "/v1/images/tasks/{taskId}",
+      "editPath": "/v1/images/edits?async=true",
+      "upstreamModel": "gpt-image-2.6-sunburst",
+      "apiKeyEnv": "GPT-image-2.6-sunburst_mouxihub",
+      "pointCost": 4,
+      "supportedQualities": ["low", "medium", "high", "xhigh", "max"],
+      "sortOrder": 3,
+      "isDefaultRoute": false
+    },
+    {
       "id": "nano-banana-pro-official-t3",
       "label": "官方T3",
       "description": "",

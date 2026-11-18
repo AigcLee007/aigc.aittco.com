@@ -6,9 +6,9 @@ const catalog = require("./config/production-image-routes.json");
 const runtimeCatalog = require("./config/imageRoutes.json");
 const { validateRouteConfig } = require("./scripts/replace-production-image-routes.cjs");
 
-test("production config contains 32 unique routes and one default per family", () => {
+test("production config contains 33 unique routes and one default per family", () => {
   validateRouteConfig(catalog);
-  assert.equal(catalog.routes.length, 32);
+  assert.equal(catalog.routes.length, 33);
   assert.equal(new Set(catalog.routes.map((route) => route.modelFamily)).size, 8);
   assert.deepEqual(
     [...new Set(catalog.routes.map((route) => route.modelFamily))].sort(),
@@ -31,6 +31,30 @@ test("table sync modes and task paths remain independent values", () => {
   assert.equal(gptRelay.mode, "sync");
   assert.equal(gptRelay.taskPath, "/v1/images/tasks/{taskId}");
   assert.equal(gptRelay.generatePath, "/v1/images/generations");
+});
+
+test("GPT-Image-2.6 Sunburst Mouxihub stable route is async and flat-priced", () => {
+  const routeId = "gpt-image-2.6-sunburst-mouxihub";
+  const productionRoute = catalog.routes.find((item) => item.id === routeId);
+  const runtimeRoute = runtimeCatalog.routes.find((item) => item.id === routeId);
+
+  for (const route of [productionRoute, runtimeRoute]) {
+    assert.ok(route);
+    assert.equal(route.label, "稳定线路");
+    assert.equal(route.line, "稳定线路");
+    assert.equal(route.modelFamily, "gpt-image-2.6-sunburst");
+    assert.equal(route.transport, "openai-image");
+    assert.equal(route.mode, "async");
+    assert.equal(route.baseUrl, "https://api.mouxihub.com");
+    assert.equal(route.generatePath, "/v1/images/generations?async=true");
+    assert.equal(route.taskPath, "/v1/images/tasks/{taskId}");
+    assert.equal(route.editPath, "/v1/images/edits?async=true");
+    assert.equal(route.upstreamModel, "gpt-image-2.6-sunburst");
+    assert.equal(route.apiKeyEnv, "GPT-image-2.6-sunburst_mouxihub");
+    assert.equal(route.pointCost, 4);
+    assert.deepEqual(route.supportedQualities, ["low", "medium", "high", "xhigh", "max"]);
+    assert.equal(route.sizeOverrides, undefined);
+  }
 });
 
 test("production Docker image copies the route resolver required by server.cjs", () => {
