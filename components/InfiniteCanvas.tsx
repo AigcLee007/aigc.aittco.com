@@ -12,6 +12,7 @@ import { useGenerationProgress } from '../src/hooks/useGenerationProgress';
 import { isLowEndDevice } from '../src/utils/performance';
 import CanvasNode from './CanvasNode';
 import { assetActionSource } from '../src/services/imageAssetActions';
+import { fitImageInFrame, isPointInImageFrame } from '../src/utils/canvasImageFit';
 import { RefreshCw } from 'lucide-react';
 
 const SmartTooltip: React.FC<{ node: NodeData; x: number; y: number }> = ({ node, x, y }) => {
@@ -122,9 +123,16 @@ const InfiniteCanvas: React.FC<InfiniteCanvasProps> = ({
   const maskFrameRef = useRef<number | null>(null);
 
   const clampMaskPoint = useCallback((node: NodeData, x: number, y: number) => {
+    const aspectRatio = Number.isFinite(node.imageAspectRatio) && node.imageAspectRatio! > 0
+      ? node.imageAspectRatio!
+      : node.width / node.height;
+    const imageFrame = fitImageInFrame(aspectRatio, 1, node.width, node.height);
+    const point = { x, y };
+    if (!isPointInImageFrame(point, imageFrame)) return null;
+
     return {
-      x: Math.min(Math.max(0, x), node.width),
-      y: Math.min(Math.max(0, y), node.height),
+      x: Math.min(Math.max(imageFrame.x, x), imageFrame.x + imageFrame.width),
+      y: Math.min(Math.max(imageFrame.y, y), imageFrame.y + imageFrame.height),
     };
   }, []);
 
@@ -240,14 +248,14 @@ const InfiniteCanvas: React.FC<InfiniteCanvasProps> = ({
             select(node.id, false);
         }
 
-        setIsDrawingMask(true);
         const stage = e.target.getStage();
         const pointer = stage?.getPointerPosition();
         if (pointer) {
             const localX = (pointer.x - canvasState.offset.x) / canvasState.scale - node.x;
             const localY = (pointer.y - canvasState.offset.y) / canvasState.scale - node.y;
             const clamped = clampMaskPoint(node, localX, localY);
-            
+            if (!clamped) return;
+            setIsDrawingMask(true);
             const newStrokes = [...(node.maskStrokes || []), { points: [{ x: clamped.x, y: clamped.y }], size: brushSize, color: brushColor }];
             updateNode(node.id, { maskStrokes: newStrokes });
         }
@@ -476,7 +484,7 @@ const InfiniteCanvas: React.FC<InfiniteCanvasProps> = ({
             const localX = (pointer.x - canvasState.offset.x) / canvasState.scale - node.x;
             const localY = (pointer.y - canvasState.offset.y) / canvasState.scale - node.y;
             const clamped = clampMaskPoint(node, localX, localY);
-            scheduleMaskStrokeAppend(nodeId, clamped.x, clamped.y);
+            if (clamped) scheduleMaskStrokeAppend(nodeId, clamped.x, clamped.y);
         }
         return;
     }

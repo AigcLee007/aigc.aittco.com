@@ -15,6 +15,11 @@ import { AppStatus, NodeData } from '../types';
 import { useCanvasStore } from '../src/store/canvasStore';
 import { useSelectionStore } from '../src/store/selectionStore';
 import { renderMaskToDataURL } from '../src/utils/imageUtils';
+import {
+  fitImageInFrame,
+  framePointToImagePoint,
+  isPointInImageFrame,
+} from '../src/utils/canvasImageFit';
 import { editImageApi, normalizeImageResultValue } from '../services/api';
 import { acquireImageAsset, type ImageLease } from '../src/services/imageAssetCache';
 import ModelSelector, { type ModelOption } from './ModelSelector';
@@ -502,22 +507,34 @@ const ImageEditPanel: React.FC<ImageEditPanelProps> = ({
         );
       } else {
         const strokeSnapshot = [...(selectedNode.maskStrokes || [])];
-        const maskDataUrl = renderMaskToDataURL(
-          null,
+        const imageFrame = fitImageInFrame(
           intrinsicWidth,
           intrinsicHeight,
           selectedNode.width,
           selectedNode.height,
-          strokeSnapshot,
+        );
+        const imageStrokes = strokeSnapshot.map((stroke) => ({
+          ...stroke,
+          points: stroke.points
+            .filter((point) => isPointInImageFrame(point, imageFrame))
+            .map((point) => framePointToImagePoint(point, imageFrame)),
+        }));
+        const maskDataUrl = renderMaskToDataURL(
+          null,
+          intrinsicWidth,
+          intrinsicHeight,
+          imageFrame.width,
+          imageFrame.height,
+          imageStrokes,
           maskMode === 'binary',
         );
         const punchedImageDataUrl = renderMaskToDataURL(
           image,
           intrinsicWidth,
           intrinsicHeight,
-          selectedNode.width,
-          selectedNode.height,
-          strokeSnapshot,
+          imageFrame.width,
+          imageFrame.height,
+          imageStrokes,
           false,
         );
         maskBase64 = maskDataUrl.split(',')[1];

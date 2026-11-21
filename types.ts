@@ -38,6 +38,10 @@ export interface NodeData {
   thumbnailSrc?: string;
   fastDownloadSrc?: string; // Smaller JPEG copy of a server-saved original
   assetId?: string; // ID for Blob storage (IndexedDB)
+  imageAspectRatio?: number; // Source image ratio used to align contain-fit masks
+  batchId?: string;
+  batchTaskId?: string;
+  batchAutoDownloadOnSuccess?: boolean;
   prompt?: string;
   createdAt?: string; // ISO timestamp for generated/imported asset display
 

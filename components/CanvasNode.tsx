@@ -7,6 +7,7 @@ import { NodeData, Point, Stroke, ToolMode } from '../types';
 import { useCanvasStore } from '../src/store/canvasStore';
 import { formatShortTime } from '../src/utils/timeFormat';
 import { getProxiedImageUrl, getRawImageUrlFromProxy, isProxiedImageUrl } from '../src/utils/mediaProxy';
+import { fitImageInFrame } from '../src/utils/canvasImageFit';
 
 interface CanvasNodeProps {
   node: NodeData;
@@ -175,11 +176,17 @@ const ImageNode: React.FC<{ node: NodeData; feedback: GenerationFeedback; enable
   onLoad,
 }) => {
   const asset = useImageAsset(node, { enabled: enabled && !node.loading && !node.error });
+  const updateNode = useCanvasStore((state) => state.updateNode);
   const image = asset.image;
 
   useEffect(() => {
-    if (image && onLoad) onLoad();
-  }, [image, onLoad]);
+    if (!image) return;
+    const imageAspectRatio = image.naturalWidth / image.naturalHeight;
+    if (Number.isFinite(imageAspectRatio) && imageAspectRatio > 0 && node.imageAspectRatio !== imageAspectRatio) {
+      updateNode(node.id, { imageAspectRatio }, true);
+    }
+    onLoad?.();
+  }, [image, node.id, node.imageAspectRatio, onLoad, updateNode]);
 
   if (node.loading) {
     return <DreamingPlaceholder width={node.width} height={node.height} feedback={feedback} />;
@@ -204,6 +211,13 @@ const ImageNode: React.FC<{ node: NodeData; feedback: GenerationFeedback; enable
     return <DownloadingPlaceholder width={node.width} height={node.height} />;
   }
 
+  const fit = fitImageInFrame(
+    image.naturalWidth,
+    image.naturalHeight,
+    node.width,
+    node.height,
+  );
+
   return (
     <Group
       clipFunc={(ctx) => {
@@ -212,7 +226,14 @@ const ImageNode: React.FC<{ node: NodeData; feedback: GenerationFeedback; enable
         ctx.closePath();
       }}
     >
-      <KonvaImage image={image} width={node.width} height={node.height} />
+      <Rect width={node.width} height={node.height} fill="#171717" listening={false} />
+      <KonvaImage
+        image={image}
+        x={fit.x}
+        y={fit.y}
+        width={fit.width}
+        height={fit.height}
+      />
       {!!node.maskStrokes?.length && <MaskLayer strokes={node.maskStrokes} />}
     </Group>
   );

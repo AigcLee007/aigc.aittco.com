@@ -4,7 +4,7 @@ import { useSelectionStore } from '../store/selectionStore';
 import { useHistoryStore } from '../store/historyStore';
 import { assetStorage } from '../services/assetStorage';
 import { cacheImageSource } from '../services/imageAssetCache';
-import { arrangeNodes } from '../utils/layout';
+import { findCanvasFreePositions } from '../utils/canvasPlacement';
 import { getLocalLine4ThumbnailUrl } from '../utils/generatedImageStorage';
 import { getProxiedImageUrl, unwrapMiswrappedImageUrl } from '../utils/mediaProxy';
 import { revokeDownloadObjectUrlLater } from '../utils/downloadObjectUrl';
@@ -113,6 +113,32 @@ const enqueueAutoDownload = (item: AutoDownloadItem) => {
     }, AUTO_DOWNLOAD_BATCH_MS);
 };
 
+const getCanvasFrameSize = (aspectRatio: string, baseNode?: NodeData) => {
+    let width = 512;
+    let height = 512;
+
+    if (aspectRatio !== 'Smart' && aspectRatio) {
+        const parts = aspectRatio.split(':').map(Number);
+        if (parts.length === 2 && parts[0] > 0 && parts[1] > 0) {
+            const ratio = parts[0] / parts[1];
+            if (ratio > 1) {
+                height = Math.round(512 / ratio);
+            } else {
+                width = Math.round(512 * ratio);
+            }
+        }
+    } else if (baseNode?.width && baseNode.height) {
+        const ratio = baseNode.width / baseNode.height;
+        if (ratio > 1) {
+            height = Math.round(512 / ratio);
+        } else if (ratio > 0) {
+            width = Math.round(512 * ratio);
+        }
+    }
+
+    return { width, height };
+};
+
 export const useGenerationLogic = () => {
     const { nodes, setNodes, updateNode, generateId, setCanvasTransform, canvasState } = useCanvasStore();
     const { setToolMode, addLog } = useSelectionStore.getState() as any; // Cast to access non-state actions if any or mixed
@@ -130,35 +156,7 @@ export const useGenerationLogic = () => {
         type: 'IMAGE' | 'VIDEO' = 'IMAGE',
         options: { preserveToolMode?: boolean } = {},
     ) => {
-        let width = 512;
-        let height = 512;
-
-        // Parse aspect ratio
-        if (aspectRatio !== 'Smart' && aspectRatio) {
-        const parts = aspectRatio.split(':').map(Number);
-        if (parts.length === 2 && !isNaN(parts[0]) && !isNaN(parts[1])) {
-            const ratio = parts[0] / parts[1];
-            if (ratio > 1) {
-            // Landscape: Width 512, Height scaled
-            width = 512;
-            height = Math.round(512 / ratio);
-            } else {
-            // Portrait or Square: Height 512, Width scaled
-            height = 512;
-            width = Math.round(512 * ratio);
-            }
-        }
-        } else if (baseNode) {
-        // Smart mode with base node: inherit ratio
-        const ratio = baseNode.width / baseNode.height;
-        if (ratio > 1) {
-            width = 512;
-            height = Math.round(512 / ratio);
-        } else {
-            height = 512;
-            width = Math.round(512 * ratio);
-        }
-        }
+        const { width, height } = getCanvasFrameSize(aspectRatio, baseNode);
 
         const newNodes: NodeData[] = [];
 
@@ -183,17 +181,32 @@ export const useGenerationLogic = () => {
         }
 
         const currentNodes = useCanvasStore.getState().nodes;
-        const allNodes = [...currentNodes, ...newNodes];
-
-        // Arrange nodes (allNodes will use stable sort now, creating new columns)
-        const finalNodes = arrangeNodes(allNodes, {
-            startX: 360,
-            startY: 100,
-            gap: 20,
-            maxRows: 3,
-            nodeWidth: width,
-            nodeHeight: height
-        });
+        const { x: screenCenterX, y: screenCenterY } = getCanvasCenter();
+        const anchor = {
+            x: (screenCenterX - canvasState.offset.x) / canvasState.scale - width / 2,
+            y: (screenCenterY - canvasState.offset.y) / canvasState.scale - height / 2,
+        };
+        const positions = findCanvasFreePositions(
+            currentNodes
+                .filter((node) => Number.isFinite(node.width) && Number.isFinite(node.height))
+                .map(({ x, y, width: nodeWidth, height: nodeHeight }) => ({
+                    x,
+                    y,
+                    width: nodeWidth,
+                    height: nodeHeight,
+                })),
+            newNodes.map(({ width: nodeWidth, height: nodeHeight }) => ({
+                width: nodeWidth,
+                height: nodeHeight,
+            })),
+            anchor,
+            20,
+        );
+        const positionedNewNodes = newNodes.map((node, index) => ({
+            ...node,
+            ...positions[index],
+        }));
+        const finalNodes = [...currentNodes, ...positionedNewNodes];
 
         setNodes(finalNodes);
         if (!options.preserveToolMode) {
@@ -202,8 +215,7 @@ export const useGenerationLogic = () => {
         }
 
         // Auto-pan to new nodes
-        const newIds = new Set(newNodes.map(n => n.id));
-        const arrangedNewNodes = finalNodes.filter(n => newIds.has(n.id));
+        const arrangedNewNodes = positionedNewNodes;
 
         if (arrangedNewNodes.length > 0) {
             // Calculate bounding box of new nodes
@@ -218,8 +230,6 @@ export const useGenerationLogic = () => {
             const centerX = (minX + maxX) / 2;
             const centerY = (minY + maxY) / 2;
 
-            const { x: screenCenterX, y: screenCenterY } = getCanvasCenter();
-
             // Offset = ScreenCenter - CanvasCenter * Scale
             const newOffsetX = screenCenterX - centerX * canvasState.scale;
             const newOffsetY = screenCenterY - centerY * canvasState.scale;
@@ -229,6 +239,125 @@ export const useGenerationLogic = () => {
 
         return newNodes.map(n => n.id);
     }, [generateId, setNodes, setToolMode, canvasState, setCanvasTransform]);
+
+    const handleInitBatchGenerations = useCallback((
+        items: BatchPlaceholderRequest[],
+        options: { focus?: boolean; preserveToolMode?: boolean } = {},
+    ) => {
+        if (!items.length) return {};
+
+        const currentNodes = useCanvasStore.getState().nodes;
+        const currentById = new Map(currentNodes.map((node) => [node.id, node]));
+        const nodeIds: Record<string, string> = {};
+        const updatesById = new Map<string, NodeData>();
+        const newNodes: NodeData[] = [];
+
+        for (const item of items) {
+            const existing = item.nodeId ? currentById.get(item.nodeId) : undefined;
+            if (existing) {
+                nodeIds[item.taskId] = existing.id;
+                updatesById.set(existing.id, {
+                    ...existing,
+                    batchId: item.batchId,
+                    batchTaskId: item.taskId,
+                    batchAutoDownloadOnSuccess: item.autoDownload,
+                    prompt: item.prompt,
+                    src: '',
+                    thumbnailSrc: undefined,
+                    assetId: undefined,
+                    imageAspectRatio: undefined,
+                    generationResultSrc: undefined,
+                    generationResultIndex: undefined,
+                    taskId: undefined,
+                    clientRequestId: item.requestId,
+                    generationOwnerId: undefined,
+                    generationStartedAt: Date.now(),
+                    generationConnectionStatus: undefined,
+                    generationStorageStatus: undefined,
+                    generationStatus: undefined,
+                    progress: undefined,
+                    progressSource: undefined,
+                    loading: true,
+                    error: false,
+                    errorMessage: undefined,
+                });
+                continue;
+            }
+
+            const { width, height } = getCanvasFrameSize(item.aspectRatio);
+            const id = generateId();
+            nodeIds[item.taskId] = id;
+            newNodes.push({
+                id,
+                type: 'IMAGE',
+                x: 0,
+                y: 0,
+                width,
+                height,
+                opacity: 1,
+                locked: false,
+                loading: true,
+                generationStartedAt: Date.now(),
+                src: '',
+                prompt: item.prompt,
+                batchId: item.batchId,
+                batchTaskId: item.taskId,
+                batchAutoDownloadOnSuccess: item.autoDownload,
+                clientRequestId: item.requestId,
+                history: [],
+                historyIndex: 0,
+            });
+        }
+
+        const anchor = (() => {
+            const firstSize = newNodes[0];
+            const { x: screenCenterX, y: screenCenterY } = getCanvasCenter();
+            const width = firstSize?.width || 512;
+            const height = firstSize?.height || 512;
+            return {
+                x: (screenCenterX - canvasState.offset.x) / canvasState.scale - width / 2,
+                y: (screenCenterY - canvasState.offset.y) / canvasState.scale - height / 2,
+            };
+        })();
+        const positions = findCanvasFreePositions(
+            currentNodes
+                .filter((node) => Number.isFinite(node.width) && Number.isFinite(node.height))
+                .map(({ x, y, width, height }) => ({ x, y, width, height })),
+            newNodes.map(({ width, height }) => ({ width, height })),
+            anchor,
+            20,
+        );
+        const positionedNewNodes = newNodes.map((node, index) => ({
+            ...node,
+            ...positions[index],
+        }));
+        const finalNodes = [
+            ...currentNodes.map((node) => updatesById.get(node.id) || node),
+            ...positionedNewNodes,
+        ];
+
+        setNodes(finalNodes);
+        if (!options.preserveToolMode) setToolMode(ToolMode.SELECT);
+
+        if (options.focus !== false && positionedNewNodes.length > 0) {
+            const minX = Math.min(...positionedNewNodes.map((node) => node.x));
+            const maxX = Math.max(...positionedNewNodes.map((node) => node.x + node.width));
+            const minY = Math.min(...positionedNewNodes.map((node) => node.y));
+            const maxY = Math.max(...positionedNewNodes.map((node) => node.y + node.height));
+            const centerX = (minX + maxX) / 2;
+            const centerY = (minY + maxY) / 2;
+            const { x: screenCenterX, y: screenCenterY } = getCanvasCenter();
+            setCanvasTransform(
+                {
+                    x: screenCenterX - centerX * canvasState.scale,
+                    y: screenCenterY - centerY * canvasState.scale,
+                },
+                canvasState.scale,
+            );
+        }
+
+        return nodeIds;
+    }, [canvasState, generateId, setCanvasTransform, setNodes, setToolMode]);
 
     // Update progress
     const handleUpdateProgress = useCallback((id: string, progress: number, source: 'reported' | 'estimated' = 'estimated', status?: string) => {
@@ -312,7 +441,9 @@ export const useGenerationLogic = () => {
           thumbnailSrc,
         );
 
-        if (!isVideo && imageResultStore.getAutoDownloadPreference(useSelectionStore.getState().autoDownloadOnSuccess)) {
+        if (!isVideo && (currentNode.batchAutoDownloadOnSuccess === undefined
+            ? imageResultStore.getAutoDownloadPreference(useSelectionStore.getState().autoDownloadOnSuccess)
+            : currentNode.batchAutoDownloadOnSuccess)) {
             void autoDownloadGeneratedImage(displaySrc, currentNode.prompt, id,resultIdentity);
         }
 
@@ -332,8 +463,9 @@ export const useGenerationLogic = () => {
                 updateLogAsset(logId, assetId);
                 await assetStorage.ensurePreview(assetId);
                 const meta = await assetStorage.getMeta(assetId);
-                const latest = sameResult();
-                if (latest && meta?.width && meta?.height) updateNode(id, { height: latest.width * meta.height / meta.width }, true);
+                if (sameResult() && meta?.width && meta?.height) {
+                  updateNode(id, { imageAspectRatio: meta.width / meta.height }, true);
+                }
               }
             } catch (e) { console.warn('Background asset cache failed', e); }
           })();
@@ -341,5 +473,15 @@ export const useGenerationLogic = () => {
 
     }, [autoDownloadGeneratedImage, updateNode]);
 
-    return { handleInitGenerations, handleUpdateGeneration, handleUpdateProgress };
+    return { handleInitGenerations, handleInitBatchGenerations, handleUpdateGeneration, handleUpdateProgress };
 };
+
+export interface BatchPlaceholderRequest {
+    batchId: string;
+    taskId: string;
+    prompt: string;
+    aspectRatio: string;
+    nodeId?: string;
+    requestId?: string;
+    autoDownload?: boolean;
+}

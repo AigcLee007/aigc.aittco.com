@@ -36,6 +36,35 @@ export const parseExcel = async (file: File): Promise<string[]> => {
     });
 };
 
+export const parseExcelPreview = async (file: File): Promise<{ sheets: Array<{ name: string; columns: string[]; header: string[]; rows: string[][] }> }> => {
+    const buffer = await new Promise<ArrayBuffer>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => reader.result instanceof ArrayBuffer ? resolve(reader.result) : reject(new Error('读取文件失败'));
+        reader.onerror = () => reject(new Error('读取文件失败'));
+        reader.readAsArrayBuffer(file);
+    });
+    const data = new Uint8Array(buffer);
+    const workbook = XLSX.read(data, { type: 'array' });
+    return {
+        sheets: workbook.SheetNames.map((name) => {
+            const worksheet = workbook.Sheets[name];
+            const rows = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' }) as unknown[][];
+            const width = rows.reduce((max, row) => Math.max(max, row.length), 0);
+            const first = rows[0] || [];
+            const columns = Array.from({ length: width }, (_, index) => {
+                const label = String(first[index] ?? '').trim();
+                return label ? `${label} (列 ${index + 1})` : `列 ${index + 1}`;
+            });
+            return {
+                name,
+                columns,
+                header: Array.from({ length: width }, (_, index) => String(first[index] ?? '').trim()),
+                rows: rows.map((row) => Array.from({ length: width }, (_, index) => String(row[index] ?? '').trim())),
+            };
+        }),
+    };
+};
+
 /**
  * 从 Word 文件中提取提示词
  * 每一行（段落）作为一个提示词

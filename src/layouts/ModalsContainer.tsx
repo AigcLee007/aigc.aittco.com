@@ -1,7 +1,7 @@
 import React from 'react';
 import SettingsModal from '../../components/SettingsModal';
 import ReversePromptModal from '../../components/ReversePromptModal';
-import BatchProcessModal from '../../components/BatchProcessModal';
+import { BatchWorkspace, type BatchWorkspaceController } from '../../components/BatchWorkspace';
 import InstructionsModal from '../../components/InstructionsModal';
 import ContextMenu from '../../components/ContextMenu';
 import SingleImageToolbar from '../../components/SingleImageToolbar';
@@ -36,6 +36,10 @@ interface ModalsContainerProps {
   onInitGenerations: (count: number, prompt: string, aspectRatio?: string, baseNode?: any, type?: 'IMAGE' | 'VIDEO') => string[];
   onUpdateGeneration: (id: string, src: string | null, error?: string, taskId?: string) => void;
   onUpdateProgress?: NodeGenerationProgressCallback;
+  batchController?: BatchWorkspaceController;
+  batchInitialSettings?: import('../services/batchGenerationTypes').BatchGenerationSettings;
+  onLocateBatchNode?: (nodeId: string) => void;
+  onDownloadBatchResult?: (src: string, prompt: string, nodeId: string) => void;
 
   instructionsOpen: boolean;
   onCloseInstructions: () => void;
@@ -77,6 +81,10 @@ export const ModalsContainer: React.FC<ModalsContainerProps> = ({
   onInitGenerations,
   onUpdateGeneration,
   onUpdateProgress,
+  batchController,
+  batchInitialSettings,
+  onLocateBatchNode,
+  onDownloadBatchResult,
   instructionsOpen,
   onCloseInstructions,
   lightboxImage,
@@ -118,14 +126,13 @@ export const ModalsContainer: React.FC<ModalsContainerProps> = ({
         onUsePrompt={onUsePrompt}
       />
 
-      <BatchProcessModal
-        isOpen={batchModalOpen}
+      {batchModalOpen && batchController && batchInitialSettings && onLocateBatchNode && <BatchWorkspace
+        controller={batchController}
+        initialSettings={batchInitialSettings}
         onClose={onCloseBatchModal}
-        apiKey={batchApiKey}
-        onInitGenerations={onInitGenerations}
-        onUpdateGeneration={onUpdateGeneration}
-        onUpdateProgress={onUpdateProgress}
-      />
+        onLocateNode={onLocateBatchNode}
+        onDownloadResult={onDownloadBatchResult}
+      />}
 
       <InstructionsModal
         isOpen={instructionsOpen}

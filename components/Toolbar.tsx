@@ -3,7 +3,7 @@ import React, { useRef, useState } from 'react';
 import { ToolMode } from '../types';
 import { useSelectionStore } from '../src/store/selectionStore';
 import { useCanvasStore } from '../src/store/canvasStore';
-import { Hand, MousePointer2, Sparkles, UploadCloud, Undo2, Redo2, Trash2, Settings, History, Grid, ScanSearch, DownloadCloud, Box, Loader2, HelpCircle, Eye, MessageSquare, Layers, ChevronDown, ChevronUp, Eraser } from 'lucide-react';
+import { Hand, MousePointer2, Sparkles, UploadCloud, Undo2, Redo2, Trash2, Settings, History, Grid, ScanSearch, DownloadCloud, Box, Loader2, HelpCircle, Eye, MessageSquare, Layers, ChevronDown, ChevronUp, Eraser, Images } from 'lucide-react';
 
 interface ToolbarProps {
   onUpload: (files: FileList) => void;
@@ -88,7 +88,7 @@ const Toolbar: React.FC<ToolbarProps> = ({
 
   return (
     <>
-      <div className={`fixed bottom-[15px] canvas-center-x -translate-x-1/2 flex items-center gap-2 px-5 py-2 bg-[#121212]/90 backdrop-blur-xl border border-white/20 rounded-full shadow-2xl z-50 transition-all duration-300 hover:bg-[#121212]/95 ${isCollapsed ? 'translate-y-[200%] opacity-0 pointer-events-none' : ''}`}>
+      <div className={`fixed bottom-[15px] canvas-center-x -translate-x-1/2 flex max-w-[calc(100vw-var(--sidebar-inset,0px)-24px)] items-center gap-2 overflow-x-auto px-5 py-2 bg-[#121212]/90 backdrop-blur-xl border border-white/20 rounded-full shadow-2xl z-50 transition-all duration-300 hover:bg-[#121212]/95 ${isCollapsed ? 'translate-y-[200%] opacity-0 pointer-events-none' : ''}`}>
         
         {/* 1. Undo/Redo Group */}
         <div className="flex items-center gap-1 border-r border-white/10 pr-2 mr-1">
@@ -143,13 +143,22 @@ const Toolbar: React.FC<ToolbarProps> = ({
             <Eraser size={21} strokeWidth={1.6} />
         </button>
 
+        <button
+            type="button"
+            onClick={onOpenBatchModal}
+            className="flex h-8 shrink-0 items-center gap-1.5 rounded-lg border border-emerald-400/35 bg-emerald-500/10 px-2.5 text-xs font-medium text-emerald-200 transition-colors hover:bg-emerald-500/20 hover:text-emerald-100"
+            title="批量生图"
+        >
+            <Images size={16} aria-hidden="true" />
+            <span className="whitespace-nowrap">批量生图</span>
+        </button>
+
         {/* 5. Collection Stack (Features) */}
         <DockStack 
           title="功能集合"
           icon={<Box size={20} strokeWidth={1.5} />} 
           actions={[
             { icon: <ScanSearch size={16} />, label: "图片反推 (Shift+R)", onClick: () => onOpenReversePrompt && onOpenReversePrompt() },
-            { icon: <Box size={16} />, label: "批量生成", onClick: onOpenBatchModal },
             { icon: <MessageSquare size={16} />, label: showTooltips ? "隐藏提示" : "显示提示", onClick: toggleTooltips },
             { icon: <Trash2 size={16} />, label: "清空画布 (Ctrl+Shift+Del)", onClick: onClearAll, danger: true },
           ]} 
@@ -158,19 +167,19 @@ const Toolbar: React.FC<ToolbarProps> = ({
         <div className="w-px h-6 bg-white/10 mx-2" />
 
         {/* 6. History & Settings */}
-        <button onClick={onOpenHistory} className={dockItemClass} title="历史记录 (H)">
+        <button onClick={onOpenHistory} className={`${dockItemClass} max-[900px]:hidden`} title="历史记录 (H)">
              <History size={20} strokeWidth={1.5} />
         </button>
 
         <button
             onClick={onOpenClassicMode}
-            className={dockItemClass}
+            className={`${dockItemClass} max-[900px]:hidden`}
             title="VIP 创作页"
         >
             <Layers size={20} strokeWidth={1.5} />
         </button>
 
-        <div className="relative">
+        <div className="relative max-[900px]:hidden">
           <button 
               onClick={onOpenSettings} 
               className={dockItemClass}

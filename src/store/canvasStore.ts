@@ -44,6 +44,12 @@ export const sanitizePersistedNode = (node: NodeData): NodeData => {
   if (cleanSrc) sanitized.src = cleanSrc;
   if (cleanThumbnail) sanitized.thumbnailSrc = cleanThumbnail;
   if (node.assetId) sanitized.assetId = String(node.assetId);
+  if (Number.isFinite(node.imageAspectRatio) && node.imageAspectRatio! > 0) {
+    sanitized.imageAspectRatio = node.imageAspectRatio;
+  }
+  if (node.batchId) sanitized.batchId = String(node.batchId);
+  if (node.batchTaskId) sanitized.batchTaskId = String(node.batchTaskId);
+  if (typeof node.batchAutoDownloadOnSuccess === 'boolean') sanitized.batchAutoDownloadOnSuccess = node.batchAutoDownloadOnSuccess;
   if (node.prompt) sanitized.prompt = String(node.prompt);
   if (node.createdAt) sanitized.createdAt = String(node.createdAt);
   if (node.videoModel) sanitized.videoModel = String(node.videoModel);
