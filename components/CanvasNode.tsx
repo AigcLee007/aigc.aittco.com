@@ -8,6 +8,7 @@ import { NodeData, Point, Stroke, ToolMode } from '../types';
 import { useCanvasStore } from '../src/store/canvasStore';
 import { formatShortTime } from '../src/utils/timeFormat';
 import { getProxiedImageUrl, getRawImageUrlFromProxy, isProxiedImageUrl } from '../src/utils/mediaProxy';
+import { fitImageInFrame } from '../src/utils/canvasImageFit';
 
 interface CanvasNodeProps {
   node: NodeData;
@@ -176,13 +177,21 @@ const ImageNode: React.FC<{ node: NodeData; feedback: GenerationFeedback; enable
   onLoad,
 }) => {
   const asset = useImageAsset(node, { enabled: enabled && !node.loading && !node.error });
+  const updateNode = useCanvasStore((state) => state.updateNode);
   const animatedImageRef = useRef<Konva.Image>(null);
   const gif = useGifAnimation(asset.url, enabled && asset.mime === 'image/gif', () => animatedImageRef.current?.getLayer()?.batchDraw());
   const image = gif || asset.image;
+  const imageWidth = gif?.width ?? asset.image?.naturalWidth ?? 0;
+  const imageHeight = gif?.height ?? asset.image?.naturalHeight ?? 0;
 
   useEffect(() => {
-    if (image && onLoad) onLoad();
-  }, [image, onLoad]);
+    if (!image) return;
+    const imageAspectRatio = imageWidth / imageHeight;
+    if (Number.isFinite(imageAspectRatio) && imageAspectRatio > 0 && node.imageAspectRatio !== imageAspectRatio) {
+      updateNode(node.id, { imageAspectRatio }, true);
+    }
+    onLoad?.();
+  }, [image, imageWidth, imageHeight, node.id, node.imageAspectRatio, onLoad, updateNode]);
 
   if (node.loading) {
     return <DreamingPlaceholder width={node.width} height={node.height} feedback={feedback} />;
@@ -207,6 +216,13 @@ const ImageNode: React.FC<{ node: NodeData; feedback: GenerationFeedback; enable
     return <DownloadingPlaceholder width={node.width} height={node.height} />;
   }
 
+  const fit = fitImageInFrame(
+    imageWidth,
+    imageHeight,
+    node.width,
+    node.height,
+  );
+
   return (
     <Group
       clipFunc={(ctx) => {
@@ -215,7 +231,15 @@ const ImageNode: React.FC<{ node: NodeData; feedback: GenerationFeedback; enable
         ctx.closePath();
       }}
     >
-      <KonvaImage ref={animatedImageRef} image={image} width={node.width} height={node.height} />
+      <Rect width={node.width} height={node.height} fill="#171717" listening={false} />
+      <KonvaImage
+        ref={animatedImageRef}
+        image={image}
+        x={fit.x}
+        y={fit.y}
+        width={fit.width}
+        height={fit.height}
+      />
       {!!node.maskStrokes?.length && <MaskLayer strokes={node.maskStrokes} />}
     </Group>
   );

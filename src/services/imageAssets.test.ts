@@ -98,9 +98,12 @@ describe('image asset recovery and lifecycle', () => {
       await act(async()=>{
         await hook.result.current.handleUpdateGeneration(task.id,'/completion-display');
         const lease=await display!;expect(lease.status).toBe('ready');lease.release();
-        await vi.waitFor(()=>{expect(useCanvasStore.getState().nodes[0].height).toBe(288);});
       });
       await vi.waitFor(async()=>{expect((await imageResultStore.getState(stable)).originalCached).toBe(true);});
+      await vi.waitFor(async()=>{
+        expect(await assetStorage.getMeta(stable)).toMatchObject({width:3840,height:2160});
+        expect(useCanvasStore.getState().nodes[0].height).toBe(512);
+      });
       expect(publishedId).toBe(stable);expect(fetch).toHaveBeenCalledTimes(1);
       const originals=(await keys()).filter(key=>typeof key==='string' && key.startsWith('asset-') && !/^asset-(meta|preview|source)-/.test(key));
       expect(originals).toEqual([`asset-${stable}`]);

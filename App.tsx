@@ -39,6 +39,10 @@ import { localReadsSafe, subscribeLocalReadSafety } from './src/services/localHy
 import { AppVersionNotice } from './src/components/AppVersionNotice';
 import { AppVersionBadge } from './src/components/AppVersionBadge';
 import { retryFailedLocalReads } from './src/services/localPersistenceRecovery';
+import { useBatchGeneration } from './src/hooks/useBatchGeneration';
+import { getImageRoutesByModelFamily } from './src/config/imageRoutes';
+import { getImageModelById, getImageModelSizeOptions } from './src/config/imageModels';
+import { getCanvasCenter } from './src/utils/canvasViewport';
 
 const App: React.FC = () => {
   const currentPath =
@@ -224,6 +228,7 @@ const App: React.FC = () => {
   // 2. Generation Logic
   const {
     handleInitGenerations,
+    handleInitBatchGenerations,
     handleUpdateGeneration,
     handleUpdateProgress,
   } = useGenerationLogic();
@@ -231,6 +236,35 @@ const App: React.FC = () => {
   // 3. Global Polling (Replaces local polling)
   // This ensures tasks update even if nodes are virtualized off-screen
   useGlobalPolling(apiKey, handleUpdateGeneration, handleUpdateProgress);
+  const batchController = useBatchGeneration({
+    apiKey,
+    canvasHydrated: hydrated,
+    initializeBatchGenerations: handleInitBatchGenerations,
+    onUpdateGeneration: handleUpdateGeneration,
+  });
+  const batchInitialSettings = (() => {
+    const selectedModel = getImageModelById(useSelectionStore.getState().imageModel);
+    const routes = getImageRoutesByModelFamily(selectedModel.routeFamily);
+    const selectedRoute = routes.find((item) => item.line === useSelectionStore.getState().imageLine && item.isActive !== false)
+      || routes.find((item) => item.isActive !== false);
+    return {
+      modelId: selectedModel.id,
+      routeId: selectedRoute?.id || '',
+      aspectRatio: useSelectionStore.getState().aspectRatio,
+      imageSize: getImageModelSizeOptions(selectedModel.id).includes(useSelectionStore.getState().imageSize)
+        ? useSelectionStore.getState().imageSize : getImageModelSizeOptions(selectedModel.id)[0] || '1k',
+      outputCount: useSelectionStore.getState().quantity,
+      concurrency: 3 as const,
+      autoDownload: useSelectionStore.getState().autoDownloadOnSuccess,
+    };
+  })();
+  const handleLocateBatchNode = useCallback((nodeId: string) => {
+    const node = useCanvasStore.getState().nodes.find((item) => item.id === nodeId);
+    if (!node) return;
+    const center = getCanvasCenter();
+    const scale = useCanvasStore.getState().canvasState.scale;
+    setCanvasTransform({ x: center.x - (node.x + node.width / 2) * scale, y: center.y - (node.y + node.height / 2) * scale }, scale);
+  }, [setCanvasTransform]);
 
   // 4. Image Processing (Upload/Paste)
   const { processFiles, handleUpload } = useImageProcessor();
@@ -653,6 +687,10 @@ const App: React.FC = () => {
           onInitGenerations={handleInitGenerations}
           onUpdateGeneration={handleUpdateGeneration}
           onUpdateProgress={handleUpdateProgress}
+          batchController={batchController}
+          batchInitialSettings={batchInitialSettings}
+          onLocateBatchNode={handleLocateBatchNode}
+          onDownloadBatchResult={handleDownloadImage}
           instructionsOpen={instructionsOpen}
           onCloseInstructions={() => setInstructionsOpen(false)}
           lightboxImage={lightboxImage}
