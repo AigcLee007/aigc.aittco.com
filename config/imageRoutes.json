@@ -674,6 +674,41 @@
         "medium",
         "high"
       ]
+    },
+    {
+      "id": "higgsfield-soul-2",
+      "label": "Higgsfield 官方",
+      "modelFamily": "higgsfield-soul-2",
+      "line": "官方",
+      "transport": "higgsfield-image",
+      "mode": "async",
+      "baseUrl": "https://api.higgsfield.ai",
+      "generatePath": "/higgsfield-ai/soul/v2/standard",
+      "editPath": "/higgsfield-ai/soul/v2/image-to-image",
+      "taskPath": "/requests/{taskId}/status",
+      "upstreamModel": "higgsfield-ai/soul/v2/standard",
+      "apiKeyEnv": "HIGGSFIELD_API_KEY",
+      "allowUserApiKeyWithoutLogin": false,
+      "pointCost": 1,
+      "sizeOverrides": { "720p": { "pointCost": 1 }, "1080p": { "pointCost": 2 } },
+      "sortOrder": 0
+    },
+    {
+      "id": "higgsfield-soul-cinema",
+      "label": "Higgsfield 官方",
+      "modelFamily": "higgsfield-soul-cinema",
+      "line": "官方",
+      "transport": "higgsfield-image",
+      "mode": "async",
+      "baseUrl": "https://api.higgsfield.ai",
+      "generatePath": "/higgsfield-ai/soul/cinema",
+      "taskPath": "/requests/{taskId}/status",
+      "upstreamModel": "higgsfield-ai/soul/cinema",
+      "apiKeyEnv": "HIGGSFIELD_API_KEY",
+      "allowUserApiKeyWithoutLogin": false,
+      "pointCost": 1,
+      "sizeOverrides": { "720p": { "pointCost": 1 }, "1080p": { "pointCost": 2 } },
+      "sortOrder": 0
     }
   ]
 }

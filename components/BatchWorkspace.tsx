@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, Check, Copy, Download, FileSpreadsheet, ImagePlus, LoaderCircle, MapPin, Pause, Play, Plus, RefreshCw, Trash2, X } from 'lucide-react';
-import { ensureImageModelCatalogLoaded, getImageModelOptions, getImageModelSizeOptions, getImageModelById } from '../src/config/imageModels';
-import { ensureImageRouteCatalogLoaded, getImageRouteById, getImageRoutesByModelFamily, getImageRoutePointCost, getImageRouteSizeOptions } from '../src/config/imageRoutes';
+import { ensureImageModelCatalogLoaded, getHiggsfieldImageOptions, getImageModelOptions, getImageModelSizeOptions, getImageModelById } from '../src/config/imageModels';
+import { ensureImageRouteCatalogLoaded, getImageRouteById, getImageRoutesByModelFamily, getImageRoutePointCost } from '../src/config/imageRoutes';
 import { assetStorage } from '../src/services/assetStorage';
 import { parseExcelPreview, parsePromptFile } from '../src/utils/fileParser';
 import type { BatchGenerationRecord, BatchGenerationSettings, BatchInputGroup, BatchMode, BatchTaskStatus } from '../src/services/batchGenerationTypes';
@@ -70,6 +70,7 @@ export const BatchWorkspace: React.FC<{
     model.isActive !== false && (!selected || controller.getBatchRoutes(selected.mode, model.id, false).length > 0),
   );
   const model = getImageModelById(selected?.settings.modelId);
+  const aspectRatios = getHiggsfieldImageOptions(model.id)?.aspectRatios || ['1:1', '16:9', '9:16', '4:3', '3:4', '3:2', '2:3', '21:9'];
   const routes = selected ? controller.getBatchRoutes(selected.mode, selected.settings.modelId, false) : [];
   const route = routes.find((item) => item.id === selected?.settings.routeId) || routes[0];
   const sizes = selected ? controller.getBatchSizes(selected.settings.modelId, route) : [];
@@ -121,6 +122,18 @@ export const BatchWorkspace: React.FC<{
   const patchSettings = (updates: Partial<BatchGenerationSettings>) => {
     if (!selected) return;
     void controller.updateSettings(selected.id, updates).catch((reason) => setError(reason.message || '配置更新失败'));
+  };
+
+  const changeModel = (modelId: string) => {
+    if (!selected) return;
+    const nextRoute = controller.getBatchRoutes(selected.mode, modelId, false)[0];
+    const providerOptions = getHiggsfieldImageOptions(modelId);
+    patchSettings({
+      modelId,
+      routeId: nextRoute?.id || '',
+      imageSize: controller.getBatchSizes(modelId, nextRoute)[0] || getImageModelSizeOptions(modelId)[0] || '1k',
+      ...(providerOptions && !providerOptions.aspectRatios.includes(selected.settings.aspectRatio) ? { aspectRatio: '1:1' } : {}),
+    });
   };
 
   const addBatch = async (mode: BatchMode) => {
@@ -270,21 +283,13 @@ export const BatchWorkspace: React.FC<{
               <details className="border-b border-white/10 px-4 py-2 lg:hidden">
                 <summary className="cursor-pointer py-1 text-xs text-zinc-400">模型与生成参数</summary>
                 <div className="grid grid-cols-2 gap-2 py-3">
-                  <select aria-label="生成模型" value={selected.settings.modelId} disabled={!editable} onChange={(event) => {
-                    const nextModel = getImageModelById(event.target.value);
-                    const nextRoute = controller.getBatchRoutes(selected.mode, nextModel.id, false)[0];
-                    void controller.updateSettings(selected.id, {
-                      modelId: nextModel.id,
-                      routeId: nextRoute?.id || '',
-                      imageSize: getImageModelSizeOptions(nextModel.id)[0] || '1k',
-                    });
-                  }} className="h-9 min-w-0 rounded-md border border-white/10 bg-[#18191b] px-2 text-xs">
+                  <select aria-label="生成模型" value={selected.settings.modelId} disabled={!editable} onChange={(event) => changeModel(event.target.value)} className="h-9 min-w-0 rounded-md border border-white/10 bg-[#18191b] px-2 text-xs">
                     {modelOptions.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
                   </select>
                   <select aria-label="生成线路" value={selected.settings.routeId} disabled={!editable} onChange={(event) => void controller.updateSettings(selected.id, { routeId: event.target.value })} className="h-9 min-w-0 rounded-md border border-white/10 bg-[#18191b] px-2 text-xs">
                     {routes.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
                   </select>
-                  <select aria-label="画幅" value={selected.settings.aspectRatio} disabled={!editable} onChange={(event) => patchSettings({ aspectRatio: event.target.value })} className="h-9 rounded-md border border-white/10 bg-[#18191b] px-2 text-xs">{['1:1', '16:9', '9:16', '4:3', '3:4', '3:2', '2:3', '21:9'].map((value) => <option key={value}>{value}</option>)}</select>
+                  <select aria-label="画幅" value={selected.settings.aspectRatio} disabled={!editable} onChange={(event) => patchSettings({ aspectRatio: event.target.value })} className="h-9 rounded-md border border-white/10 bg-[#18191b] px-2 text-xs">{aspectRatios.map((value) => <option key={value}>{value}</option>)}</select>
                   <select aria-label="输出尺寸" value={selected.settings.imageSize} disabled={!editable} onChange={(event) => patchSettings({ imageSize: event.target.value })} className="h-9 rounded-md border border-white/10 bg-[#18191b] px-2 text-xs">{(sizes.length ? sizes : [selected.settings.imageSize]).map((value) => <option key={value}>{value}</option>)}</select>
                   <select aria-label="并发任务数" value={selected.settings.concurrency} disabled={!editable} onChange={(event) => patchSettings({ concurrency: Number(event.target.value) as 1 | 3 | 6 })} className="h-9 rounded-md border border-white/10 bg-[#18191b] px-2 text-xs">{[1, 3, 6].map((value) => <option key={value} value={value}>并发 {value}</option>)}</select>
                   <select aria-label="每项默认张数" value={selected.settings.outputCount} disabled={!editable} onChange={(event) => patchSettings({ outputCount: Number(event.target.value) })} className="h-9 rounded-md border border-white/10 bg-[#18191b] px-2 text-xs">{Array.from({ length: MAX_BATCH_OUTPUT_COUNT }, (_, index) => <option key={index + 1} value={index + 1}>{index + 1} 张 / 项</option>)}</select>
@@ -332,10 +337,10 @@ export const BatchWorkspace: React.FC<{
         <aside className="hidden min-h-0 flex-col border-l border-white/10 lg:flex">
           {selected ? <div className="min-h-0 flex-1 overflow-y-auto p-5">
             <label className="mb-5 block"><span className="mb-2 block text-[11px] font-medium text-zinc-500">批次名称</span><input value={selected.title} disabled={!editable} onChange={(event) => void controller.updateSettings(selected.id, {}, event.target.value)} className="h-9 w-full rounded-md border border-white/10 bg-transparent px-3 text-sm outline-none focus:border-emerald-500/70 disabled:border-transparent" /></label>
-            <label className="mb-5 block"><span className="mb-2 block text-[11px] font-medium text-zinc-500">生成模型</span><select value={selected.settings.modelId} disabled={!editable} onChange={(event) => { const nextModel = getImageModelById(event.target.value); const nextRoute = controller.getBatchRoutes(selected.mode, nextModel.id, false)[0]; const nextSize = getImageModelSizeOptions(nextModel.id)[0] || '1k'; void controller.updateSettings(selected.id, { modelId: nextModel.id, routeId: nextRoute?.id || '', imageSize: getImageRouteSizeOptions(nextRoute, getImageModelSizeOptions(nextModel.id))[0] || nextSize }); }} className="h-10 w-full rounded-md border border-white/10 bg-[#18191b] px-3 text-sm outline-none focus:border-emerald-500/70 disabled:opacity-50">{modelOptions.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label>
+            <label className="mb-5 block"><span className="mb-2 block text-[11px] font-medium text-zinc-500">生成模型</span><select value={selected.settings.modelId} disabled={!editable} onChange={(event) => changeModel(event.target.value)} className="h-10 w-full rounded-md border border-white/10 bg-[#18191b] px-3 text-sm outline-none focus:border-emerald-500/70 disabled:opacity-50">{modelOptions.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label>
             <label className="mb-5 block"><span className="mb-2 block text-[11px] font-medium text-zinc-500">线路</span><select value={selected.settings.routeId} disabled={!editable} onChange={(event) => void controller.updateSettings(selected.id, { routeId: event.target.value, imageSize: controller.getBatchSizes(selected.settings.modelId, routes.find((item) => item.id === event.target.value))[0] || selected.settings.imageSize })} className="h-10 w-full rounded-md border border-white/10 bg-[#18191b] px-3 text-sm outline-none focus:border-emerald-500/70 disabled:opacity-50">{routes.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label>
             <div className="mb-5 grid grid-cols-2 gap-3">
-              <label><span className="mb-2 block text-[11px] font-medium text-zinc-500">画幅</span><select value={selected.settings.aspectRatio} disabled={!editable} onChange={(event) => patchSettings({ aspectRatio: event.target.value })} className="h-9 w-full rounded-md border border-white/10 bg-[#18191b] px-2 text-xs">{['1:1', '16:9', '9:16', '4:3', '3:4', '3:2', '2:3', '21:9'].map((value) => <option key={value}>{value}</option>)}</select></label>
+              <label><span className="mb-2 block text-[11px] font-medium text-zinc-500">画幅</span><select value={selected.settings.aspectRatio} disabled={!editable} onChange={(event) => patchSettings({ aspectRatio: event.target.value })} className="h-9 w-full rounded-md border border-white/10 bg-[#18191b] px-2 text-xs">{aspectRatios.map((value) => <option key={value}>{value}</option>)}</select></label>
               <label><span className="mb-2 block text-[11px] font-medium text-zinc-500">输出尺寸</span><select value={selected.settings.imageSize} disabled={!editable} onChange={(event) => patchSettings({ imageSize: event.target.value })} className="h-9 w-full rounded-md border border-white/10 bg-[#18191b] px-2 text-xs">{(sizes.length ? sizes : [selected.settings.imageSize]).map((value) => <option key={value}>{value}</option>)}</select></label>
               <label><span className="mb-2 block text-[11px] font-medium text-zinc-500">每项默认张数</span><select value={selected.settings.outputCount} disabled={!editable} onChange={(event) => patchSettings({ outputCount: Number(event.target.value) })} className="h-9 w-full rounded-md border border-white/10 bg-[#18191b] px-2 text-xs">{Array.from({ length: MAX_BATCH_OUTPUT_COUNT }, (_, index) => <option key={index + 1}>{index + 1}</option>)}</select></label>
             </div>

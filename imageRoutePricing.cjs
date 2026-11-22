@@ -20,7 +20,7 @@ const getRequestedSizeKey = (requestBody = {}) => {
       requestBody.generationConfig?.image_config?.image_size ||
       "",
   ).trim().toLowerCase();
-  return ["1k", "2k", "4k"].includes(size) ? size : "";
+  return ["1k", "2k", "4k", "720p", "1080p"].includes(size) ? size : "";
 };
 
 const getInputImageCount = (requestBody = {}) => {

@@ -34,6 +34,16 @@ const input = (overrides: Record<string, unknown> = {}) => ({
 });
 
 describe('batch image request construction', () => {
+  it('sends the original single Soul 2.0 reference to the backend edit route', () => {
+    const reference = 'data:image/png;base64,AA==';
+    const request = buildBatchImageRequest(input({
+      mode: 'i2i', modelId: 'higgsfield-soul-2', modelName: 'higgsfield-ai/soul/v2/standard',
+      route: route('higgsfield-image', 'higgsfield-soul-2'), imageSize: '1080p',
+      references: [reference],
+    }));
+    expect(request.endpoint).toBe('edit');
+    expect(request.payload).toMatchObject({ images: [reference], image_size: '1080p', n: 1 });
+  });
   it('builds native Gemini content with every selected reference image', () => {
     const request = buildBatchImageRequest(input({
       mode: 'i2i',

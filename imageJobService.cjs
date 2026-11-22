@@ -204,7 +204,7 @@ function createImageJobService(options = {}) {
   });
   // Source addresses must not reach the browser unless fast transfer is on:
   // until a copy is saved, standard mode serves the image from our own address.
-  const isSourceUrl = url => typeof url==='string' && /^https?:///i.test(url);
+  const isSourceUrl = url => typeof url==='string' && /^https?:\/\//i.test(url);
   const exposed = async (view, job) => {
     if (!view) return view;
     const fast = (job?.storageMode==='speed') || view.storage_mode==='speed';
@@ -300,7 +300,7 @@ function createImageJobService(options = {}) {
     let prepared={payload:smallPayload(payload,urls),resultUrls:urls,previewUrl:null,storageStatus:'external'};
     let storageError=null;
     if(assets) {
-      try { prepared=await assets.prepare({payload,resultUrls:urls,context:{userId:known.userId,taskId:id},onSaved:callback,storageMode:known.storageMode,forceKeep:known.endpoint==='/api/upscale'}); }
+      try { prepared=await assets.prepare({payload,resultUrls:urls,context:{userId:known.userId,taskId:id},onSaved:callback,storageMode:known.storageMode,forceKeep:known.endpoint==='/api/upscale'||options.forceKeepAsset?.(known)===true}); }
       catch(error) { storageError=String(error.message||'Image save failed').slice(0,1000); prepared={payload:{},resultUrls:urls.filter(url=>!/^data:/i.test(url)),storageStatus:'failed'}; }
     } else if(urls.some(url=>/^data:/i.test(url))) {
       prepared={payload:{},resultUrls:urls.filter(url=>!/^data:/i.test(url)),storageStatus:'failed'};storageError='Image storage is unavailable';
@@ -454,7 +454,7 @@ function createImageJobService(options = {}) {
       observeOperations(job,{events:false});
       if(resumedAssetJobs.has(job.taskId))continue;resumedAssetJobs.add(job.taskId);
       try {
-        await assets.prepare({payload:job.payload,resultUrls:job.resultUrls,context:{userId:job.userId,taskId:job.taskId},storageMode:job.storageMode,forceKeep:job.endpoint==='/api/upscale',onSaved:async update=>{
+        await assets.prepare({payload:job.payload,resultUrls:job.resultUrls,context:{userId:job.userId,taskId:job.taskId},storageMode:job.storageMode,forceKeep:job.endpoint==='/api/upscale'||options.forceKeepAsset?.(job)===true,onSaved:async update=>{
           await publishAssetUpdate(job.taskId,update,job.resultUrls);
         }});
       }catch(error){warn(error);await persist(job.taskId,{storageStatus:'failed',storageError:String(error.message).slice(0,1000)});}

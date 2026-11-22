@@ -1464,6 +1464,9 @@ function isClassicMidjourneyModel(modelId = null) {
 }
 
 function getCurrentRefImageLimit(modelId = imageModel) {
+  const selected = getClassicSelectedModelId(modelId);
+  if (selected === "higgsfield-soul-2") return 1;
+  if (selected === "higgsfield-soul-cinema") return 0;
   return isClassicMidjourneyModel(modelId) ? 1 : isClassicGptImageModel(modelId) ? GPT_MAX_REF_IMAGES : DEFAULT_MAX_REF_IMAGES;
 }
 
@@ -1573,6 +1576,7 @@ function updateClassicRefUploadHint() {
 }
 
 function enforceCurrentRefImageLimit() {
+  if (["higgsfield-soul-2", "higgsfield-soul-cinema"].includes(getClassicSelectedModelId())) return false;
   const limit = getCurrentRefImageLimit();
   if (!Array.isArray(refImages) || refImages.length <= limit) {
     updateClassicRefUploadHint();

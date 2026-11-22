@@ -112,6 +112,25 @@ export function buildBatchImageRequest(input: BatchImageRequestInput): BatchImag
 
   if (isGeminiNativeImageRoute(input.route)) return buildGeminiRequest(input);
 
+  if (input.route.transport === 'higgsfield-image') {
+    const editing = input.mode === 'i2i';
+    if (editing && !input.route.editPath) throw new Error('当前 Higgsfield 模型不支持参考图');
+    if (editing && input.references.length !== 1) throw new Error('Higgsfield Soul 2.0 每次仅支持一张参考图');
+    return {
+      endpoint: editing ? 'edit' : 'generate',
+      payload: {
+        model: modelNameForRequest(input),
+        modelId: input.modelId,
+        routeId: input.route.id,
+        prompt: input.prompt,
+        image_size: imageSizeForRoute(input),
+        aspect_ratio: input.aspectRatio,
+        n: 1,
+        ...(editing ? { images: input.references } : {}),
+      },
+    };
+  }
+
   if (input.mode === 'i2i') {
     const imageData = input.references.map(rawImageData);
     const requestModel = modelNameForRequest(input).toLowerCase();

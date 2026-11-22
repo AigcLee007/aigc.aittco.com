@@ -142,7 +142,8 @@ const buildLineLabel = (line: string, fallbackLabel?: string) => {
   if (String(line || '').trim().toLowerCase() === 'default') return 'Default Route';
   return String(fallbackLabel || '').trim() || 'Route';
 };
-const IMAGE_ROUTE_SIZE_KEYS: ImageRouteSizeKey[] = ['1k', '2k', '4k'];
+const IMAGE_ROUTE_SIZE_KEYS = ['1k', '2k', '4k'] as const;
+const HIGGSFIELD_RESOLUTIONS = ['720p', '1080p'] as const;
 const IMAGE_ROUTE_SIZE_FIELD_MAP = {
   '1k': { modelField: 'size1kUpstreamModel', costField: 'size1kPointCost' },
   '2k': { modelField: 'size2kUpstreamModel', costField: 'size2kPointCost' },
@@ -155,6 +156,7 @@ const getImageRouteSizeOverrideValue = (
 const buildImageRouteSizeOverrides = (
   form: ImageRouteForm,
 ): AdminImageRoutePayload['sizeOverrides'] => {
+  if (form.transport === 'higgsfield-image') return form.sizeOverrides;
   const next: NonNullable<AdminImageRoutePayload['sizeOverrides']> = {};
   IMAGE_ROUTE_SIZE_KEYS.forEach((key) => {
     const { modelField, costField } = IMAGE_ROUTE_SIZE_FIELD_MAP[key];
@@ -333,7 +335,7 @@ const createImageRouteForm = (route?: Partial<AdminImageRoute>, family = 'defaul
     baseUrl: String(route?.baseUrl || '').trim(),
     generatePath: String(route?.generatePath || '/v1/images/generations?async=true').trim(),
     taskPath: String(route?.taskPath || '/v1/images/tasks/{taskId}').trim(),
-    editPath: String(route?.editPath || '/v1/images/edits?async=true').trim(),
+    editPath: String(route?.transport === 'higgsfield-image' ? route.editPath || '' : route?.editPath || '/v1/images/edits?async=true').trim(),
     chatPath: String(route?.chatPath || '').trim(),
     upstreamModel: String(route?.upstreamModel || '').trim(),
     useRequestModel: route?.useRequestModel === true,
@@ -1091,7 +1093,7 @@ const MediaCatalogAdminPanel: React.FC<MediaCatalogAdminPanelProps> = ({ session
           <div className="sm:col-span-2"><Textarea value={imageRouteForm.description || ''} onChange={(e) => setImageRouteForm((prev) => ({ ...prev, description: e.target.value }))} placeholder="线路说明" /></div>
           <Input value={imageRouteForm.modelFamily} onChange={(e) => setImageRouteForm((prev) => ({ ...prev, modelFamily: e.target.value }))} placeholder="线路族（routeFamily）" />
           <Input value={imageRouteForm.line} onChange={(e) => setImageRouteForm((prev) => ({ ...prev, line: e.target.value }))} placeholder="line1 / line2" />
-          <Select value={imageRouteForm.transport} onChange={(e) => setImageRouteForm((prev) => ({ ...prev, transport: e.target.value as AdminImageRoutePayload['transport'] }))}><option value="openai-image">openai-image</option><option value="gemini-native">gemini-native</option></Select>
+          <Select value={imageRouteForm.transport} onChange={(e) => setImageRouteForm((prev) => ({ ...prev, transport: e.target.value as AdminImageRoutePayload['transport'] }))}><option value="openai-image">openai-image</option><option value="gemini-native">gemini-native</option><option value="higgsfield-image">higgsfield-image</option></Select>
           <Select value={imageRouteForm.mode} onChange={(e) => setImageRouteForm((prev) => ({ ...prev, mode: e.target.value as AdminImageRoutePayload['mode'] }))}><option value="async">async</option><option value="sync">sync</option></Select>
           <Input value={imageRouteForm.baseUrl} onChange={(e) => setImageRouteForm((prev) => ({ ...prev, baseUrl: e.target.value }))} placeholder="baseUrl" />
           <Input type="number" step="0.1" min="0" value={String(imageRouteForm.pointCost || 0)} onChange={(e) => setImageRouteForm((prev) => ({ ...prev, pointCost: roundNonNegativePoint(e.target.value, 0) }))} placeholder="默认点数" />
@@ -1102,7 +1104,19 @@ const MediaCatalogAdminPanel: React.FC<MediaCatalogAdminPanelProps> = ({ session
           <div className="sm:col-span-2"><Input value={imageRouteForm.upstreamModel || ''} onChange={(e) => setImageRouteForm((prev) => ({ ...prev, upstreamModel: e.target.value }))} placeholder="默认 upstreamModel（未匹配到尺寸覆写时使用）" /></div>
         </div>
 
-        <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/10 p-4">
+        {imageRouteForm.transport === 'higgsfield-image' ? (
+          <div className="grid gap-3 sm:grid-cols-2">
+            {HIGGSFIELD_RESOLUTIONS.map((resolution) => (
+              <label key={resolution} className="space-y-1 text-xs text-gray-300">
+                <span>{resolution} 每张点数</span>
+                <Input type="number" min="0" step="0.1" value={String(imageRouteForm.sizeOverrides?.[resolution]?.pointCost ?? imageRouteForm.pointCost ?? 0)} onChange={(event) => setImageRouteForm((prev) => ({
+                  ...prev,
+                  sizeOverrides: { ...prev.sizeOverrides, [resolution]: { pointCost: roundNonNegativePoint(event.target.value, 0) } },
+                }))} />
+              </label>
+            ))}
+          </div>
+        ) : <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/10 p-4">
           <div className="mb-3">
             <div className="text-sm font-medium text-emerald-50">按尺寸映射（可选）</div>
             <HelpText>
@@ -1133,7 +1147,7 @@ const MediaCatalogAdminPanel: React.FC<MediaCatalogAdminPanelProps> = ({ session
               </div>
             ))}
           </div>
-        </div>
+        </div>}
 
         <div className="grid gap-3 sm:grid-cols-2">
           <div className="sm:col-span-2">

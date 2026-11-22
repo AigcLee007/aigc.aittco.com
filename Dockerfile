@@ -41,6 +41,7 @@ COPY gptImageAnimationPolicy.cjs ./
 COPY midjourneyImagePolicy.cjs ./
 COPY imageRouteCompatibility.cjs ./
 COPY visionaryImageApi.cjs ./
+COPY higgsfieldImageApi.cjs ./
 COPY imageRouteResolution.cjs ./
 COPY db.cjs ./
 COPY imageRouteStore.cjs ./

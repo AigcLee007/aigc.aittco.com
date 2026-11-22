@@ -40,6 +40,10 @@ const {
 } = require("./imageRouteCompatibility.cjs");
 const { getSeedreamSizeError, getGptImageQualityFields } = require("./seedreamImagePolicy.cjs");
 const { isGptImageCompatibleModel } = require("./imageModelCompatibility.cjs");
+const {
+  isHiggsfieldImageModel, isHiggsfieldImageRoute, hasHiggsfieldImageKey,
+  buildHiggsfieldImageInput, submitHiggsfieldImage, pollHiggsfieldImage,
+} = require("./higgsfieldImageApi.cjs");
 const { isGptImageAnimationRoute, getGptImageAnimationFields, normalizeAnimationSize } = require("./gptImageAnimationPolicy.cjs");
 const { isMidjourneyImageRoute, normalizeMidjourneyImageRequest, normalizeMidjourneyImageTask } = require("./midjourneyImagePolicy.cjs");
 const { activateMidjourney, syncConfiguredStableMidjourneyRoute } = require("./scripts/activate-midjourney-v82-tehui.cjs");
@@ -249,6 +253,8 @@ const resolveImageRoute = async (routeId, { includeInactive = false, routeFamily
     return null;
   }
 
+  if (isHiggsfieldImageModel(routeFamily) && fallbackRoute.modelFamily !== routeFamily) return null;
+
   return getImageRouteById(fallbackRoute.id, {
     includeInactive,
     includeSecrets: true,
@@ -291,7 +297,7 @@ const normalizeAuthorization = (value) => {
   return `Bearer ${cleaned.replace(/\s+/g, "")}`;
 };
 const allowsDirectUserApiKeyRoute = (route) => {
-  return route?.allowUserApiKeyWithoutLogin === true;
+  return !isHiggsfieldImageRoute(route) && route?.allowUserApiKeyWithoutLogin === true;
 };
 const shouldUseUserProvidedApiKey = (route, fallbackAuthorization) =>
   allowsDirectUserApiKeyRoute(route) &&
@@ -313,7 +319,7 @@ const toPublicImageRouteSizeOverrides = (overrides) => {
     const inputImagePointCost = Number.isFinite(rawInputImagePointCost) && rawInputImagePointCost >= 0
       ? rawInputImagePointCost
       : null;
-    if (!["1k", "2k", "4k"].includes(key)) {
+    if (!normalizeRouteSizeKey(key)) {
       return accumulator;
     }
     const entry = {};
@@ -339,8 +345,9 @@ const toPublicImageRoute = (route = {}) => ({
   line: String(route.line || "default").trim(),
   transport: String(route.transport || "openai-image").trim(),
   mode: String(route.mode || "async").trim(),
-  requiresDataUriReferences: isVisionaryImageRoute(route),
-  allowUserApiKeyWithoutLogin: route.allowUserApiKeyWithoutLogin === true,
+  requiresDataUriReferences: isVisionaryImageRoute(route) || (isHiggsfieldImageRoute(route) && Boolean(route.editPath)),
+  ...(isHiggsfieldImageRoute(route) ? { editPath: route.editPath || "" } : {}),
+  allowUserApiKeyWithoutLogin: allowsDirectUserApiKeyRoute(route),
   pointCost: toPointNumber(route.pointCost || 0),
   sizeOverrides: toPublicImageRouteSizeOverrides(route.sizeOverrides),
   supportedQualities: Array.isArray(route.supportedQualities)
@@ -369,7 +376,9 @@ const toPublicVideoRoute = (route = {}) => ({
 const toPublicImageRouteCatalog = (catalog = {}) => ({
   defaultRouteId: String(catalog.defaultRouteId || "").trim(),
   defaultNanoBananaLine: String(catalog.defaultNanoBananaLine || "line1").trim(),
-  routes: Array.isArray(catalog.routes) ? catalog.routes.map((route) => toPublicImageRoute(route)) : [],
+  routes: Array.isArray(catalog.routes) ? catalog.routes
+    .filter(route => !isHiggsfieldImageRoute(route) || hasHiggsfieldImageKey())
+    .map(toPublicImageRoute) : [],
 });
 const toPublicVideoRouteCatalog = (catalog = {}) => ({
   defaultRouteId: String(catalog.defaultRouteId || "").trim(),
@@ -518,7 +527,7 @@ const createGeminiDataItems = (images = []) =>
   });
 const normalizeRouteSizeKey = (value = "") => {
   const normalized = String(value || "").trim().toLowerCase();
-  return ["1k", "2k", "4k"].includes(normalized) ? normalized : "";
+  return ["1k", "2k", "4k", "720p", "1080p"].includes(normalized) ? normalized : "";
 };
 const getRequestedRouteSizeKey = (requestBody = {}) => {
   const rawSize =
@@ -2922,9 +2931,11 @@ app.get("/api/image-models/catalog", async (_req, res) => {
   try {
     res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
     const catalog = await getImageModelCatalog();
+    const models = catalog.models.filter(model => !isHiggsfieldImageModel(model.id) || hasHiggsfieldImageKey());
     res.json({
       success: true,
       ...catalog,
+      models,
     });
   } catch (error) {
     res.status(500).json({ error: error.message || "Failed to load image model catalog" });
@@ -5648,6 +5659,9 @@ const pollImageTaskAndSettle = async ({
   }
 
   const upstreamTaskId = decodedTask?.upstreamTaskId || normalizedTaskId;
+  if (isHiggsfieldImageRoute(route)) {
+    throw Object.assign(new Error("Image task not found"), { status: 404 });
+  }
   const localJob = getLocalImageJob(upstreamTaskId);
   if (localJob) {
     return (
@@ -6057,9 +6071,34 @@ const makeWorkerRequest = (body, context) => ({
   headers: { authorization: context.headers?.authorization || "" },
   authUser: context.identity || { userId: context.userId },
 });
+const executeHiggsfieldImage = async (job, req, context) => {
+  const route = await resolveImageRoute(job.routeId);
+  if (!isHiggsfieldImageRoute(route) || route.modelFamily !== job.modelId) {
+    throw new Error("Higgsfield 图片线路不存在或已停用");
+  }
+  const model = await getImageModelById(job.modelId);
+  const { input, reference } = buildHiggsfieldImageInput(job.modelId, req.body);
+  const billingAccount = await requireBillingAccount(req);
+  const action = reference ? "edit" : "generate";
+  const points = getRoutePointCost(route, input.batch_size, { image_size: input.resolution });
+  const charge = await reservePoints(billingAccount.accountId, points, {
+    action, routeId: route.id, mode: route.mode, model: route.upstreamModel, modelId: job.modelId,
+  });
+  await buildGenerationRecordPayload({
+    req, billingAccount, actionName: action, route, modelId: job.modelId,
+    modelName: model?.label || route.upstreamModel, prompt: input.prompt, quantity: input.batch_size,
+    aspectRatio: input.aspect_ratio, outputSize: input.resolution, uiMode: req.body.uiMode,
+    meta: { transport: route.transport, routeMode: route.mode, clientLiveTaskIds: normalizeClientLiveTaskIds(req.body.clientLiveTaskIds || req.body.clientLiveTaskId) },
+  });
+  const requestId = await submitHiggsfieldImage(job.modelId, req.body, job.taskId, { signal: context.signal });
+  const taskId = buildImageTaskToken(route.id, requestId);
+  await registerPendingTask(taskId, { routeId: route.id, accountId: billingAccount.accountId, chargeId: charge?.chargeId || null });
+  return { task_id: taskId, status: "queued" };
+};
 const executeLegacyImageHandler = async (job, body, context) => {
   const handlers = { "/api/generate": legacyImageGenerateHandler, "/api/edit": legacyImageEditHandler, "/api/gemini/generate": legacyGeminiGenerateHandler, "/api/upscale": upscaleImageHandler };
   const req = makeWorkerRequest(body, context);
+  if (isHiggsfieldImageModel(job.modelId)) return executeHiggsfieldImage(job, req, context);
   let result, statusCode = 200;
   const capture = {
     headersSent: false,
@@ -6096,12 +6135,15 @@ const imageJobService = createImageJobService({
     getHealth: () => imageJobAssets.getHealth(),
   }, logger,
   extractResultUrls: extractResultUrlsFromPayload,
+  forceKeepAsset: job => isHiggsfieldImageModel(job.modelId),
   execute: executeLegacyImageHandler,
-  poll: (job, context) => pollImageTaskAndSettle({
-    encodedTask: job.innerTaskId,
-    fallbackAuthorization: context.headers?.authorization || "",
-    req: makeWorkerRequest({}, context), source: "durable_image_job_poll", preferUserProvidedAuth: true,
-  }),
+  poll: (job, context) => isHiggsfieldImageModel(job.modelId)
+    ? pollHiggsfieldImage(parseImageTaskToken(job.innerTaskId)?.upstreamTaskId, { signal: context.signal })
+    : pollImageTaskAndSettle({
+      encodedTask: job.innerTaskId,
+      fallbackAuthorization: context.headers?.authorization || "",
+      req: makeWorkerRequest({}, context), source: "durable_image_job_poll", preferUserProvidedAuth: true,
+    }),
   compensate: async original => {
     const job = await recoverJobCharge(original);
     if (job.innerTaskId) await settlePendingTaskOriginal(job.innerTaskId, "FAILED");
@@ -6129,7 +6171,7 @@ const recoverImageJobsInBackground = (attempt = 0) => {
     timer.unref?.();
   });
 };
-const validateImageJobRequest = async (req, endpoint) => {
+const validateImageJobRequest = async (req, endpoint, selection = null) => {
   const user = await requireAuthUser(req);
   const body = req.body || {};
   if ((!body.prompt || !String(body.prompt).trim()) && Array.isArray(body.contents?.[0]?.parts)) {
@@ -6139,12 +6181,26 @@ const validateImageJobRequest = async (req, endpoint) => {
   if (typeof body.prompt !== "string" || !body.prompt.trim()) throw Object.assign(new Error("请输入图片提示词"), { status: 400 });
   if (body.prompt.length > 32000) throw Object.assign(new Error("图片提示词过长"), { status: 400 });
   if (body.n !== undefined && (!Number.isInteger(Number(body.n)) || Number(body.n) < 1 || Number(body.n) > 12)) throw Object.assign(new Error("图片数量必须介于 1 和 12 之间"), { status: 400 });
-  const model = await resolveRequestedImageModel(body);
-  const requestedRoute = await resolveImageRoute(body.routeId, {
-    routeFamily: model?.routeFamily,
-  });
-  const route = requestedRoute;
+  const model = selection ? selection.model : await resolveRequestedImageModel(body);
+  const route = selection ? selection.route : await resolveImageRoute(body.routeId, { routeFamily: model?.routeFamily });
   if (!route) throw Object.assign(new Error("图片线路不存在或已停用"), { status: 400 });
+  if (isHiggsfieldImageRoute(route) || isHiggsfieldImageModel(model?.id || body.modelId)) {
+    const modelId = route.modelFamily;
+    if (!isHiggsfieldImageRoute(route) || (model && (model.id !== modelId || model.isActive === false))) {
+      throw Object.assign(new Error("所选线路与 Higgsfield 模型不匹配"), { status: 400 });
+    }
+    if (endpoint === "/api/gemini/generate") throw Object.assign(new Error("Higgsfield 不支持 Gemini 原生请求"), { status: 400 });
+    if (!hasHiggsfieldImageKey()) throw Object.assign(new Error("Higgsfield 服务端密钥尚未配置"), { status: 503 });
+    const { input, reference } = buildHiggsfieldImageInput(modelId, body);
+    if (endpoint === "/api/edit" && !reference) throw Object.assign(new Error("图片编辑需要参考图"), { status: 400 });
+    if (reference && !route.editPath) throw Object.assign(new Error("所选线路不支持参考图"), { status: 400 });
+    await requireBillingAccount(req);
+    Object.assign(body, {
+      modelId, routeId: route.id, model: route.upstreamModel, image_size: input.resolution,
+      aspect_ratio: input.aspect_ratio, n: input.batch_size, storageMode: "stable",
+    });
+    return user;
+  }
   getGptImageAnimationFields(route, body);
   if (isMidjourneyImageRoute(route)) {
     if (endpoint === '/api/edit') throw Object.assign(new Error('Midjourney 参考图请使用生成接口，不支持局部编辑'), { status: 400 });
@@ -6171,8 +6227,15 @@ const imageRouteAdapter = (endpoint, legacy) => async (req, res) => {
   if (!hasPrompt && !hasNativePrompt) {
     return res.status(400).json({ error: '请输入图片提示词', code: 'IMAGE_PROMPT_REQUIRED' });
   }
-  if (req.body?.asyncTask !== true) return legacy(req, res);
   try {
+    let selection = null;
+    if (req.body.asyncTask !== true) {
+      const model = await resolveRequestedImageModel(req.body);
+      const route = await resolveImageRoute(req.body.routeId, { routeFamily: model?.routeFamily });
+      if (!isHiggsfieldImageRoute(route) && !isHiggsfieldImageModel(model?.id || req.body.modelId)) return legacy(req, res);
+      selection = { model, route };
+      req.body.clientRequestId ||= req.body.client_request_id || crypto.randomUUID();
+    }
     // Preserve the legacy key-only route contract; durable recovery belongs to a logged-in owner.
     if (!req.authUser) {
       const requestedImageModel = await resolveRequestedImageModel(req.body);
@@ -6184,13 +6247,13 @@ const imageRouteAdapter = (endpoint, legacy) => async (req, res) => {
         return legacy(req, res);
       }
     }
-    const user = await validateImageJobRequest(req, endpoint);
+    const user = await validateImageJobRequest(req, endpoint, selection);
     await ensureImageJobsStarted();
     const acknowledgement = await imageJobService.submit({ userId: user.userId, endpoint, body: req.body, identity: user, headers: req.headers });
     return res.status(202).json(acknowledgement);
   } catch (error) {
     if (sendAuthError(res, error)) return;
-    if ([400,409,413,429].includes(error.status)) return res.status(error.status).json({ error: error.message, ...(error.code ? { code: error.code } : {}) });
+    if ([400,409,413,429,503].includes(error.status)) return res.status(error.status).json({ error: error.message, ...(error.code ? { code: error.code } : {}) });
     return respondWithUserFacingGenerationError(res, error, 500);
   }
 };

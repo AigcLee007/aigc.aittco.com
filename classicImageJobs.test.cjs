@@ -206,6 +206,17 @@ test('VIP confirmed backend failure still finishes the card as failed', async ()
   await h.pending.shift()();
   assert.equal(h.failed[0][1], 'upstream504');
 });
+test('VIP settles all four gallery cards and progress slots on a grouped failure', async () => {
+  const h = pollHarness(async () => ({ status: 'failed', error: 'provider rejected the request' }));
+  const ids = ['live-a', 'live-b', 'live-c', 'live-d'];
+  h.scope.canUpdateMainUi = (_token, tracked) => tracked;
+  h.scope.activeTasksCount = ids.length;
+  h.scope.handleSingleError = () => { h.scope.activeTasksCount--; };
+  await h.scope.pollSingleTask('job-many', '', '1080P', 1, { liveTaskIds: ids, expectedCount: ids.length, trackUi: true });
+  await h.pending.shift()();
+  assert.equal(h.scope.activeTasksCount, 0);
+  assert.deepEqual(h.failed.map(([id]) => id), ids);
+});
 test('VIP completed generation with failed storage is distinct from a failed generation', async () => {
   const h = pollHarness(async () => ({ status: 'succeeded', images: [], storage_status: 'failed' }));
   await h.scope.pollSingleTask('job-test', '', '1K', 1);

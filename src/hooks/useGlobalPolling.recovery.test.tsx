@@ -56,6 +56,18 @@ it('backfills saved model and route names even when the retained preview already
   mount();
   await waitFor(() => expect(mocks.nodes[0].generationInfo).toMatchObject({ modelName: '历史模型', routeLabel: '历史线路', recordId: 'record-old' }));
 });
+
+it('recovers the original result slot after an earlier placeholder was deleted', async () => {
+  mocks.nodes = [{ id: 'remaining-node', type: 'IMAGE', loading: false, generationOwnerId: 'owner', taskId: 'job-old' }];
+  vi.mocked(fetch).mockResolvedValue({ ok: true, json: async () => ({ jobs: [{
+    task_id: 'job-old', status: 'succeeded', model: 'higgsfield-ai/soul/cinema',
+    clientLiveTaskIds: ['deleted-node', 'remaining-node'],
+    results: ['/first.png', '/second.png'], storage_status: 'saved',
+  }] }) } as Response);
+  mount();
+  await waitFor(() => expect(mocks.nodes[0].src).toBe('/second.png'));
+  expect(mocks.nodes[0].generationResultIndex).toBe(1);
+});
 it('keeps a locally edited image when its original generation is still in the recovery list', async () => {
   mocks.nodes[0].assetId = 'local-background-removed';
   mocks.nodes[0].src = '';

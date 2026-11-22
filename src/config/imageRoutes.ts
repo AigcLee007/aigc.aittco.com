@@ -2,9 +2,9 @@ import imageRouteCatalog from '../../config/imageRoutes.json';
 import { getImageModelById, getImageModelRequestName } from './imageModels';
 import { roundNonNegativePoint } from '../utils/pointFormat';
 
-export type ImageRouteTransport = 'openai-image' | 'gemini-native';
+export type ImageRouteTransport = 'openai-image' | 'gemini-native' | 'higgsfield-image';
 export type ImageRouteMode = 'async' | 'sync';
-export type ImageRouteSizeKey = '1k' | '2k' | '4k';
+export type ImageRouteSizeKey = '1k' | '2k' | '4k' | '720p' | '1080p';
 export type ImageRouteQuality = 'auto' | 'low' | 'medium' | 'high' | 'xhigh' | 'max' | '0.25' | '0.5' | '1' | '2';
 
 export const DEFAULT_IMAGE_ROUTE_QUALITIES: ImageRouteQuality[] = [
@@ -91,7 +91,7 @@ const normalizeSupportedQualities = (value: unknown): ImageRouteQuality[] => {
 
 const normalizeSizeKey = (value?: string): ImageRouteSizeKey | '' => {
   const normalized = String(value || '').trim().toLowerCase();
-  return ['1k', '2k', '4k'].includes(normalized) ? (normalized as ImageRouteSizeKey) : '';
+  return ['1k', '2k', '4k', '720p', '1080p'].includes(normalized) ? (normalized as ImageRouteSizeKey) : '';
 };
 
 const normalizeSizeOverrides = (

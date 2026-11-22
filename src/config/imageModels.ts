@@ -240,6 +240,14 @@ export const shouldShowImageSizeSelector = (modelId?: string) =>
 export const getImageModelExtraAspectRatios = (modelId?: string) =>
   getImageModelById(modelId).extraAspectRatios || [];
 
+export const getHiggsfieldImageOptions = (modelId?: string) => {
+  if (modelId !== 'higgsfield-soul-2' && modelId !== 'higgsfield-soul-cinema') return null;
+  return {
+    aspectRatios: getImageModelExtraAspectRatios(modelId),
+    maxReferences: modelId === 'higgsfield-soul-2' ? 1 : 0,
+  };
+};
+
 export const getImageModelRequestName = (modelId?: string) => {
   const model = getImageModelById(modelId);
   return model.requestModel || model.id;

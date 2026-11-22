@@ -457,6 +457,7 @@ const RouteAdminPanel: React.FC<RouteAdminPanelProps> = ({ session }) => {
               >
                 <option value="openai-image">openai-image</option>
                 <option value="gemini-native">gemini-native</option>
+                <option value="higgsfield-image">higgsfield-image</option>
               </select>
               <select
                 value={form.mode}

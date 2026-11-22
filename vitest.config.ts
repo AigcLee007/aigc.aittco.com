@@ -34,6 +34,8 @@ export default defineConfig({
       'imageJobService.test.cjs',
       'server.image-jobs.test.cjs',
       'server.image-route-size-keys.test.cjs',
+      'higgsfieldImageApi.test.cjs',
+      'server.higgsfield.test.cjs',
       'server.upscale.test.cjs',
       'upscaleService.test.cjs',
       'server.native-image-results.test.cjs',

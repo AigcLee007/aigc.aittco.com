@@ -11,6 +11,7 @@ import {
   getDefaultImageSizeForModel,
   getImageModelById,
   getImageModelExtraAspectRatios,
+  getHiggsfieldImageOptions,
   getImageModelOptions,
   getImageModelSizeOptions,
   getNormalizedImageSizeForModel,
@@ -228,11 +229,13 @@ export const ImageFormConfig: React.FC<ImageFormConfigProps> = ({
     if (isMidjourney && !MIDJOURNEY_ASPECT_RATIOS.includes(aspectRatio)) setAspectRatio('1:1');
   }, [isMidjourney, aspectRatio, setAspectRatio]);
 
+  const isHiggsfield = getHiggsfieldImageOptions(currentModel.id) !== null;
   const ratioOptions = useMemo(() => {
     const extraRatios = getImageModelExtraAspectRatios(currentModel.id).map((value) => ({
       label: value,
       value,
     }));
+    if (isHiggsfield) return extraRatios;
     const includeCustom = currentModel.supportsCustomRatio !== false;
     const merged = includeCustom
       ? [...BASE_RATIO_OPTIONS, ...extraRatios]
@@ -246,7 +249,13 @@ export const ImageFormConfig: React.FC<ImageFormConfigProps> = ({
         merged.findIndex((item) => item.value === option.value) === index &&
         (!isMidjourney || MIDJOURNEY_ASPECT_RATIOS.includes(option.value)),
     );
-  }, [currentModel.id, currentModel.supportsCustomRatio, isMidjourney]);
+  }, [currentModel.id, currentModel.supportsCustomRatio, isMidjourney, isHiggsfield]);
+
+  useEffect(() => {
+    if (!isHiggsfield) return;
+    if (!ratioOptions.some(option => option.value === aspectRatio)) setAspectRatio('1:1');
+    if (quantity !== 1 && quantity !== 4) setQuantity(1);
+  }, [isHiggsfield, ratioOptions, aspectRatio, quantity, setAspectRatio, setQuantity]);
 
   const gridClass =
     currentModel.panelLayout === 'nano-banana'
@@ -375,13 +384,7 @@ export const ImageFormConfig: React.FC<ImageFormConfigProps> = ({
           <DropUpSelect
             value={String(quantity)}
             onChange={(value) => setQuantity(parseInt(value, 10))}
-            options={[
-              { value: '1', label: '1' },
-              { value: '2', label: '2' },
-              { value: '4', label: '4' },
-              { value: '8', label: '8' },
-              { value: '16', label: '16' },
-            ]}
+            options={(isHiggsfield ? ['1', '4'] : ['1', '2', '4', '8', '16']).map(value => ({ value, label: value }))}
           />
         </div>
       </div>

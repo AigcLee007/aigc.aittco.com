@@ -652,7 +652,7 @@
   });
   const normalizeSizeKey = (value) => {
     const normalized = String(value || "").trim().toLowerCase();
-    return ["1k", "2k", "4k"].includes(normalized) ? normalized : "";
+    return ["1k", "2k", "4k", "720p", "1080p"].includes(normalized) ? normalized : "";
   };
   const normalizeSizeOverrides = (overrides) => {
     const next = {};
@@ -1295,26 +1295,36 @@
     const pill = document.getElementById("ratioPill");
     if (!pill) return;
     const model = getCurrentModel();
+    const higgsfield = getCurrentRoute()?.transport === "higgsfield-image";
     const extraRatios = new Set((model?.extraAspectRatios || []).map((item) => String(item || "").trim()));
-    pill.querySelectorAll(".gemini-only-ratio").forEach((option) => {
-      const ratio = String(option.getAttribute("data-value") || "").trim();
-      option.style.display = extraRatios.has(ratio) ? "flex" : "none";
-    });
     const midjourney = /^midjourney-/i.test(String(model?.id || ''));
     const mjRatios = ['1:1', '3:2', '2:3', '4:3', '3:4', '5:4', '4:5', '16:9', '9:16', '21:9'];
-    pill.querySelectorAll('.dropdown-item').forEach(option => {
-      const ratio = String(option.getAttribute('data-value') || '');
-      if (midjourney) option.style.display = mjRatios.includes(ratio) ? 'flex' : 'none';
-      else if (!option.classList.contains('gemini-only-ratio')) option.style.display = '';
+    pill.querySelectorAll(".dropdown-item").forEach((option) => {
+      const ratio = String(option.getAttribute("data-value") || "").trim();
+      const visible = midjourney ? mjRatios.includes(ratio)
+        : !(higgsfield || option.classList.contains("gemini-only-ratio")) || extraRatios.has(ratio);
+      option.style.display = visible ? "" : "none";
     });
 
     const currentRatio = String(pill.getAttribute("data-selected-value") || "16:9").trim();
     const currentOption = pill.querySelector(`.dropdown-item[data-value="${currentRatio}"]`);
     if (currentOption && currentOption.style.display === "none") {
-      const defaultOption = pill.querySelector('.dropdown-item[data-value="16:9"]');
+      const defaultOption = pill.querySelector(higgsfield ? '.dropdown-item[data-value="1:1"]' : '.dropdown-item[data-value="16:9"]');
       if (defaultOption) {
         selectPill("ratioPill", defaultOption);
       }
+    }
+  };
+  const updateHiggsfieldQuantity = () => {
+    const pill = document.getElementById("qtyPill");
+    const higgsfield = getCurrentRoute()?.transport === "higgsfield-image";
+    if (!pill) return;
+    pill.querySelectorAll(".dropdown-item").forEach(option => {
+      option.style.display = !higgsfield || ["1", "4"].includes(option.dataset.value) ? "" : "none";
+    });
+    if (higgsfield && !["1", "4"].includes(pill.dataset.selectedValue)) {
+      const option = pill.querySelector('.dropdown-item[data-value="1"]');
+      if (option) selectPill("qtyPill", option);
     }
   };
   const updateBrandHeader = () => {
@@ -1567,6 +1577,7 @@
       if (quantityLabel) quantityLabel.textContent = isMidjourney ? `${count} 组（${count * 4} 张）` : `${count} 张`;
     }
     updateRatioAvailabilityForModel();
+    updateHiggsfieldQuantity();
     updateBrandHeader();
     updateLegacyAdminVisibility();
     if (typeof window.updateClassicRefUploadHint === "function") {
@@ -2809,14 +2820,16 @@
       const directKeyForTask = shouldUseDirectApiKeyForRoute(route, key) ? key : "";
       const liveTaskId = liveTaskForSlot(0);
       if (typeof window.promoteClassicLiveTask === "function") {
-        window.promoteClassicLiveTask(liveTaskId || taskId, taskId, {
+        const ids = liveTaskIds.length ? liveTaskIds : [taskId];
+        ids.forEach((id, outputIndex) => window.promoteClassicLiveTask(id, taskId, {
           prompt: promptSnapshot,
           size,
           modelLabel: options.modelLabel || "",
           routeLabel: options.routeLabel || "",
           status: "running",
+          outputIndex,
           connectionMessage: data.connection_status ? '连接中断，正在核对任务' : '',
-        });
+        }));
       }
       savePendingTask(
         taskId,
@@ -2896,10 +2909,11 @@
         routeLabel: options.routeLabel || "",
       });
     };
-    const failLiveTask = (message) => {
+    const expectedCount = Math.max(1, Number(options.expectedCount || 1));
+    const failLiveTask = (message, fromSlot = 0) => {
       if (typeof window.failClassicLiveTask !== "function") return;
       const ids = liveTaskIds.length > 0 ? liveTaskIds : [taskId];
-      ids.forEach((liveId) => {
+      ids.slice(fromSlot).forEach((liveId) => {
         window.failClassicLiveTask(liveId, message, {
           taskId,
           prompt: promptSnapshot,
@@ -2927,7 +2941,7 @@
       removePendingTaskFromGallery(normalizedTaskId);
       failLiveTask(message);
       if (canUpdateMainUi(options.runToken, trackUi)) {
-        handleSingleError(message, size);
+        for (let slot = 0; slot < expectedCount; slot++) handleSingleError(message, size);
       }
     };
     const scheduleNextPoll = () => {
@@ -2998,6 +3012,13 @@
               void saveToHistory(imageUrl, promptSnapshot, previewUrl, metadata);
             }
           });
+          if (imageUrls.length < expectedCount) {
+            const message = "任务未返回全部图片";
+            failLiveTask(message, imageUrls.length);
+            if (canUpdateMainUi(options.runToken, trackUi)) {
+              for (let slot = imageUrls.length; slot < expectedCount; slot++) handleSingleError(message, size);
+            }
+          }
           if (isHistoryCurrent() && isManagedJob && String(rawJson.storage_status || '').toLowerCase() === 'pending' && typeof scheduleClassicAssetFinalization === 'function') {
             scheduleClassicAssetFinalization(resultTaskId, { ownerId: window.classicImageJobOwner || '', session: sessionAtStart,
               liveTaskIds, prompt: promptSnapshot, size, modelLabel: options.modelLabel, routeLabel: options.routeLabel, completedAt: rawJson.completed_at, createdAt: rawJson.created_at });
@@ -3253,6 +3274,44 @@
           promptSnapshot: promptBaseText, modelLabel, routeLabel, onSubmitSettled: markSubmitSettled,
         });
       }
+      return;
+    }
+
+    if (selectedRoute.transport === "higgsfield-image") {
+      const referenceLimit = selectedModel.id === "higgsfield-soul-2" ? 1 : 0;
+      if (normalizedRefImages.length > referenceLimit) {
+        showSoftToast(referenceLimit ? "Higgsfield Soul 2.0 每次仅支持一张参考图" : "请移除参考图后使用 Higgsfield Soul Cinema");
+        activeTasksCount = 0;
+        clearInterval(progressInterval);
+        if (bar) bar.style.display = "none";
+        releaseSubmitButton("");
+        return;
+      }
+      const liveTaskIds = Array.from({ length: batchSize }, (_, index) => createLiveTask(index + 1)).filter(Boolean);
+      const editing = normalizedRefImages.length > 0;
+      submitSingleTask({
+        model: requestModel,
+        modelId: selectedModel.id,
+        routeId: selectedRoute.id,
+        prompt: promptWithoutAr,
+        aspect_ratio: ratio,
+        image_size: normalizedRequestSize,
+        n: batchSize,
+        ...(editing ? { images: normalizedRefImages } : {}),
+      }, key, size, 1, {
+        route: selectedRoute,
+        modelId: selectedModel.id,
+        model: requestModel,
+        endpoint: editing ? "/api/edit" : CONFIG.submitUrl,
+        expectedCount: batchSize,
+        liveTaskIds,
+        runToken,
+        trackUi: true,
+        promptSnapshot: promptBaseText,
+        modelLabel,
+        routeLabel,
+        onSubmitSettled: createSubmitSettledTracker(1),
+      });
       return;
     }
 

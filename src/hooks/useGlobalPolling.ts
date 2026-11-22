@@ -150,7 +150,8 @@ export const useGlobalPolling = (
             if (node.loading || node.generationConnectionStatus === 'recovering' || node.generationConnectionStatus === 'unconfirmed' || (node.generationConnectionStatus === 'result-unavailable' && job.images?.length)) state.updateNode(node.id, { taskId, loading: true, error: false }, true);
             // Persistence removes oversized/malformed sources. Recover only the
             // original result identity; an edited local image keeps its own asset.
-            const originalAssetId = imageResultStore.resultId(owner, taskId, node.generationResultIndex || 0);
+            const liveSlot = liveIds.indexOf(node.id);
+            const originalAssetId = imageResultStore.resultId(owner, taskId, node.generationResultIndex ?? Math.max(0, liveSlot));
             const displaysOriginal = node.src ? !node.generationResultSrc || node.src === node.generationResultSrc
               : !node.assetId || node.assetId === originalAssetId;
             const generationInfo = sanitizeGenerationInfo(job.generationInfo);
@@ -161,8 +162,8 @@ export const useGlobalPolling = (
             if (!node.loading && !node.error && displaysOriginal && ['succeeded', 'success'].includes(String(job.status).toLowerCase())) {
               const urls = job.results || job.images || job.data?.map((item: any) => item.url) || [];
               const siblings = matches.filter(item => !item.loading && !item.error);
-              const resolvedSlot = node.generationResultIndex ?? (String(job.model || '').toLowerCase().startsWith('grok') && siblings.length === 1
-                ? urls.length - 1 : siblings.findIndex(item => item.id === node.id));
+              const singleGrok = String(job.model || '').toLowerCase().startsWith('grok') && siblings.length === 1;
+              const resolvedSlot = node.generationResultIndex ?? (singleGrok ? urls.length - 1 : liveSlot >= 0 ? liveSlot : siblings.findIndex(item => item.id === node.id));
               const slot=Math.min(Math.max(resolvedSlot,0),urls.length-1);
               const url = urls[slot];
               state.updateNode(node.id, {
@@ -356,11 +357,17 @@ export const useGlobalPolling = (
 
         if (data.isSuccess && !processedState.success && data.urls.length > 0) {
           processedTasksRef.current.set(processedKey, { ...processedState, success: true });
-          const nodeIndex = targetNodes.findIndex((n) => n.id === node.id);
+          const liveIds = data.raw?.clientLiveTaskIds || data.raw?.client_live_task_ids;
+          const liveSlot = Array.isArray(liveIds) ? liveIds.indexOf(node.id) : -1;
+          const nodeIndex = liveSlot >= 0 ? liveSlot : targetNodes.findIndex((n) => n.id === node.id);
           const urlIndex = Math.min(Math.max(nodeIndex, 0), data.urls.length - 1);
           const responseModel = String(
             data.raw?.properties?.model || data.raw?.model || '',
           ).toLowerCase();
+          if (responseModel.startsWith('higgsfield-ai/') && nodeIndex >= data.urls.length) {
+            onUpdateGeneration(node.id, null, 'Higgsfield 未返回此位置的图片');
+            return;
+          }
           const isSingleNodeGrok =
             targetNodes.length === 1 && responseModel.startsWith('grok') && data.urls.length > 1;
           const selectedUrl = isSingleNodeGrok

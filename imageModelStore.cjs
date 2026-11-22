@@ -257,6 +257,16 @@ const ensureImageModelSchema = async () => {
             if (row) await insertImageModelRow(connection, row, nowDb, { ignoreConflict: true });
           },
         });
+        for (const modelId of ["higgsfield-soul-2", "higgsfield-soul-cinema"]) {
+          await initializeCatalogOnce(connection, {
+            catalogName: `image-models-${modelId}`,
+            countSql: `SELECT COUNT(*) AS total FROM image_models WHERE model_id = '${modelId}'`,
+            seed: async () => {
+              const row = getStaticModelDefaults(modelId);
+              if (row) await insertImageModelRow(connection, row, nowDb, { ignoreConflict: true });
+            },
+          });
+        }
       });
     })();
   }

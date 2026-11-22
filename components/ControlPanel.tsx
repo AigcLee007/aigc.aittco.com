@@ -33,6 +33,7 @@ import {
 import {
   getImageModelById,
   getImageModelEffectiveRequestSize,
+  getHiggsfieldImageOptions,
   isGptImageCompatibleModel,
   isMidjourneyImageModel,
   getImageModelMaxReferenceImages,
@@ -180,6 +181,8 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
       : null;
   const selectedImageRoute = getSelectedImageRoute(imageModel, imageLine);
   const selectedImageModelConfig = getImageModelById(imageModel);
+  const higgsfieldOptions = getHiggsfieldImageOptions(selectedImageModelConfig.id);
+  const imageReferenceLimit = higgsfieldOptions?.maxReferences ?? getImageModelMaxReferenceImages(selectedImageModelConfig.id);
   const selectedVideoRoute = getSelectedVideoRoute(videoModel, videoLine);
   const selectedVideoModelConfig = getVideoModelById(videoModel);
   const isGrokVideoModel = videoModel === 'grok-imagine-video-1.5';
@@ -492,7 +495,7 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
         : (videoModel === 'omni_flash-10s' && videoGenerationMode === 'first_last'
           ? 2
           : getVideoModelMaxReferenceImages(selectedVideoModelConfig.id)))
-      : getImageModelMaxReferenceImages(selectedImageModelConfig.id);
+      : imageReferenceLimit;
     
     // DEBUG ALERT
     // alert(`[Debug] Drop: Max=${max}, Current=${referenceImages.length}, IsVideo=${isVideoMode}, Model=${videoModel}`);
@@ -563,7 +566,7 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
           : (videoModel === 'omni_flash-10s' && videoGenerationMode === 'first_last'
             ? 2
             : getVideoModelMaxReferenceImages(selectedVideoModelConfig.id)))
-        : getImageModelMaxReferenceImages(selectedImageModelConfig.id);
+        : imageReferenceLimit;
       const remainingSlots = max - referenceImages.length;
 
       if (remainingSlots <= 0) {
@@ -791,6 +794,7 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
       }
       effectiveRatio = customRatio;
     }
+    if (higgsfieldOptions && !higgsfieldOptions.aspectRatios.includes(effectiveRatio)) effectiveRatio = '1:1';
 
     // Auto-append ratio argument to prompt for model compatibility (double safety)
     const LINE2_SUPPORTED_RATIOS = ['1:1', '4:3', '3:4', '16:9', '9:16', '3:2', '2:3', '21:9'];
@@ -928,6 +932,41 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
     };
 
 
+
+    if (higgsfieldOptions) {
+      if (effectiveReferenceImages.length > higgsfieldOptions.maxReferences) {
+        setError(higgsfieldOptions.maxReferences ? 'Higgsfield Soul 2.0 每次仅支持一张参考图' : '请移除参考图后使用 Higgsfield Soul Cinema');
+        return;
+      }
+      const reference = effectiveReferenceImages[0];
+      const dataUrl = reference ? await referenceToDataUrl(reference) : null;
+      if (reference && !dataUrl) {
+        setError('参考图读取失败，请重试');
+        return;
+      }
+      const count = quantity === 4 ? 4 : 1;
+      const placeholderIds = onInitGenerations(count, promptWithoutAr, effectiveRatio);
+      const payload = {
+        model: modelName,
+        modelId: selectedImageModelConfig.id,
+        routeId: selectedImageRoute.id,
+        prompt: promptWithoutAr,
+        image_size: getEffectiveSize(),
+        aspect_ratio: effectiveRatio,
+        n: count,
+        clientLiveTaskIds: placeholderIds,
+      };
+      try {
+        const result = dataUrl
+          ? await editImageApi(apiKey, { ...payload, images: [dataUrl] })
+          : await generateImageApi(apiKey, payload);
+        placeholderIds.forEach((id) => onUpdateGeneration(id, null, result.taskId ? undefined : GENERATION_FALLBACK_MESSAGE, result.taskId));
+      } catch (error) {
+        const message = toDisplayGenerationError(error);
+        placeholderIds.forEach((id) => onUpdateGeneration(id, null, message));
+      }
+      return;
+    }
 
     if (effectiveImg2ImgMode && selectedNodes.length > 0) {
       for (const node of selectedNodes) {
@@ -1587,7 +1626,7 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
   ];
   const maxReferenceImages = isVideoMode
     ? ((videoModel === 'omni_flash-10s' && videoGenerationMode === 'first_last') ? 2 : getVideoModelMaxReferenceImages(selectedVideoModelConfig.id))
-    : getImageModelMaxReferenceImages(selectedImageModelConfig.id);
+    : imageReferenceLimit;
   const maxReferenceVideos = isVideoMode
     ? getVideoModelMaxReferenceVideos(selectedVideoModelConfig.id)
     : 0;
@@ -1821,7 +1860,7 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
             <>
           {/* Reference image area (shared by image/video mode) */}
               <div id="reference-drop-zone" 
-                   className={`${isVideoMode && videoModel === 'grok-imagine-video-1.5' && !['image', 'reference'].includes(videoGenerationMode) ? 'hidden ' : ''}border border-dashed border-gray-600 rounded-lg p-3 bg-gray-800/30 relative`}
+                   className={`${(isVideoMode && videoModel === 'grok-imagine-video-1.5' && !['image', 'reference'].includes(videoGenerationMode)) || (!isVideoMode && imageReferenceLimit === 0 && referenceImages.length === 0) ? 'hidden ' : ''}border border-dashed border-gray-600 rounded-lg p-3 bg-gray-800/30 relative`}
                    onDrop={handlePanelDrop} 
                    onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
                    // onClick={() => alert(`[Click Debug] Max=${isVideoMode ? (VIDEO_LOSS_CONFIG[videoModel as any]?.max) : 10}, Current=${referenceImages.length}`)}

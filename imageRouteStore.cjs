@@ -11,7 +11,7 @@ const {
   withTransaction,
 } = require("./db.cjs");
 
-const VALID_TRANSPORTS = new Set(["openai-image", "gemini-native"]);
+const VALID_TRANSPORTS = new Set(["openai-image", "gemini-native", "higgsfield-image"]);
 const VALID_MODES = new Set(["async", "sync"]);
 const DEFAULT_SUPPORTED_QUALITIES = ["auto", "low", "medium", "high", "xhigh", "max"];
 const VALID_SUPPORTED_QUALITIES = new Set([...DEFAULT_SUPPORTED_QUALITIES, '0.25', '0.5', '1', '2']);
@@ -69,7 +69,7 @@ const stringifySupportedQualities = (value) =>
 const trimTrailingSlash = (value = "") => trimToString(value).replace(/\/+$/, "");
 const normalizeSizeKey = (value = "") => {
   const normalized = trimToString(value).toLowerCase();
-  return ["1k", "2k", "4k"].includes(normalized) ? normalized : "";
+  return ["1k", "2k", "4k", "720p", "1080p"].includes(normalized) ? normalized : "";
 };
 const normalizeSizeOverrides = (value) => {
   let source = value;
@@ -810,6 +810,12 @@ const validateResolvedRouteConfig = (payload) => {
         "Gemini native routes must define upstreamModel, configure size override models, or enable useRequestModel",
       );
     }
+  }
+
+  if (transport === "higgsfield-image" && (
+    mode !== "async" || !["higgsfield-soul-2", "higgsfield-soul-cinema"].includes(payload.model_family)
+  )) {
+    throw new Error("Higgsfield image routes require an asynchronous Soul model");
   }
 
   if (allowUserApiKeyWithoutLogin && (transport !== "openai-image" || mode !== "async")) {
