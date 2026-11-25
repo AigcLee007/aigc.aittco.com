@@ -31,7 +31,7 @@ const validateRouteConfig = (catalog) => {
 };
 
 const getRequiredApiKeyEnvNames = (catalog) => [...new Set(
-  catalog.routes.flatMap((route) => [
+  catalog.routes.filter((route) => route.isActive !== false).flatMap((route) => [
     route.apiKeyEnv,
     ...Object.values(route.sizeOverrides || {}).map((override) => override?.apiKeyEnv),
   ]).map((name) => String(name || "").trim()).filter(Boolean),

@@ -20,6 +20,10 @@ test('Midjourney async groups return four outputs and settle each route at its o
       return res.end(JSON.stringify({ task_id: `mj-${calls.length}`, status: 'SUBMITTED' }));
     }
     assert.match(req.url, /^\/v1\/images\/midjourney\/tasks\/mj-\d+$/);
+    if (req.url.endsWith('/mj-0')) {
+      assert.equal(req.headers.authorization, 'Bearer key-midjourney-v8.2-osodm-tehui');
+      return res.end(JSON.stringify({ status: 'SUCCESS', result: { data: imageUrls.map(url => ({ url })) } }));
+    }
     const submission = calls[Number(req.url.split('-').at(-1)) - 1];
     assert.equal(req.headers.authorization, submission.authorization);
     const count = (taskPolls.get(req.url) || 0) + 1; taskPolls.set(req.url, count);
@@ -33,8 +37,9 @@ test('Midjourney async groups return four outputs and settle each route at its o
     .map(route => ({ ...route, baseUrl: `http://127.0.0.1:${upstream.address().port}`, apiKey: `key-${route.id}` }));
   const route = routes.find(route => route.isDefaultRoute);
   const stableRouteId = 'midjourney-v8.2-osodm-wending';
+  const discountRouteId = 'midjourney-v8.2-osodm-tehui';
   const routeStore = require('./imageRouteStore.cjs');
-  routeStore.getImageRouteById = async id => routes.find(route => route.id === id) || null;
+  routeStore.getImageRouteById = async (id, { includeInactive = true } = {}) => routes.find(route => route.id === id && (includeInactive || route.isActive !== false)) || null;
   routeStore.getImageRouteCatalog = async () => ({ defaultRouteId: route.id, routes });
   const records = new Map(), recordStore = require('./generationRecordStore.cjs');
   recordStore.createGenerationRecord = async value => { const record = { ...value, id: `record-${records.size}` }; records.set(record.id, record); return record; };
@@ -72,34 +77,35 @@ test('Midjourney async groups return four outputs and settle each route at its o
     }
     assert.equal((await billing.getAccountByUserId(registration.user.userId)).points, expected);
   };
-  for (const [size, quality] of [['1k', '0.25'], ['2k', '2']]) await t.test(`${size}/${quality}`, async () => {
-    const response = await request('/api/generate', payload(size, { size, quality, image: 'data:image/png;base64,YQ==' }));
-    assert.equal(response.status, 202); const receipt = await response.json();
-    const result = await poll(receipt.task_id);
-    assert.equal(result.status, 'succeeded', JSON.stringify(result));
-    assert.deepEqual(result.images, imageUrls); assert.equal(JSON.stringify(result).includes('grid.png'), false);
-    assert.equal(calls.at(-1).path, '/v1/images/midjourney/generations');
-    assert.deepEqual(calls.at(-1).body, { model: 'Midjourney v8.2-特惠', prompt: 'a pavilion', size: '16:9', n: 1, hd: size === '2k', quality, stream: false, response_format: 'url', image: 'data:image/png;base64,YQ==' });
-    assert.equal((await billing.getAccountByUserId(registration.user.userId)).points, size === '1k' ? 92 : 84);
-  });
-  await t.test('the stable route uses mj-v8.2 and its own key, returning four images for 16 points', async () => {
-    const response = await request('/api/generate', payload('stable', { routeId: stableRouteId, size: '2k' }));
-    assert.equal(response.status, 202);
-    const result = await poll((await response.json()).task_id);
-    assert.equal(result.status, 'succeeded', JSON.stringify(result));
-    assert.deepEqual(result.images, imageUrls);
-    assert.equal(calls.at(-1).body.model, 'mj-v8.2');
-    assert.equal(calls.at(-1).body.hd, true);
-    assert.equal(calls.at(-1).authorization, `Bearer key-${stableRouteId}`);
-    await waitForPoints(68);
+  await t.test('two stable groups use the full-series v8.2 contract and charge 32 points', async () => {
+    for (const group of [1, 2]) {
+      const response = await request('/api/generate', payload('group-' + group, { image: 'data:image/png;base64,YQ==' }));
+      assert.equal(response.status, 202);
+      const result = await poll((await response.json()).task_id);
+      assert.equal(result.status, 'succeeded', JSON.stringify(result));
+      assert.deepEqual(result.images, imageUrls);
+      assert.equal(JSON.stringify(result).includes('grid.png'), false);
+      assert.equal(calls.at(-1).path, '/v1/images/midjourney/generations');
+      assert.equal(calls.at(-1).authorization, 'Bearer key-' + stableRouteId);
+      assert.deepEqual(calls.at(-1).body, { model: 'Midjourney-全系列', version: '8.2', prompt: 'a pavilion', size: '16:9', n: 1, stream: false, response_format: 'url', image: 'data:image/png;base64,YQ==' });
+      await waitForPoints(100 - group * 16);
+    }
   });
   await t.test('invalid requests do not call the provider or deduct points', async () => {
-    for (const patch of [{ n: 4 }, { size: '4k' }, { quality: 'max' }, { aspect_ratio: '9:21' }, { images: ['https://a.test/1', 'https://a.test/2'] }]) {
+    for (const patch of [{ n: 4 }, { size: '4k' }, { size: '2k' }, { routeId: discountRouteId }, { quality: 'max' }, { aspect_ratio: '9:21' }, { images: ['https://a.test/1', 'https://a.test/2'] }]) {
       const response = await request('/api/generate', payload(`invalid-${JSON.stringify(patch)}`, patch));
       assert.equal(response.status, 400);
     }
     assert.equal((await request('/api/edit', payload('invalid-edit', { image: 'data:image/png;base64,YQ==' }))).status, 400);
-    assert.equal(calls.length, 3); assert.equal((await billing.getAccountByUserId(registration.user.userId)).points, 68);
+    assert.equal(calls.length, 2); assert.equal((await billing.getAccountByUserId(registration.user.userId)).points, 68);
+  });
+  await t.test('an already-submitted task keeps polling through its retired discount route', async () => {
+    const taskToken = Buffer.from(JSON.stringify({ routeId: discountRouteId, upstreamTaskId: 'mj-0' })).toString('base64url');
+    const response = await request('/api/task/' + taskToken);
+    assert.equal(response.status, 200);
+    assert.deepEqual((await response.json()).data.map(item => item.url), imageUrls);
+    assert.equal(calls.length, 2);
+    await waitForPoints(68);
   });
   await t.test('provider failure refunds the entire 16-point stable group', async () => {
     providerFailure = true;

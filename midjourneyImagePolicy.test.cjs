@@ -6,22 +6,16 @@ describe('OSODM Midjourney image contract', () => {
     assert.equal(isMidjourneyImageRoute({ modelFamily: 'midjourney-v8.2-tehui' }), true);
     assert.equal(isMidjourneyImageRoute({ modelFamily: 'gpt-image-2' }), false);
   });
-  it('maps the requested size to hd while sending the ratio and a fixed n=1', () => {
-    assert.deepEqual(normalizeMidjourneyImageRequest({ prompt: 'a pavilion', size: '2k', aspect_ratio: '16:9', quality: '2', n: 1, image: 'data:image/png;base64,YQ==', routeId: 'private' }), {
-      model: 'Midjourney v8.2-特惠', prompt: 'a pavilion', size: '16:9', hd: true,
-      quality: '2', n: 1, stream: false, response_format: 'url', image: 'data:image/png;base64,YQ==',
+  it('uses the full-series v8.2 contract, mapping the ratio and retaining one reference', () => {
+    assert.deepEqual(normalizeMidjourneyImageRequest({ prompt: 'a pavilion', size: '1k', aspect_ratio: '16:9', quality: '1', hd: false, n: 1, image: 'data:image/png;base64,YQ==' }), {
+      model: 'Midjourney-全系列', version: '8.2', prompt: 'a pavilion', size: '16:9',
+      n: 1, stream: false, response_format: 'url', image: 'data:image/png;base64,YQ==',
     });
-    assert.equal(normalizeMidjourneyImageRequest({ prompt: 'x', size: '1k', aspect_ratio: '4:5' }).hd, false);
-    assert.equal(normalizeMidjourneyImageRequest({ prompt: 'x', size: '1:1' }).quality, '1');
   });
   it('rejects unsupported count, ratios, size, quality, mask and reference count', () => {
-    for (const patch of [{ n: 4 }, { aspect_ratio: '9:21' }, { size: '4k' }, { quality: 'max' }, { mask: 'mask' }, { images: ['https://a.test/1.png', 'https://a.test/2.png'] }]) {
+    for (const patch of [{ n: 4 }, { aspect_ratio: '9:21' }, { size: '4k' }, { size: '2k' }, { hd: true }, { quality: 'max' }, { mask: 'mask' }, { images: ['https://a.test/1.png', 'https://a.test/2.png'] }]) {
       assert.throws(() => normalizeMidjourneyImageRequest({ prompt: 'x', ...patch }), error => error.status === 400);
     }
-  });
-  it('uses the configured upstream model for stable generation', () => {
-    const body = { prompt: 'a pavilion', model: 'Midjourney v8.2-特惠' };
-    assert.equal(normalizeMidjourneyImageRequest(body, { upstreamModel: 'mj-v8.2' }).model, 'mj-v8.2');
   });
   it('returns all four result.data images and excludes the composite preview', () => {
     const data = Array.from({ length: 4 }, (_, i) => ({ url: `https://images.test/${i}.png` }));

@@ -45,8 +45,8 @@ const {
   buildHiggsfieldImageInput, submitHiggsfieldImage, pollHiggsfieldImage,
 } = require("./higgsfieldImageApi.cjs");
 const { isGptImageAnimationRoute, getGptImageAnimationFields, normalizeAnimationSize } = require("./gptImageAnimationPolicy.cjs");
-const { isMidjourneyImageRoute, normalizeMidjourneyImageRequest, normalizeMidjourneyImageTask } = require("./midjourneyImagePolicy.cjs");
-const { activateMidjourney, syncConfiguredStableMidjourneyRoute } = require("./scripts/activate-midjourney-v82-tehui.cjs");
+const { MODEL_ID: MIDJOURNEY_MODEL_ID, DISCOUNT_ROUTE_ID, isMidjourneyImageRoute, normalizeMidjourneyImageRequest, normalizeMidjourneyImageTask } = require("./midjourneyImagePolicy.cjs");
+const { activateMidjourney } = require("./scripts/activate-midjourney-v82-tehui.cjs");
 const { parseGeminiPromptOptions, parseGeminiReversePrompt } = require("./promptToolResponse.cjs");
 
 const localEnvPath = path.join(__dirname, ".env");
@@ -232,6 +232,7 @@ const trimTrailingSlash = (value = "") => String(value).replace(/\/+$/, "");
 const resolveImageRoute = async (routeId, { includeInactive = false, routeFamily = "" } = {}) => {
   const routeIdValue = String(routeId || "").trim();
   if (routeIdValue) {
+    if (!includeInactive && routeIdValue === DISCOUNT_ROUTE_ID) return null;
     const exactRoute = await getImageRouteById(routeIdValue, {
       includeInactive,
       includeSecrets: true,
@@ -245,7 +246,7 @@ const resolveImageRoute = async (routeId, { includeInactive = false, routeFamily
 
   const catalog = await getImageRouteCatalog({ includeInactive });
   const fallbackRoute = selectDefaultImageRoute({
-    routes: catalog.routes || [],
+    routes: (catalog.routes || []).filter(route => includeInactive || route.id !== DISCOUNT_ROUTE_ID),
     defaultRouteId: catalog.defaultRouteId,
     routeFamily,
   });
@@ -253,7 +254,7 @@ const resolveImageRoute = async (routeId, { includeInactive = false, routeFamily
     return null;
   }
 
-  if (isHiggsfieldImageModel(routeFamily) && fallbackRoute.modelFamily !== routeFamily) return null;
+  if ((isHiggsfieldImageModel(routeFamily) || routeFamily === MIDJOURNEY_MODEL_ID) && fallbackRoute.modelFamily !== routeFamily) return null;
 
   return getImageRouteById(fallbackRoute.id, {
     includeInactive,
@@ -656,6 +657,9 @@ const resolveRequestedImageModel = async (requestBody = {}) => {
   const modelId = String(requestBody?.modelId || "").trim();
   if (modelId) {
     return getImageModelById(modelId, { includeInactive: true });
+  }
+  if (['Midjourney v8.2-特惠', 'mj-v8.2'].includes(requestBody?.model)) {
+    return getImageModelById(MIDJOURNEY_MODEL_ID, { includeInactive: true });
   }
   return getImageModelByRequestModel(requestBody?.model, { includeInactive: true });
 };
@@ -4079,7 +4083,7 @@ const legacyImageGenerateHandler = async (req, res) => {
       }
     }
 
-    if (isMidjourneyImageRoute(route)) finalRequestBody = normalizeMidjourneyImageRequest(requestBody, route);
+    if (isMidjourneyImageRoute(route)) finalRequestBody = normalizeMidjourneyImageRequest(requestBody);
     if (isGptImageAnimationRoute(route)) {
       Object.assign(finalRequestBody, getGptImageAnimationFields(route, requestBody));
       finalRequestBody.size = normalizeAnimationSize(finalRequestBody.size);
@@ -6204,7 +6208,7 @@ const validateImageJobRequest = async (req, endpoint, selection = null) => {
   getGptImageAnimationFields(route, body);
   if (isMidjourneyImageRoute(route)) {
     if (endpoint === '/api/edit') throw Object.assign(new Error('Midjourney 参考图请使用生成接口，不支持局部编辑'), { status: 400 });
-    normalizeMidjourneyImageRequest(body, route);
+    normalizeMidjourneyImageRequest(body);
   }
   if (endpoint === '/api/edit' && !route.editPath && route.transport !== 'openai-image') throw Object.assign(new Error('所选线路不支持图片编辑'), { status: 400 });
   if (endpoint === "/api/gemini/generate" && !isGeminiNativeRoute(route)) throw Object.assign(new Error("Gemini 图片线路不支持当前请求"), { status: 400 });
@@ -7362,33 +7366,35 @@ app.get("/{*splat}", (req, res) => {
 });
 
 if (require.main === module) {
-  const { syncConfiguredMochiaiRoute, syncConfiguredAnimationRoute } = require("./scripts/activate-gpt-image-2-6-sunburst.cjs");
-  void operationsDashboard.start();
-  recoverImageJobsInBackground();
-  void syncConfiguredMochiaiRoute()
-    .then(result => {
-      if (result) console.log(`[Catalog] MochiAI GPT Image 2.6 sync: ${JSON.stringify(result)}`);
-    })
-    .catch(error => console.error(`[Catalog] MochiAI GPT Image 2.6 sync failed: ${error.message}`))
-    .then(syncConfiguredAnimationRoute)
-    .then(result => {
-      if (result) console.log(`[Catalog] GPT Image 2.6 animation sync: ${JSON.stringify(result)}`);
-    })
-    .catch(error => console.error(`[Catalog] GPT Image 2.6 animation sync failed: ${error.message}`));
-  void activateMidjourney({ apply: true })
-    .then(result => console.log(`[Catalog] Midjourney v8.2-特惠 sync: ${JSON.stringify(result)}`))
-    .catch(error => console.error(`[Catalog] Midjourney v8.2-特惠 sync failed: ${error.message}`))
-    .then(syncConfiguredStableMidjourneyRoute)
-    .then(result => {
-      if (result) console.log(`[Catalog] Midjourney v8.2 stable sync: ${JSON.stringify(result)}`);
-    })
-    .catch(error => console.error(`[Catalog] Midjourney v8.2 stable sync failed: ${error.message}`));
-  app.listen(PORT, () => {
-    console.log(`Backend server running on http://localhost:${PORT}`);
-    console.log(`   Upstream API: ${UPSTREAM_URL}`);
-    startBackgroundTaskSettlement();
-    startBillingMaintenance(logger);
-    startGenerationRecordMaintenance(logger);
+  const startServer = async () => {
+    if (operationsDb.isMySqlConfigured()) {
+      const result = await activateMidjourney({ apply: true });
+      console.log("[Catalog] Midjourney sync:", result);
+    }
+    const { syncConfiguredMochiaiRoute, syncConfiguredAnimationRoute } = require("./scripts/activate-gpt-image-2-6-sunburst.cjs");
+    void operationsDashboard.start();
+    recoverImageJobsInBackground();
+    void syncConfiguredMochiaiRoute()
+      .then(result => {
+        if (result) console.log(`[Catalog] MochiAI GPT Image 2.6 sync: ${JSON.stringify(result)}`);
+      })
+      .catch(error => console.error(`[Catalog] MochiAI GPT Image 2.6 sync failed: ${error.message}`))
+      .then(syncConfiguredAnimationRoute)
+      .then(result => {
+        if (result) console.log(`[Catalog] GPT Image 2.6 animation sync: ${JSON.stringify(result)}`);
+      })
+      .catch(error => console.error(`[Catalog] GPT Image 2.6 animation sync failed: ${error.message}`));
+    app.listen(PORT, () => {
+      console.log(`Backend server running on http://localhost:${PORT}`);
+      console.log(`   Upstream API: ${UPSTREAM_URL}`);
+      startBackgroundTaskSettlement();
+      startBillingMaintenance(logger);
+      startGenerationRecordMaintenance(logger);
+    });
+  };
+  void startServer().catch(error => {
+    console.error("[Catalog] Midjourney startup migration failed:", error.message);
+    process.exit(1);
   });
 }
 

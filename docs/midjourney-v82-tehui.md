@@ -1,46 +1,22 @@
 # Midjourney v8.2
 
-模型 ID 为 `midjourney-v8.2-tehui`。默认特惠线路的 ID 为 `midjourney-v8.2-osodm-tehui`。
+站内模型 ID 为 `midjourney-v8.2-tehui`。新任务使用默认稳定线路 `midjourney-v8.2-osodm-wending`。`midjourney-v8.2-osodm-tehui` 已停用，保留旧线路记录和 Key 供已提交任务查询。
 
-- 上游模型：`Midjourney v8.2-特惠`，域名 `https://api.osodm.com`。
-- 异步提交：`POST /v1/images/midjourney/generations`。
-- 查询：`GET /v1/images/midjourney/tasks/{taskId}`，与提交使用同一个 Key。
-- 计费：每组四张，每张 2 金币，每组 8 金币；标准、2K、各档质量统一价格。
-- 数量选择器表示组数：1 组为 4 张/8 金币，2 组为 8 张/16 金币。
-- 质量为字符串 `0.25`、`0.5`、`1`、`2`，默认 `1`。1K 选项对应上游默认标准档；2K 对应 `hd=true`。
-- 十种比例：1:1、3:2、2:3、4:3、3:4、5:4、4:5、16:9、9:16、21:9。
-- 最多一张参考图，支持 URL 或图片 data URL。通过生成接口传参考图，不加入局部编辑模型列表。
-- 上游 `n` 固定为 1；读取全部四张结果，排除四宫格预览，失败任务沿用原有退款流程。
+- 上游使用 `Midjourney-全系列`，请求传 `version: "8.2"` 和 `n: 1`。
+- 提交使用 `POST /v1/images/midjourney/generations`，轮询使用 `GET /v1/images/midjourney/tasks/{taskId}`，同一任务沿用提交时的线路 Key。
+- 每组出四张图，售价 16 金币。两组发起两次提交，出八张图，共 32 金币。失败继续走站内退款流程。
+- 工作台提供标准画质、十种画面比例和一张可选参考图。2K 和旧质量档位待上游确认后开放。
 
-稳定线路的 ID 为 `midjourney-v8.2-osodm-wending`，上游模型为 `mj-v8.2`。复用上面的异步提交和查询接口及站内生成选项，价格为每张 4 金币、每组 16 金币。[OSODM 稳定版文档](https://api.osodm.com/docs/model/mj-v8.2)
+[上游接口文档](https://api.osodm.com/docs/model/Midjourney-%E5%85%A8%E7%B3%BB%E5%88%97)
 
 ## 部署
 
-在服务器 `.env` 设置 `Midjourney-v8.2-osodm-tehui`。上游要求该 API Key 属于 **Midjourney 分组**。
+现有稳定线路继续使用 `Midjourney-v8.2-osodm-wending` 所配置的 Midjourney 分组 Key。部署后应用启动时会同步 MySQL 目录。同步只修改 Midjourney 模型和两条线路，保留已有 Key、旧任务和历史账单。
 
-按现有流程更新构建并重建 app 容器后，已有数据库执行增量导入：
+如需手动查看迁移状态，在新版本容器运行以下命令。加 `--apply` 可重复执行同步。
 
 ```sh
 docker compose exec -T app node scripts/activate-midjourney-v82-tehui.cjs
-docker compose exec -T app node scripts/activate-midjourney-v82-tehui.cjs --apply
 ```
 
-第一条预览，第二条执行。脚本可重复执行，只新增缺失模型和线路，不覆盖管理员已设置的价格、密钥与启停状态。空数据库首次初始化会读取静态目录。
-
-启用稳定线路时，在服务器 `.env` 设置 `Midjourney-v8.2-osodm-wending` 并重建 app 容器，应用启动时会自动补录。也可手动补录：
-
-```sh
-docker compose exec -T app node scripts/activate-midjourney-v82-tehui.cjs --stable --apply
-```
-
-## 验证
-
-```sh
-npx vitest run midjourneyImagePolicy.test.cjs src/config/midjourney.test.ts components/ImageFormConfig.test.tsx scripts/activate-midjourney-v82-tehui.test.cjs --maxWorkers=1
-node --test server.midjourney.node.cjs productionImageRouteConfig.test.cjs
-npm run build
-```
-
-HTTP 测试使用本地模拟上游，覆盖四张结果、2K、质量、单张参考图、每组扣费、失败退款与非法请求拦截，不调用真实付费接口。
-
-来源：[上游文档](https://api.osodm.com/docs/model/Midjourney%20v8.2-%E7%89%B9%E6%83%A0)，2026-11-05 读取。
+上线核对线路目录只显示稳定线路且价格为 16 金币，再通过站内测试账户验证一组生成和扣费。

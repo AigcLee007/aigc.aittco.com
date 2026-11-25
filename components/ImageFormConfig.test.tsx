@@ -19,14 +19,15 @@ describe('ImageFormConfig transfer controls', () => {
     expect(screen.queryByText('图片格式')).toBeNull();
     expect(screen.queryByLabelText('GIF 帧数')).toBeNull();
   });
-  it('shows four-image groups and defaults Midjourney quality to 1', () => {
+  it('migrates a saved discount selection and quotes 16 coins per four-image group', () => {
     useSelectionStore.setState({ imageModel: 'midjourney-v8.2-tehui', imageLine: '特惠线路', quantity: 2, gptImageQuality: 'auto' });
     render(<ImageFormConfig />);
-    expect(useSelectionStore.getState().gptImageQuality).toBe('1');
+    expect(useSelectionStore.getState().imageLine).toBe('稳定线路');
+    expect(screen.queryByText('线路')).toBeNull();
     expect(screen.getByText('组数')).toBeTruthy();
     expect(screen.getByText(/2 组.*8 张/)).toBeTruthy();
-    expect(screen.getByText(/每张 2.*每组 4 张.*8/)).toBeTruthy();
-    expect(screen.getByText('16.0')).toBeTruthy();
+    expect(screen.getByText(/每张 4.*每组 4 张.*16/)).toBeTruthy();
+    expect(screen.getByText('32.0')).toBeTruthy();
   });
   it.each(['auto', 'xhigh', 'max'] as const)('resets unsupported %s quality to medium on the 2.6 route', (quality) => {
     useSelectionStore.setState({ imageModel: 'gpt-image-2.6-sunburst', imageLine: '原生线路', gptImageQuality: quality });

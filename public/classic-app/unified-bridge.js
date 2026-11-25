@@ -3260,12 +3260,10 @@
       const markSubmitSettled = createSubmitSettledTracker(batchSize);
       for (let group = 0; group < batchSize; group++) {
         const liveTaskIds = Array.from({ length: 4 }, (_, slot) => createLiveTask(group * 4 + slot + 1)).filter(Boolean);
-        const quality = getClassicGptSettings().quality;
         submitSingleTask({
           modelId: selectedModel.id, routeId: selectedRoute.id, model: requestModel,
           uiMode: 'classic', prompt: currentPrompt, size: normalizedRequestSize,
           image_size: normalizedRequestSize, aspect_ratio: ratio, n: 1,
-          quality: ['0.25', '0.5', '1', '2'].includes(quality) ? quality : '1',
           clientLiveTaskIds: liveTaskIds,
           ...(normalizedRefImages.length ? { image: normalizedRefImages[0] } : {}),
         }, key, size, group + 1, {

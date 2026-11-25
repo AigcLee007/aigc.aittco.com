@@ -19,7 +19,8 @@
       "supportedQualities": ["0.25", "0.5", "1", "2"],
       "resultKind": "url",
       "sortOrder": 0,
-      "isDefaultRoute": true
+      "isActive": false,
+      "isDefaultRoute": false
     },
     {
       "id": "midjourney-v8.2-osodm-wending",
@@ -32,13 +33,13 @@
       "baseUrl": "https://api.osodm.com",
       "generatePath": "/v1/images/midjourney/generations",
       "taskPath": "/v1/images/midjourney/tasks/{taskId}",
-      "upstreamModel": "mj-v8.2",
+      "upstreamModel": "Midjourney-全系列",
       "apiKeyEnv": "Midjourney-v8.2-osodm-wending",
       "pointCost": 16,
-      "supportedQualities": ["0.25", "0.5", "1", "2"],
+      "supportedQualities": ["auto"],
       "resultKind": "url",
       "sortOrder": 1,
-      "isDefaultRoute": false
+      "isDefaultRoute": true
     },
     {
       "id": "gpt-image-2.6-sunburst-native",
