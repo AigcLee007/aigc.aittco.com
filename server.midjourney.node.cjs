@@ -77,9 +77,14 @@ test('Midjourney async groups return four outputs and settle each route at its o
     }
     assert.equal((await billing.getAccountByUserId(registration.user.userId)).points, expected);
   };
-  await t.test('two stable groups use the full-series v8.2 contract and charge 32 points', async () => {
-    for (const group of [1, 2]) {
-      const response = await request('/api/generate', payload('group-' + group, { image: 'data:image/png;base64,YQ==' }));
+  await t.test('one and five ordered references both return four images and charge 16 points', async () => {
+    const references = [
+      { image: 'data:image/png;base64,YQ==' },
+      { images: ['https://a.test/3.png', 'data:image/png;base64,Yg==', 'https://a.test/1.png', 'https://a.test/3.png', 'data:image/jpeg;base64,Yw=='] },
+    ];
+    for (const [index, reference] of references.entries()) {
+      const group = index + 1;
+      const response = await request('/api/generate', payload('group-' + group, reference));
       assert.equal(response.status, 202);
       const result = await poll((await response.json()).task_id);
       assert.equal(result.status, 'succeeded', JSON.stringify(result));
@@ -87,12 +92,12 @@ test('Midjourney async groups return four outputs and settle each route at its o
       assert.equal(JSON.stringify(result).includes('grid.png'), false);
       assert.equal(calls.at(-1).path, '/v1/images/midjourney/generations');
       assert.equal(calls.at(-1).authorization, 'Bearer key-' + stableRouteId);
-      assert.deepEqual(calls.at(-1).body, { model: 'Midjourney-全系列', version: '8.2', prompt: 'a pavilion', size: '16:9', n: 1, stream: false, response_format: 'url', image: 'data:image/png;base64,YQ==' });
+      assert.deepEqual(calls.at(-1).body, { model: 'Midjourney-全系列', version: '8.2', prompt: 'a pavilion', size: '16:9', n: 1, stream: false, response_format: 'url', ...reference });
       await waitForPoints(100 - group * 16);
     }
   });
   await t.test('invalid requests do not call the provider or deduct points', async () => {
-    for (const patch of [{ n: 4 }, { size: '4k' }, { size: '2k' }, { routeId: discountRouteId }, { quality: 'max' }, { aspect_ratio: '9:21' }, { images: ['https://a.test/1', 'https://a.test/2'] }]) {
+    for (const patch of [{ n: 4 }, { size: '4k' }, { size: '2k' }, { routeId: discountRouteId }, { quality: 'max' }, { aspect_ratio: '9:21' }, { images: Array(6).fill('https://a.test/1') }]) {
       const response = await request('/api/generate', payload(`invalid-${JSON.stringify(patch)}`, patch));
       assert.equal(response.status, 400);
     }

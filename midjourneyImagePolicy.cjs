@@ -1,5 +1,6 @@
 const MODEL_ID = 'midjourney-v8.2-tehui';
 const UPSTREAM_MODEL = 'Midjourney-全系列';
+const MAX_REFERENCE_IMAGES = 5;
 const RATIOS = ['1:1', '3:2', '2:3', '4:3', '3:4', '5:4', '4:5', '16:9', '9:16', '21:9'];
 const QUALITIES = ['0.25', '0.5', '1', '2'];
 const invalid = message => { throw Object.assign(new Error(message), { status: 400 }); };
@@ -15,13 +16,17 @@ const normalizeMidjourneyImageRequest = (body = {}) => {
   const quality = String(body.quality ?? 'auto').trim();
   if (quality !== 'auto' && !QUALITIES.includes(quality)) invalid('Midjourney 不支持所选画质');
   if (body.hd !== undefined && body.hd !== false) invalid('Midjourney 当前仅支持标准画质');
-  const images = [...new Set([...(Array.isArray(body.images) ? body.images : []), ...(Array.isArray(body.image) ? body.image : body.image ? [body.image] : [])].filter(Boolean))];
-  if (images.length > 1) invalid('Midjourney 最多支持一张参考图');
-  if (images.some(image => typeof image !== 'string' || !/^(https?:\/\/|data:image\/)/i.test(image))) invalid('Midjourney 参考图须为公网 URL 或图片 data URL');
+  if (body.images != null && !Array.isArray(body.images)) invalid('Midjourney 的 images 参数须为图片数组');
+  const singleOrArray = Array.isArray(body.image) ? body.image : body.image == null || body.image === '' ? [] : [body.image];
+  const images = body.images?.length ? body.images : singleOrArray;
+  if (images.length > MAX_REFERENCE_IMAGES) invalid('Midjourney 最多支持 5 张参考图');
+  if (images.some(image => typeof image !== 'string' || !/^(https?:\/\/[^\s]+$|data:image\/[a-z\d.+-]+;base64,[a-z\d+/]+={0,2}$)/i.test(image))) {
+    invalid('Midjourney 参考图须为公网 URL 或 Base64 图片 data URL');
+  }
   return {
     model: UPSTREAM_MODEL, prompt: body.prompt, size: ratio, n: 1, version: '8.2',
     response_format: 'url', stream: false,
-    ...(images.length ? { image: images[0] } : {}),
+    ...(images.length > 1 ? { images } : images.length === 1 ? { image: images[0] } : {}),
   };
 };
 

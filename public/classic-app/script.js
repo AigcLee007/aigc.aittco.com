@@ -1467,7 +1467,7 @@ function getCurrentRefImageLimit(modelId = imageModel) {
   const selected = getClassicSelectedModelId(modelId);
   if (selected === "higgsfield-soul-2") return 1;
   if (selected === "higgsfield-soul-cinema") return 0;
-  return isClassicMidjourneyModel(modelId) ? 1 : isClassicGptImageModel(modelId) ? GPT_MAX_REF_IMAGES : DEFAULT_MAX_REF_IMAGES;
+  return isClassicMidjourneyModel(modelId) ? 5 : isClassicGptImageModel(modelId) ? GPT_MAX_REF_IMAGES : DEFAULT_MAX_REF_IMAGES;
 }
 
 function readClassicGptOutputCompression() {
@@ -2754,22 +2754,8 @@ document.getElementById("apiKey").addEventListener("input", (e) => {
     ? status.classList.add("active")
     : status.classList.remove("active");
 
-  // --- [新增] 管理员权限识别 ---
-  checkAdminStatus(val);
 });
 
-// 管理员 Key
-const ADMIN_KEY = "sk-K9OJf52OughwT8vizrDKJpvMebzutpbKVXxxhYe8EZFF0nm7";
-
-function checkAdminStatus(key) {
-  const adminSection = document.getElementById("adminNoticeSection");
-  if (!adminSection) return;
-  if (key === ADMIN_KEY) {
-    adminSection.style.display = "block";
-  } else {
-    adminSection.style.display = "none";
-  }
-}
 
 function clearPrompt() {
   const promptArea = document.getElementById("prompt");
@@ -2888,7 +2874,6 @@ function saveApiKeyAndBack() {
 
   localStorage.setItem("nb_key", key);
   updateApiStatusUI(true);
-  checkAdminStatus(key);
   switchTab("create");
   showApiGuideModal({
     title: "保存成功",
@@ -5142,7 +5127,6 @@ window.addEventListener("load", () => {
     const keyInput = document.getElementById("apiKey");
     if (keyInput) keyInput.value = savedKey;
     updateApiStatusUI(true);
-    checkAdminStatus(savedKey); // --- [新增] 同步管理员权限识别 ---
   }
 
   // 【修改】手机端默认始终进入“创作”(Create) 页面

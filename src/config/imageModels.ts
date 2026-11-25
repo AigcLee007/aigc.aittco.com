@@ -53,7 +53,7 @@ export const isGptImageCompatibleModel = (value: unknown): boolean => {
 
 export const isMidjourneyImageModel = (value: unknown): boolean => /^midjourney(?:-|\s)/i.test(String(value || '').trim());
 export const MIDJOURNEY_ASPECT_RATIOS = ['1:1', '3:2', '2:3', '4:3', '3:4', '5:4', '4:5', '16:9', '9:16', '21:9'];
-export const getImageModelMaxReferenceImages = (modelId?: string): number => isMidjourneyImageModel(modelId) ? 1 : isGptImageCompatibleModel(modelId) ? 16 : 10;
+export const getImageModelMaxReferenceImages = (modelId?: string): number => isMidjourneyImageModel(modelId) ? 5 : isGptImageCompatibleModel(modelId) ? 16 : 10;
 
 const API_BASE_URL = '/api';
 

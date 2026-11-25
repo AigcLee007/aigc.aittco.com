@@ -184,7 +184,7 @@
     {
       "id": "midjourney-v8.2-tehui",
       "label": "Midjourney v8.2",
-      "description": "每组四张，16 金币／组；支持一张参考图",
+      "description": "每组四张，16 金币／组；支持最多 5 张参考图",
       "modelFamily": "midjourney-v8.2-tehui",
       "routeFamily": "midjourney-v8.2-tehui",
       "requestModel": "Midjourney-全系列",

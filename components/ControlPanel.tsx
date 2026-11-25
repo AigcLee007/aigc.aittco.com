@@ -840,8 +840,8 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
     const isGptImage2RequestModel = (model: string) =>
       isGptImageCompatibleModel(model);
     const isMidjourneyModel = isMidjourneyImageModel(selectedImageModelConfig.id);
-    if (isMidjourneyModel && effectiveReferenceImages.length > 1) {
-      setError('Midjourney 最多支持一张参考图');
+    if (isMidjourneyModel && effectiveReferenceImages.length > imageReferenceLimit) {
+      setError('Midjourney 最多支持 5 张参考图');
       return;
     }
     const isGptImage2Model =
@@ -1010,15 +1010,23 @@ const ControlPanel: React.FC<ControlPanelProps> = React.memo(({ onInitGeneration
     } else {
 
       if (isMidjourneyModel) {
-        const reference = effectiveReferenceImages[0] ? await referenceToDataUrl(effectiveReferenceImages[0]) : null;
-        if (effectiveReferenceImages.length && !reference) { setError('参考图读取失败，请重试'); return; }
+        const references: string[] = [];
+        for (const ref of effectiveReferenceImages) {
+          const source = ref.src && /^https?:\/\//i.test(ref.src) && !ref.blob && !ref.assetId
+            ? ref.src
+            : await referenceToDataUrl(ref);
+          if (!source) { setError('参考图读取失败，请重试'); return; }
+          references.push(source);
+        }
+        const referenceFields = references.length > 1 ? { images: references }
+          : references.length === 1 ? { image: references[0] } : {};
         for (let group = 0; group < quantity; group++) {
           const ids = onInitGenerations(4, currentPrompt, effectiveRatio);
           void generateImageApi(apiKey, {
             model: modelName, modelId: selectedImageModelConfig.id, routeId: selectedImageRoute.id,
             prompt: currentPrompt, size: imageSize, image_size: imageSize, aspect_ratio: effectiveRatio,
             quality: ['0.25', '0.5', '1', '2'].includes(gptImageQuality) ? gptImageQuality : '1',
-            n: 1, clientLiveTaskIds: ids, ...(reference ? { image: reference } : {}),
+            n: 1, clientLiveTaskIds: ids, ...referenceFields,
           }).then((result: any) => {
             if (result.taskId) ids.forEach(id => onUpdateGeneration(id, null, undefined, result.taskId));
             else {

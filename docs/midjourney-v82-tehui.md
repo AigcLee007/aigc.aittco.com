@@ -5,7 +5,7 @@
 - 上游使用 `Midjourney-全系列`，请求传 `version: "8.2"` 和 `n: 1`。
 - 提交使用 `POST /v1/images/midjourney/generations`，轮询使用 `GET /v1/images/midjourney/tasks/{taskId}`，同一任务沿用提交时的线路 Key。
 - 每组出四张图，售价 16 金币。两组发起两次提交，出八张图，共 32 金币。失败继续走站内退款流程。
-- 工作台提供标准画质、十种画面比例和一张可选参考图。2K 和旧质量档位待上游确认后开放。
+- 工作台提供标准画质、十种画面比例和最多 5 张可选参考图。单张通过 `image` 发送，多张按原顺序通过 `images` 发送，支持公网 URL 或 Base64 图片 data URL。2K 和旧质量档位待上游确认后开放。
 
 [上游接口文档](https://api.osodm.com/docs/model/Midjourney-%E5%85%A8%E7%B3%BB%E5%88%97)
 

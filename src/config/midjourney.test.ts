@@ -17,7 +17,7 @@ describe('Midjourney catalog', () => {
     expect(getImageRoutePointCost(stable, '1k')).toBe(16);
     expect(getImageRoutePointCost(stable, '2k')).toBe(16);
     expect(getImageRouteSupportedQualities(stable)).toEqual(['auto']);
-    expect(getImageModelMaxReferenceImages(model.id)).toBe(1);
+    expect(getImageModelMaxReferenceImages(model.id)).toBe(5);
     expect(isMidjourneyImageModel(model.requestModel)).toBe(true);
   });
 });

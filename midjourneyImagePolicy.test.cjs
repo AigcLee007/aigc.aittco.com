@@ -12,8 +12,16 @@ describe('OSODM Midjourney image contract', () => {
       n: 1, stream: false, response_format: 'url', image: 'data:image/png;base64,YQ==',
     });
   });
-  it('rejects unsupported count, ratios, size, quality, mask and reference count', () => {
-    for (const patch of [{ n: 4 }, { aspect_ratio: '9:21' }, { size: '4k' }, { size: '2k' }, { hd: true }, { quality: 'max' }, { mask: 'mask' }, { images: ['https://a.test/1.png', 'https://a.test/2.png'] }]) {
+  it('preserves all five references in order, including repeated URLs', () => {
+    const images = ['https://a.test/1.png', 'data:image/png;base64,YQ==', 'https://a.test/3.png', 'https://a.test/1.png', 'data:image/jpeg;base64,Yg=='];
+    for (const field of [{ images }, { image: images }, { images, image: images[0] }]) {
+      const payload = normalizeMidjourneyImageRequest({ prompt: 'x', ...field });
+      assert.deepEqual(payload.images, images);
+      assert.equal(Object.hasOwn(payload, 'image'), false);
+    }
+  });
+  it('rejects unsupported count, ratios, size, quality, mask and reference values', () => {
+    for (const patch of [{ n: 4 }, { aspect_ratio: '9:21' }, { size: '4k' }, { size: '2k' }, { hd: true }, { quality: 'max' }, { mask: 'mask' }, { images: Array(6).fill('https://a.test/1.png') }, { images: ['https://a.test/1.png', 'YQ=='] }, { images: 'https://a.test/1.png' }]) {
       assert.throws(() => normalizeMidjourneyImageRequest({ prompt: 'x', ...patch }), error => error.status === 400);
     }
   });

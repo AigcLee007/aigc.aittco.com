@@ -1350,10 +1350,6 @@
       badgeEl.style.display = supports4k ? "inline-flex" : "none";
     }
   };
-  const updateLegacyAdminVisibility = () => {
-    const adminSection = document.getElementById("adminNoticeSection");
-    if (adminSection) adminSection.style.display = "none";
-  };
   const syncClassicPriceUi = () => {
     const updatePriceCard =
       typeof window.updateCurrentPriceCard === "function"
@@ -1579,7 +1575,6 @@
     updateRatioAvailabilityForModel();
     updateHiggsfieldQuantity();
     updateBrandHeader();
-    updateLegacyAdminVisibility();
     if (typeof window.updateClassicRefUploadHint === "function") {
       window.updateClassicRefUploadHint();
     }
@@ -2012,9 +2007,6 @@
         submitBtn.innerHTML = originalHtml;
       }
     }
-  };
-  checkAdminStatus = function () {
-    updateLegacyAdminVisibility();
   };
   updateModelUI = function () {
     renderCatalogUi();
@@ -3253,10 +3245,12 @@
     };
 
     if (midjourneyModel) {
-      if (normalizedRefImages.length > 1) {
+      if (normalizedRefImages.length > getCurrentRefImageLimit(selectedModel.id)) {
         activeTasksCount = 0; releaseSubmitButton();
-        showSoftToast('Midjourney 最多支持一张参考图'); return;
+        showSoftToast('Midjourney 最多支持 5 张参考图'); return;
       }
+      const referenceFields = normalizedRefImages.length > 1 ? { images: normalizedRefImages }
+        : normalizedRefImages.length === 1 ? { image: normalizedRefImages[0] } : {};
       const markSubmitSettled = createSubmitSettledTracker(batchSize);
       for (let group = 0; group < batchSize; group++) {
         const liveTaskIds = Array.from({ length: 4 }, (_, slot) => createLiveTask(group * 4 + slot + 1)).filter(Boolean);
@@ -3265,7 +3259,7 @@
           uiMode: 'classic', prompt: currentPrompt, size: normalizedRequestSize,
           image_size: normalizedRequestSize, aspect_ratio: ratio, n: 1,
           clientLiveTaskIds: liveTaskIds,
-          ...(normalizedRefImages.length ? { image: normalizedRefImages[0] } : {}),
+          ...referenceFields,
         }, key, size, group + 1, {
           route: selectedRoute, modelId: selectedModel.id, model: requestModel,
           runToken, trackUi: true, expectedCount: 4, liveTaskId: liveTaskIds[0], liveTaskIds,
@@ -3488,7 +3482,6 @@
 
     renderAuthMode();
     renderAuthState();
-    updateLegacyAdminVisibility();
     setStoredApiKey(getStoredApiKey());
 
     const authInputs = [
