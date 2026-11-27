@@ -46,6 +46,10 @@ const {
 } = require("./higgsfieldImageApi.cjs");
 const { isGptImageAnimationRoute, getGptImageAnimationFields, normalizeAnimationSize } = require("./gptImageAnimationPolicy.cjs");
 const { MODEL_ID: MIDJOURNEY_MODEL_ID, DISCOUNT_ROUTE_ID, isMidjourneyImageRoute, normalizeMidjourneyImageRequest, normalizeMidjourneyImageTask } = require("./midjourneyImagePolicy.cjs");
+const {
+  ROUTE_ID: MOUXIHUB_MIDJOURNEY_ROUTE_ID, isMouxihubMidjourneyRoute, getMidjourneyApiKey,
+  isMidjourneyRouteReady, buildMidjourneyInput, submitMidjourneyImage, pollMidjourneyImage,
+} = require("./mouxihubMidjourneyApi.cjs");
 const { activateMidjourney } = require("./scripts/activate-midjourney-v82-tehui.cjs");
 const { parseGeminiPromptOptions, parseGeminiReversePrompt } = require("./promptToolResponse.cjs");
 
@@ -298,7 +302,7 @@ const normalizeAuthorization = (value) => {
   return `Bearer ${cleaned.replace(/\s+/g, "")}`;
 };
 const allowsDirectUserApiKeyRoute = (route) => {
-  return !isHiggsfieldImageRoute(route) && route?.allowUserApiKeyWithoutLogin === true;
+  return !isHiggsfieldImageRoute(route) && !isMouxihubMidjourneyRoute(route) && route?.allowUserApiKeyWithoutLogin === true;
 };
 const shouldUseUserProvidedApiKey = (route, fallbackAuthorization) =>
   allowsDirectUserApiKeyRoute(route) &&
@@ -379,6 +383,7 @@ const toPublicImageRouteCatalog = (catalog = {}) => ({
   defaultNanoBananaLine: String(catalog.defaultNanoBananaLine || "line1").trim(),
   routes: Array.isArray(catalog.routes) ? catalog.routes
     .filter(route => !isHiggsfieldImageRoute(route) || hasHiggsfieldImageKey())
+    .filter(route => !isMouxihubMidjourneyRoute(route) || isMidjourneyRouteReady(route))
     .map(toPublicImageRoute) : [],
 });
 const toPublicVideoRouteCatalog = (catalog = {}) => ({
@@ -5663,7 +5668,7 @@ const pollImageTaskAndSettle = async ({
   }
 
   const upstreamTaskId = decodedTask?.upstreamTaskId || normalizedTaskId;
-  if (isHiggsfieldImageRoute(route)) {
+  if (isHiggsfieldImageRoute(route) || isMouxihubMidjourneyRoute(route)) {
     throw Object.assign(new Error("Image task not found"), { status: 404 });
   }
   const localJob = getLocalImageJob(upstreamTaskId);
@@ -6103,6 +6108,25 @@ const executeLegacyImageHandler = async (job, body, context) => {
   const handlers = { "/api/generate": legacyImageGenerateHandler, "/api/edit": legacyImageEditHandler, "/api/gemini/generate": legacyGeminiGenerateHandler, "/api/upscale": upscaleImageHandler };
   const req = makeWorkerRequest(body, context);
   if (isHiggsfieldImageModel(job.modelId)) return executeHiggsfieldImage(job, req, context);
+  if (job.routeId === MOUXIHUB_MIDJOURNEY_ROUTE_ID) {
+    const route = await resolveImageRoute(job.routeId);
+    if (!isMouxihubMidjourneyRoute(route) || !isMidjourneyRouteReady(route)) throw new Error("官转特价线路未启用或配置不完整");
+    const { payload, aspectRatio } = buildMidjourneyInput(body);
+    const billingAccount = await requireBillingAccount(req);
+    const charge = await reservePoints(billingAccount.accountId, route.pointCost, {
+      action: "generate", routeId: route.id, mode: route.mode, model: route.upstreamModel, modelId: job.modelId,
+    });
+    const model = await getImageModelById(job.modelId);
+    await buildGenerationRecordPayload({
+      req, billingAccount, actionName: "generate", route, modelId: job.modelId, modelName: model?.label || "Midjourney v8.2",
+      prompt: body.prompt, quantity: 4, aspectRatio, uiMode: body.uiMode,
+      meta: { transport: route.transport, routeMode: route.mode, clientLiveTaskIds: normalizeClientLiveTaskIds(body.clientLiveTaskIds || body.clientLiveTaskId) },
+    });
+    const upstreamId = await submitMidjourneyImage(buildRouteUrl(route, route.generatePath), getMidjourneyApiKey(route), payload, context.signal);
+    const taskId = buildImageTaskToken(route.id, upstreamId);
+    await registerPendingTask(taskId, { routeId: route.id, accountId: billingAccount.accountId, chargeId: charge?.chargeId || null });
+    return { task_id: taskId, status: "queued" };
+  }
   let result, statusCode = 200;
   const capture = {
     headersSent: false,
@@ -6139,15 +6163,25 @@ const imageJobService = createImageJobService({
     getHealth: () => imageJobAssets.getHealth(),
   }, logger,
   extractResultUrls: extractResultUrlsFromPayload,
-  forceKeepAsset: job => isHiggsfieldImageModel(job.modelId),
+  forceKeepAsset: job => isHiggsfieldImageModel(job.modelId) || job.routeId === MOUXIHUB_MIDJOURNEY_ROUTE_ID,
   execute: executeLegacyImageHandler,
-  poll: (job, context) => isHiggsfieldImageModel(job.modelId)
-    ? pollHiggsfieldImage(parseImageTaskToken(job.innerTaskId)?.upstreamTaskId, { signal: context.signal })
-    : pollImageTaskAndSettle({
+  poll: async (job, context) => {
+    if (isHiggsfieldImageModel(job.modelId)) {
+      return pollHiggsfieldImage(parseImageTaskToken(job.innerTaskId)?.upstreamTaskId, { signal: context.signal });
+    }
+    if (job.routeId === MOUXIHUB_MIDJOURNEY_ROUTE_ID) {
+      const task = parseImageTaskToken(job.innerTaskId);
+      const route = task?.routeId === job.routeId && await resolveImageRoute(task.routeId, { includeInactive: true });
+      const key = route && getMidjourneyApiKey(route);
+      if (!key) return { status: "failed", error: "官转特价线路配置已失效" };
+      return pollMidjourneyImage(buildRouteUrl(route, route.taskPath, { taskId: task.upstreamTaskId }), key, context.signal);
+    }
+    return pollImageTaskAndSettle({
       encodedTask: job.innerTaskId,
       fallbackAuthorization: context.headers?.authorization || "",
       req: makeWorkerRequest({}, context), source: "durable_image_job_poll", preferUserProvidedAuth: true,
-    }),
+    });
+  },
   compensate: async original => {
     const job = await recoverJobCharge(original);
     if (job.innerTaskId) await settlePendingTaskOriginal(job.innerTaskId, "FAILED");
@@ -6188,6 +6222,18 @@ const validateImageJobRequest = async (req, endpoint, selection = null) => {
   const model = selection ? selection.model : await resolveRequestedImageModel(body);
   const route = selection ? selection.route : await resolveImageRoute(body.routeId, { routeFamily: model?.routeFamily });
   if (!route) throw Object.assign(new Error("图片线路不存在或已停用"), { status: 400 });
+  if (isMouxihubMidjourneyRoute(route)) {
+    if (route.modelFamily !== MIDJOURNEY_MODEL_ID || model?.isActive === false ||
+      (body.modelId && body.modelId !== MIDJOURNEY_MODEL_ID) || (model && model.id !== MIDJOURNEY_MODEL_ID) ||
+      endpoint !== "/api/generate") {
+      throw Object.assign(new Error("所选线路仅支持 Midjourney 生图请求"), { status: 400 });
+    }
+    if (!isMidjourneyRouteReady(route)) throw Object.assign(new Error("官转特价线路尚未配置上游密钥"), { status: 503 });
+    const { aspectRatio } = buildMidjourneyInput(body);
+    await requireBillingAccount(req);
+    Object.assign(body, { modelId: MIDJOURNEY_MODEL_ID, routeId: route.id, model: route.upstreamModel, aspect_ratio: aspectRatio, n: 1, storageMode: "stable" });
+    return user;
+  }
   if (isHiggsfieldImageRoute(route) || isHiggsfieldImageModel(model?.id || body.modelId)) {
     const modelId = route.modelFamily;
     if (!isHiggsfieldImageRoute(route) || (model && (model.id !== modelId || model.isActive === false))) {
@@ -6236,7 +6282,7 @@ const imageRouteAdapter = (endpoint, legacy) => async (req, res) => {
     if (req.body.asyncTask !== true) {
       const model = await resolveRequestedImageModel(req.body);
       const route = await resolveImageRoute(req.body.routeId, { routeFamily: model?.routeFamily });
-      if (!isHiggsfieldImageRoute(route) && !isHiggsfieldImageModel(model?.id || req.body.modelId)) return legacy(req, res);
+      if (!isHiggsfieldImageRoute(route) && !isHiggsfieldImageModel(model?.id || req.body.modelId) && !isMouxihubMidjourneyRoute(route)) return legacy(req, res);
       selection = { model, route };
       req.body.clientRequestId ||= req.body.client_request_id || crypto.randomUUID();
     }

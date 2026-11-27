@@ -185,7 +185,8 @@ export const ImageFormConfig: React.FC<ImageFormConfigProps> = ({
   useEffect(() => {
     if (availableRoutes.length === 0) return;
     if (availableRoutes.some((route) => route.line === imageLine)) return;
-    const cheapestRoute = getLowestCostImageRouteForModel(currentModel.id, normalizedSize, {
+    const defaultRoute = isMidjourney ? availableRoutes.find(route => route.isDefaultRoute) : null;
+    const cheapestRoute = defaultRoute || getLowestCostImageRouteForModel(currentModel.id, normalizedSize, {
       directKeyOnly: restrictToDirectKeyCompatible,
     });
     setImageLine((cheapestRoute || availableRoutes[0]).line);
@@ -193,6 +194,7 @@ export const ImageFormConfig: React.FC<ImageFormConfigProps> = ({
     availableRoutes,
     currentModel.id,
     imageLine,
+    isMidjourney,
     normalizedSize,
     restrictToDirectKeyCompatible,
     setImageLine,
@@ -210,6 +212,7 @@ export const ImageFormConfig: React.FC<ImageFormConfigProps> = ({
     if (availableRoutes.length === 0) return;
     if (lastAutoPricedModelRef.current === currentModel.id) return;
     lastAutoPricedModelRef.current = currentModel.id;
+    if (isMidjourney) return;
     const cheapestRoute = getLowestCostImageRouteForModel(currentModel.id, normalizedSize, {
       directKeyOnly: restrictToDirectKeyCompatible,
     });
@@ -220,6 +223,7 @@ export const ImageFormConfig: React.FC<ImageFormConfigProps> = ({
     availableRoutes.length,
     currentModel.id,
     imageLine,
+    isMidjourney,
     normalizedSize,
     restrictToDirectKeyCompatible,
     setImageLine,

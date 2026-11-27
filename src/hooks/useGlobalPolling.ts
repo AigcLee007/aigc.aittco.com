@@ -14,6 +14,27 @@ import { recoverCanvasResult } from '../services/canvasResultIdentity';
 import { fetchGenerationRecords } from '../services/generationRecordService';
 import { canvasHistoryPreviewUpdates, isRetainedPreview } from '../services/canvasHistoryPreviews';
 import { canvasGenerationInfoUpdates, sanitizeGenerationInfo } from '../services/imageGenerationInfo';
+import { MOUXIHUB_MIDJOURNEY_ROUTE_ID } from '../config/imageRoutes';
+import { findCanvasFreePositions } from '../utils/canvasPlacement';
+import type { NodeData } from '../../types';
+
+function expandMidjourneyResults(anchor: NodeData, urls: string[], taskId: string) {
+  const state = useCanvasStore.getState();
+  if (!state.nodes.some(node => node.id === anchor.id && node.loading)) return [];
+  const missing = urls.slice(1).map((url, index) => ({ url, slot: index + 1, id: `${anchor.id}-midjourney-${index + 1}` }))
+    .filter(({ id }) => !state.nodes.some(node => node.id === id));
+  if (!missing.length) return [];
+  const { width, height } = anchor;
+  const positions = findCanvasFreePositions(state.nodes, missing.map(() => ({ width, height })), anchor);
+  return missing.map(({ id, slot, url }, index) => {
+    const node: NodeData = {
+      ...anchor, ...positions[index], id, taskId, src: '', assetId: undefined, thumbnailSrc: undefined,
+      generationResultIndex: slot, generationResultSrc: url, history: [], historyIndex: 0,
+    };
+    state.addNode(node, true);
+    return node;
+  });
+}
 
 export const useGlobalPolling = (
   apiKey: string | undefined,
@@ -321,6 +342,14 @@ export const useGlobalPolling = (
 
       const targetNodes = pendingNodes.filter((n) => n.taskId === data.taskId);
       if (!targetNodes.length) return;
+      const liveIds = data.raw?.clientLiveTaskIds || data.raw?.client_live_task_ids;
+      const resolvedTaskId = String(data.raw?.task_id || '');
+      const isMouxihubMidjourney = data.raw?.routeId === MOUXIHUB_MIDJOURNEY_ROUTE_ID;
+      const anchor = targetNodes[0];
+      if (isMouxihubMidjourney && data.isSuccess && data.urls.length > 1 && targetNodes.length === 1 &&
+        !anchor.generationResultIndex && (!liveIds?.length || (liveIds.length === 1 && liveIds[0] === anchor.id))) {
+        targetNodes.push(...expandMidjourneyResults(anchor, data.urls, resolvedTaskId || data.taskId));
+      }
 
       targetNodes.forEach((node) => {
         const generationInfo = sanitizeGenerationInfo(data.raw?.generationInfo);
@@ -330,7 +359,6 @@ export const useGlobalPolling = (
         // A request lookup can finish before its original POST acknowledgement.
         // Promote the durable ID before completion so a late acknowledgement
         // cannot reopen the same completed task under its synthetic alias.
-        const resolvedTaskId = String(data.raw?.task_id || '');
         if ((data.isSuccess || data.isFailed) && resolvedTaskId.startsWith('job-') && node.taskId !== resolvedTaskId) {
           useCanvasStore.getState().updateNode(node.id, { taskId: resolvedTaskId }, true);
         }
@@ -357,15 +385,18 @@ export const useGlobalPolling = (
 
         if (data.isSuccess && !processedState.success && data.urls.length > 0) {
           processedTasksRef.current.set(processedKey, { ...processedState, success: true });
-          const liveIds = data.raw?.clientLiveTaskIds || data.raw?.client_live_task_ids;
           const liveSlot = Array.isArray(liveIds) ? liveIds.indexOf(node.id) : -1;
-          const nodeIndex = liveSlot >= 0 ? liveSlot : targetNodes.findIndex((n) => n.id === node.id);
+          const nodeIndex = node.generationResultIndex ?? (liveSlot >= 0 ? liveSlot : targetNodes.findIndex((n) => n.id === node.id));
           const urlIndex = Math.min(Math.max(nodeIndex, 0), data.urls.length - 1);
           const responseModel = String(
             data.raw?.properties?.model || data.raw?.model || '',
           ).toLowerCase();
           if (responseModel.startsWith('higgsfield-ai/') && nodeIndex >= data.urls.length) {
             onUpdateGeneration(node.id, null, 'Higgsfield 未返回此位置的图片');
+            return;
+          }
+          if (isMouxihubMidjourney && nodeIndex >= data.urls.length) {
+            onUpdateGeneration(node.id, null, '上游未返回这张独立原图');
             return;
           }
           const isSingleNodeGrok =

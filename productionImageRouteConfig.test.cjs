@@ -6,9 +6,9 @@ const catalog = require("./config/production-image-routes.json");
 const runtimeCatalog = require("./config/imageRoutes.json");
 const { getRequiredApiKeyEnvNames, validateRouteConfig } = require("./scripts/replace-production-image-routes.cjs");
 
-test("production config contains 34 unique routes and one default per family", () => {
+test("production config contains 35 unique routes and one default per family", () => {
   validateRouteConfig(catalog);
-  assert.equal(catalog.routes.length, 34);
+  assert.equal(catalog.routes.length, 35);
   assert.equal(new Set(catalog.routes.map((route) => route.modelFamily)).size, 8);
   assert.deepEqual(
     [...new Set(catalog.routes.map((route) => route.modelFamily))].sort(),

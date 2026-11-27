@@ -2,6 +2,8 @@ import imageRouteCatalog from '../../config/imageRoutes.json';
 import { getImageModelById, getImageModelRequestName } from './imageModels';
 import { roundNonNegativePoint } from '../utils/pointFormat';
 
+export const MOUXIHUB_MIDJOURNEY_ROUTE_ID = 'midjourney-v8.2-mouxihub-fast';
+
 export type ImageRouteTransport = 'openai-image' | 'gemini-native' | 'higgsfield-image';
 export type ImageRouteMode = 'async' | 'sync';
 export type ImageRouteSizeKey = '1k' | '2k' | '4k' | '720p' | '1080p';

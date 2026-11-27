@@ -9,6 +9,7 @@ import {
   getImageRouteSupportedQualities,
   getImageModelNameForRoute,
   isGeminiNativeImageRoute,
+  MOUXIHUB_MIDJOURNEY_ROUTE_ID,
   type ImageRouteConfig,
 } from '../config/imageRoutes';
 import { buildGptImagePayload as buildGptRequestPayload, shouldUseVisionaryEditUpload } from '../utils/gptImagePayload';
@@ -111,6 +112,17 @@ export function buildBatchImageRequest(input: BatchImageRequestInput): BatchImag
   }
 
   if (isGeminiNativeImageRoute(input.route)) return buildGeminiRequest(input);
+
+  if (input.route.id === MOUXIHUB_MIDJOURNEY_ROUTE_ID) {
+    return {
+      endpoint: 'generate',
+      payload: {
+        model: modelNameForRequest(input), modelId: input.modelId, routeId: input.route.id,
+        prompt: input.prompt, aspect_ratio: input.aspectRatio, n: 1,
+        ...(input.references.length ? { images: input.references } : {}),
+      },
+    };
+  }
 
   if (input.route.transport === 'higgsfield-image') {
     const editing = input.mode === 'i2i';

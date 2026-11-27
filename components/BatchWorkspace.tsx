@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, Check, Copy, Download, FileSpreadsheet, ImagePlus, LoaderCircle, MapPin, Pause, Play, Plus, RefreshCw, Trash2, X } from 'lucide-react';
 import { ensureImageModelCatalogLoaded, getHiggsfieldImageOptions, getImageModelOptions, getImageModelSizeOptions, getImageModelById } from '../src/config/imageModels';
-import { ensureImageRouteCatalogLoaded, getImageRouteById, getImageRoutesByModelFamily, getImageRoutePointCost } from '../src/config/imageRoutes';
+import { ensureImageRouteCatalogLoaded, getImageRouteById, getImageRoutesByModelFamily, getImageRoutePointCost, MOUXIHUB_MIDJOURNEY_ROUTE_ID } from '../src/config/imageRoutes';
 import { assetStorage } from '../src/services/assetStorage';
 import { parseExcelPreview, parsePromptFile } from '../src/utils/fileParser';
 import type { BatchGenerationRecord, BatchGenerationSettings, BatchInputGroup, BatchMode, BatchTaskStatus } from '../src/services/batchGenerationTypes';
@@ -73,6 +73,7 @@ export const BatchWorkspace: React.FC<{
   const aspectRatios = getHiggsfieldImageOptions(model.id)?.aspectRatios || ['1:1', '16:9', '9:16', '4:3', '3:4', '3:2', '2:3', '21:9'];
   const routes = selected ? controller.getBatchRoutes(selected.mode, selected.settings.modelId, false) : [];
   const route = routes.find((item) => item.id === selected?.settings.routeId) || routes[0];
+  const quantityUnit = route?.id === MOUXIHUB_MIDJOURNEY_ROUTE_ID ? '组' : '张';
   const sizes = selected ? controller.getBatchSizes(selected.settings.modelId, route) : [];
   const inputGroups = selected?.groups || [];
   const taskByGroup = useMemo(() => {
@@ -82,7 +83,7 @@ export const BatchWorkspace: React.FC<{
   }, [selected?.tasks]);
   const activeTasks = selected?.tasks.filter((task) => !['succeeded', 'failed'].includes(task.status)) || [];
   const failedTasks = selected?.tasks.filter((task) => task.status === 'failed') || [];
-  const successful = selected?.tasks.filter((task) => task.status === 'succeeded').length || 0;
+  const successful = selected?.tasks.reduce((count, task) => count + (task.status === 'succeeded' ? task.resultUrls?.length || 1 : 0), 0) || 0;
   const hasCost = Boolean(route && (typeof route.pointCost === 'number' || Object.values(route.sizeOverrides || {}).some((item) => typeof item.pointCost === 'number')));
   const estimatedCost = selected && route && hasCost
     ? getImageRoutePointCost(route, selected.settings.imageSize) * selected.tasks.length
@@ -292,13 +293,13 @@ export const BatchWorkspace: React.FC<{
                   <select aria-label="画幅" value={selected.settings.aspectRatio} disabled={!editable} onChange={(event) => patchSettings({ aspectRatio: event.target.value })} className="h-9 rounded-md border border-white/10 bg-[#18191b] px-2 text-xs">{aspectRatios.map((value) => <option key={value}>{value}</option>)}</select>
                   <select aria-label="输出尺寸" value={selected.settings.imageSize} disabled={!editable} onChange={(event) => patchSettings({ imageSize: event.target.value })} className="h-9 rounded-md border border-white/10 bg-[#18191b] px-2 text-xs">{(sizes.length ? sizes : [selected.settings.imageSize]).map((value) => <option key={value}>{value}</option>)}</select>
                   <select aria-label="并发任务数" value={selected.settings.concurrency} disabled={!editable} onChange={(event) => patchSettings({ concurrency: Number(event.target.value) as 1 | 3 | 6 })} className="h-9 rounded-md border border-white/10 bg-[#18191b] px-2 text-xs">{[1, 3, 6].map((value) => <option key={value} value={value}>并发 {value}</option>)}</select>
-                  <select aria-label="每项默认张数" value={selected.settings.outputCount} disabled={!editable} onChange={(event) => patchSettings({ outputCount: Number(event.target.value) })} className="h-9 rounded-md border border-white/10 bg-[#18191b] px-2 text-xs">{Array.from({ length: MAX_BATCH_OUTPUT_COUNT }, (_, index) => <option key={index + 1} value={index + 1}>{index + 1} 张 / 项</option>)}</select>
+                  <select aria-label={`每项默认${quantityUnit}数`} value={selected.settings.outputCount} disabled={!editable} onChange={(event) => patchSettings({ outputCount: Number(event.target.value) })} className="h-9 rounded-md border border-white/10 bg-[#18191b] px-2 text-xs">{Array.from({ length: MAX_BATCH_OUTPUT_COUNT }, (_, index) => <option key={index + 1} value={index + 1}>{index + 1} {quantityUnit} / 项</option>)}</select>
                   <label className="flex h-9 items-center gap-2 text-xs text-zinc-300"><input type="checkbox" checked={selected.settings.autoDownload} disabled={!editable} onChange={(event) => patchSettings({ autoDownload: event.target.checked })} className="h-4 w-4 accent-emerald-500" />成功后自动下载</label>
                 </div>
               </details>
               <div className="min-h-0 min-w-0 flex-1 overflow-auto">
                 <div className="min-w-0 md:min-w-[700px]">
-                  <div className="hidden grid-cols-[54px_minmax(230px,1fr)_115px_110px_100px] border-b border-white/10 px-4 py-2 text-[11px] font-medium text-zinc-500 md:grid"><span>参与</span><span>{selected.mode === 't2i' ? '提示词 / 参考图' : '任务输入'}</span><span>输出张数</span><span>任务状态</span><span>操作</span></div>
+                  <div className="hidden grid-cols-[54px_minmax(230px,1fr)_115px_110px_100px] border-b border-white/10 px-4 py-2 text-[11px] font-medium text-zinc-500 md:grid"><span>参与</span><span>{selected.mode === 't2i' ? '提示词 / 参考图' : '任务输入'}</span><span>输出{quantityUnit}数</span><span>任务状态</span><span>操作</span></div>
                   {inputGroups.map((group, index) => {
                     const tasks = taskByGroup.get(group.id) || [];
                     const finished = tasks.length > 0 && tasks.every((task) => ['succeeded', 'failed'].includes(task.status));
@@ -309,16 +310,21 @@ export const BatchWorkspace: React.FC<{
                         {group.referenceAssetIds.length > 0 && <div className="flex shrink-0 gap-1">{group.referenceAssetIds.map((id) => <img key={id} src={referencePreviews[id]} className="h-12 w-12 rounded-sm bg-white/5 object-cover" />)}</div>}
                         <textarea value={group.prompt} disabled={!editable} onChange={(event) => patchGroups((groups) => groups.map((item) => item.id === group.id ? { ...item, prompt: event.target.value } : item))} placeholder="输入描述词" rows={2} className="min-h-12 w-full resize-y rounded-md border border-white/10 bg-transparent px-2 py-2 text-xs leading-5 outline-none focus:border-emerald-500/70 disabled:border-transparent disabled:text-zinc-400" />
                       </div>
-                      <select value={group.outputCount} disabled={!editable} onChange={(event) => patchGroups((groups) => groups.map((item) => item.id === group.id ? { ...item, outputCount: Number(event.target.value) } : item))} className="mx-2 mt-1 h-9 rounded-md border border-white/10 bg-[#18191b] px-2 text-xs outline-none disabled:opacity-50">{Array.from({ length: MAX_BATCH_OUTPUT_COUNT }, (_, output) => <option key={output + 1} value={output + 1}>{output + 1} 张</option>)}</select>
+                      <select value={group.outputCount} disabled={!editable} onChange={(event) => patchGroups((groups) => groups.map((item) => item.id === group.id ? { ...item, outputCount: Number(event.target.value) } : item))} className="mx-2 mt-1 h-9 rounded-md border border-white/10 bg-[#18191b] px-2 text-xs outline-none disabled:opacity-50">{Array.from({ length: MAX_BATCH_OUTPUT_COUNT }, (_, output) => <option key={output + 1} value={output + 1}>{output + 1} {quantityUnit}</option>)}</select>
                       <div className={`col-start-2 mt-3 text-xs md:col-auto ${statusColor(summary)}`}>{STATUS_LABEL[summary]}{tasks.length > 1 && <span className="ml-1 text-zinc-600">{tasks.filter((task) => task.status === 'succeeded').length}/{tasks.length}</span>}</div>
                       <div className="col-start-3 row-start-2 mt-1 flex items-center gap-1 md:col-auto md:row-auto">
                         {tasks.find((task) => task.nodeId)?.nodeId && <button onClick={() => onLocateNode(tasks.find((task) => task.nodeId)!.nodeId!)} title="定位画布结果" className="grid h-8 w-8 place-items-center rounded text-zinc-500 hover:bg-white/10 hover:text-white"><MapPin size={15} /></button>}
                         <button onClick={() => patchGroups((groups) => groups.filter((item) => item.id !== group.id))} disabled={!editable} title="移除任务" className="grid h-8 w-8 place-items-center rounded text-zinc-600 hover:bg-rose-500/10 hover:text-rose-300 disabled:opacity-30"><Trash2 size={14} /></button>
                       </div>
-                      {tasks.map((task, taskIndex) => <div key={task.id} className="col-start-2 mt-2 flex min-w-0 items-center gap-2 text-[11px]">
+                      {tasks.map((task, taskIndex) => <div key={task.id} className="col-start-2 mt-2 flex min-w-0 flex-wrap items-center gap-2 text-[11px]">
                         <span className={statusColor(task.status)}>{taskIndex + 1}. {STATUS_LABEL[task.status]}</span>
                         {task.progress !== undefined && !['succeeded', 'failed'].includes(task.status) && <span className="text-zinc-600">{Math.round(task.progress)}%</span>}
-                        {task.resultUrl && <><a href={task.resultUrl} target="_blank" rel="noreferrer" className="flex min-w-0 items-center gap-1 text-emerald-300 hover:text-emerald-200"><Check size={12} />预览</a>{onDownloadResult && <button onClick={() => onDownloadResult(task.resultUrl!, task.prompt, task.nodeId || task.id)} className="flex items-center gap-1 text-zinc-400 hover:text-white"><Download size={12} />下载</button>}</>}
+                        {(task.resultUrls?.length ? task.resultUrls : task.resultUrl ? [task.resultUrl] : []).map((url, slot) => (
+                          <span key={url} className="inline-flex shrink-0 items-center gap-1">
+                            <a href={url} target="_blank" rel="noreferrer" className="flex items-center gap-1 text-emerald-300 hover:text-emerald-200"><Check size={12} />{task.resultUrls?.length ? `图 ${slot + 1}` : '预览'}</a>
+                            {onDownloadResult && <button onClick={() => onDownloadResult(url, task.prompt, `${task.nodeId || task.id}${slot ? `-${slot + 1}` : ''}`)} className="flex items-center gap-1 text-zinc-400 hover:text-white" aria-label={`下载第 ${slot + 1} 张图`}><Download size={12} /></button>}
+                          </span>
+                        ))}
                         {task.nodeId && <button onClick={() => onLocateNode(task.nodeId!)} className="text-zinc-500 hover:text-zinc-200" title="定位这个结果"><MapPin size={12} /></button>}
                         {task.status === 'failed' && selected && <button onClick={() => void controller.retryTasks(selected.id, [task.id]).catch((reason) => setError(reason.message || '重试失败'))} disabled={!!controller.activeBatchId} className="text-amber-300 hover:text-amber-200 disabled:opacity-40">重试</button>}
                         {task.error && <span className="min-w-0 truncate text-rose-300" title={task.error}>{task.error}</span>}
@@ -342,7 +348,7 @@ export const BatchWorkspace: React.FC<{
             <div className="mb-5 grid grid-cols-2 gap-3">
               <label><span className="mb-2 block text-[11px] font-medium text-zinc-500">画幅</span><select value={selected.settings.aspectRatio} disabled={!editable} onChange={(event) => patchSettings({ aspectRatio: event.target.value })} className="h-9 w-full rounded-md border border-white/10 bg-[#18191b] px-2 text-xs">{aspectRatios.map((value) => <option key={value}>{value}</option>)}</select></label>
               <label><span className="mb-2 block text-[11px] font-medium text-zinc-500">输出尺寸</span><select value={selected.settings.imageSize} disabled={!editable} onChange={(event) => patchSettings({ imageSize: event.target.value })} className="h-9 w-full rounded-md border border-white/10 bg-[#18191b] px-2 text-xs">{(sizes.length ? sizes : [selected.settings.imageSize]).map((value) => <option key={value}>{value}</option>)}</select></label>
-              <label><span className="mb-2 block text-[11px] font-medium text-zinc-500">每项默认张数</span><select value={selected.settings.outputCount} disabled={!editable} onChange={(event) => patchSettings({ outputCount: Number(event.target.value) })} className="h-9 w-full rounded-md border border-white/10 bg-[#18191b] px-2 text-xs">{Array.from({ length: MAX_BATCH_OUTPUT_COUNT }, (_, index) => <option key={index + 1}>{index + 1}</option>)}</select></label>
+              <label><span className="mb-2 block text-[11px] font-medium text-zinc-500">每项默认{quantityUnit}数</span><select value={selected.settings.outputCount} disabled={!editable} onChange={(event) => patchSettings({ outputCount: Number(event.target.value) })} className="h-9 w-full rounded-md border border-white/10 bg-[#18191b] px-2 text-xs">{Array.from({ length: MAX_BATCH_OUTPUT_COUNT }, (_, index) => <option key={index + 1}>{index + 1}</option>)}</select></label>
             </div>
             <label className="mb-5 block"><span className="mb-2 block text-[11px] font-medium text-zinc-500">并发任务数</span><div className="flex rounded-md border border-white/10 p-1">{([1, 3, 6] as const).map((value) => <button key={value} onClick={() => patchSettings({ concurrency: value })} disabled={!editable} className={`h-8 flex-1 rounded text-xs ${selected.settings.concurrency === value ? 'bg-white/10 text-white' : 'text-zinc-500'} disabled:opacity-50`}>{value}</button>)}</div></label>
             <label className="mb-5 flex items-center gap-3 text-xs text-zinc-300"><input type="checkbox" checked={selected.settings.autoDownload} disabled={!editable} onChange={(event) => patchSettings({ autoDownload: event.target.checked })} className="h-4 w-4 accent-emerald-500" />成功后自动下载</label>

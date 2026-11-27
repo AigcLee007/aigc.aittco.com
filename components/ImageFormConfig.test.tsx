@@ -23,11 +23,18 @@ describe('ImageFormConfig transfer controls', () => {
     useSelectionStore.setState({ imageModel: 'midjourney-v8.2-tehui', imageLine: '特惠线路', quantity: 2, gptImageQuality: 'auto' });
     render(<ImageFormConfig />);
     expect(useSelectionStore.getState().imageLine).toBe('稳定线路');
-    expect(screen.queryByText('线路')).toBeNull();
+    expect(screen.getByText('线路')).toBeTruthy();
     expect(screen.getByText('组数')).toBeTruthy();
     expect(screen.getByText(/2 组.*8 张/)).toBeTruthy();
     expect(screen.getByText(/每张 4.*每组 4 张.*16/)).toBeTruthy();
     expect(screen.getByText('32.0')).toBeTruthy();
+  });
+  it('keeps the explicitly selected official discount route and quotes 8 points per group', () => {
+    useSelectionStore.setState({ imageModel: 'midjourney-v8.2-tehui', imageLine: '官转特价线路', quantity: 2 });
+    render(<ImageFormConfig />);
+    expect(useSelectionStore.getState().imageLine).toBe('官转特价线路');
+    expect(screen.getByText(/每张 2.*每组 4 张.*8/)).toBeTruthy();
+    expect(screen.getByText('16.0')).toBeTruthy();
   });
   it.each(['auto', 'xhigh', 'max'] as const)('resets unsupported %s quality to medium on the 2.6 route', (quality) => {
     useSelectionStore.setState({ imageModel: 'gpt-image-2.6-sunburst', imageLine: '原生线路', gptImageQuality: quality });

@@ -42,6 +42,25 @@
       "isDefaultRoute": true
     },
     {
+      "id": "midjourney-v8.2-mouxihub-fast",
+      "label": "官转特价线路",
+      "description": "每组四张，每组 8 积分",
+      "modelFamily": "midjourney-v8.2-tehui",
+      "line": "官转特价线路",
+      "transport": "openai-image",
+      "mode": "async",
+      "baseUrl": "https://api.mouxihub.com",
+      "generatePath": "/mj-fast/mj/submit/imagine",
+      "taskPath": "/mj-fast/mj/task/{taskId}/fetch",
+      "upstreamModel": "mj_fast_imagine",
+      "apiKeyEnv": "MOUXIHUB_MIDJOURNEY_API_KEY",
+      "pointCost": 8,
+      "supportedQualities": ["auto"],
+      "resultKind": "inline",
+      "sortOrder": 2,
+      "isDefaultRoute": false
+    },
+    {
       "id": "gpt-image-2.6-sunburst-native",
       "label": "原生线路",
       "description": "",

@@ -1,4 +1,5 @@
 const staticCatalog = require("./config/imageRoutes.json");
+const { isMouxihubMidjourneyRoute, isMidjourneyRouteReady } = require("./mouxihubMidjourneyApi.cjs");
 const {
   normalizeImageRouteCompatibility,
 } = require("./imageRouteCompatibility.cjs");
@@ -281,7 +282,7 @@ const mapRowToRoute = (row, { includeSecrets = false } = {}) =>
     pointCost: parsePoint(row.point_cost, 0),
     sizeOverrides: getMergedSizeOverrides(row),
     supportedQualities: getMergedSupportedQualities(row),
-    resultKind: normalizeResultKind(row.result_kind, row.base_url),
+    resultKind: isMouxihubMidjourneyRoute({ id: row.route_id }) ? "inline" : normalizeResultKind(row.result_kind, row.base_url),
     sortOrder: parseInteger(row.sort_order, 0),
     isActive: parseBoolean(row.is_active, true),
     isDefaultRoute: parseBoolean(row.is_default_route, false),
@@ -602,7 +603,7 @@ const getImageRouteById = async (
 
 const getImageRoutePricing = async () => {
   const catalog = await getImageRouteCatalog();
-  return catalog.routes.map((route) => ({
+  return catalog.routes.filter(route => !isMouxihubMidjourneyRoute(route) || isMidjourneyRouteReady(route)).map((route) => ({
     routeId: route.id,
     label: route.label,
     line: route.line,

@@ -39,6 +39,7 @@ COPY seedreamImagePolicy.cjs ./
 COPY imageModelCompatibility.cjs ./
 COPY gptImageAnimationPolicy.cjs ./
 COPY midjourneyImagePolicy.cjs ./
+COPY mouxihubMidjourneyApi.cjs ./
 COPY imageRouteCompatibility.cjs ./
 COPY visionaryImageApi.cjs ./
 COPY higgsfieldImageApi.cjs ./

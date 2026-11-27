@@ -41,6 +41,7 @@ export interface BatchGenerationTask {
   status: BatchTaskStatus;
   progress?: number;
   resultUrl?: string;
+  resultUrls?: string[];
   error?: string;
 }
 

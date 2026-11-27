@@ -102,12 +102,20 @@ function waitForCanvasNode(nodeId: string): Promise<NodeData | undefined> {
   });
 }
 
-const canvasTaskStatus = (task: BatchGenerationTask, node: NodeData) => {
+const canvasTaskResult = (node: NodeData, nodes: NodeData[]) => {
+  const siblings = node.batchTaskId && node.taskId ? nodes.filter(item => item.batchTaskId === node.batchTaskId &&
+    item.taskId === node.taskId && item.generationOwnerId === node.generationOwnerId && item.generationResultSrc) : [];
+  const resultUrls = siblings.sort((a, b) => (a.generationResultIndex ?? 0) - (b.generationResultIndex ?? 0))
+    .map(item => item.generationResultSrc!);
+  return { status: 'succeeded' as const, resultUrl: node.src, ...(resultUrls.length > 1 ? { resultUrls } : {}), error: undefined };
+};
+
+const canvasTaskStatus = (task: BatchGenerationTask, node: NodeData, nodes: NodeData[]) => {
   if (node.error || node.generationConnectionStatus === 'result-unavailable') {
     return { status: 'failed' as const, error: node.errorMessage || '生成结果不可用' };
   }
   if (!node.loading && node.src) {
-    return { status: 'succeeded' as const, resultUrl: node.src, error: undefined };
+    return canvasTaskResult(node, nodes);
   }
   if (!node.loading || !node.taskId) return null;
   if (node.generationConnectionStatus === 'recovering' || node.generationConnectionStatus === 'unconfirmed' || node.taskId.startsWith('request-')) {
@@ -293,7 +301,8 @@ export function useBatchGeneration({
     }
     reconcilingRef.current = true;
     const nodes = useCanvasStore.getState().nodes;
-    const nodeByTaskId = new Map(nodes.filter((node) => node.batchTaskId).map((node) => [node.batchTaskId!, node]));
+    const nodesById = new Map(nodes.map(node => [node.id, node]));
+    const nodeByTaskId = new Map(nodes.filter(node => node.batchTaskId && !node.generationResultIndex).map(node => [node.batchTaskId!, node]));
 
     try {
       for (const batch of batchesRef.current) {
@@ -301,9 +310,9 @@ export function useBatchGeneration({
         const changes = new Map<string, ReturnType<typeof canvasTaskStatus>>();
         for (const task of batch.tasks) {
           if (!task.nodeId || ['pending', 'succeeded', 'failed'].includes(task.status)) continue;
-          const node = nodeByTaskId.get(task.id) || nodes.find((item) => item.id === task.nodeId);
+          const node = nodesById.get(task.nodeId) || nodeByTaskId.get(task.id);
           if (!node || node.clientRequestId !== task.requestId) continue;
-          const next = canvasTaskStatus(task, node);
+          const next = canvasTaskStatus(task, node, nodes);
           if (!next) continue;
           if (Object.entries(next).some(([key, value]) => task[key as keyof BatchGenerationTask] !== value)) {
             changes.set(task.id, next);
@@ -383,7 +392,7 @@ export function useBatchGeneration({
           return;
         }
         if (node.error) await updateTaskState(batch, task.id, { status: 'failed', error: node.errorMessage || '生成失败' });
-        else if (node.src) await updateTaskState(batch, task.id, { status: 'succeeded', resultUrl: node.src, error: undefined });
+        else if (node.src) await updateTaskState(batch, task.id, canvasTaskResult(node, useCanvasStore.getState().nodes));
         return;
       }
     }
@@ -428,7 +437,7 @@ export function useBatchGeneration({
         if (node.error || node.generationConnectionStatus === 'result-unavailable') {
           await updateTaskState(batch, task.id, { status: 'failed', error: node.errorMessage || '生成结果不可用' });
         } else if (node.src) {
-          await updateTaskState(batch, task.id, { status: 'succeeded', resultUrl: node.src, error: undefined });
+          await updateTaskState(batch, task.id, canvasTaskResult(node, useCanvasStore.getState().nodes));
         }
         return;
       }

@@ -3,11 +3,11 @@ import { getImageModelById, getImageModelMaxReferenceImages, isMidjourneyImageMo
 import { getImageRoutesByModelFamily, getImageRoutePointCost, getImageRouteSupportedQualities } from './imageRoutes';
 
 describe('Midjourney catalog', () => {
-  it('keeps one active 16-coin route and retains the inactive discount route', () => {
+  it('offers the official 8-point route alongside the default 16-point route and retains the inactive route', () => {
     const model = getImageModelById('midjourney-v8.2-tehui');
     expect(model).toMatchObject({ id: 'midjourney-v8.2-tehui', label: 'Midjourney v8.2', requestModel: 'Midjourney-全系列', selectorCost: 16, sizeOptions: ['1k'], showSizeSelector: false, supportsCustomRatio: false });
     const routes = getImageRoutesByModelFamily(model.routeFamily);
-    expect(routes).toHaveLength(2);
+    expect(routes).toHaveLength(3);
     expect(routes[0]).toMatchObject({ baseUrl: 'https://api.osodm.com', generatePath: '/v1/images/midjourney/generations', taskPath: '/v1/images/midjourney/tasks/{taskId}', mode: 'async', apiKeyEnv: 'Midjourney-v8.2-osodm-tehui', pointCost: 8, isActive: false, isDefaultRoute: false, resultKind: 'url' });
     expect(getImageRouteSupportedQualities(routes[0])).toEqual(['0.25', '0.5', '1', '2']);
     expect(getImageRoutePointCost(routes[0], '1k')).toBe(8);
@@ -17,6 +17,10 @@ describe('Midjourney catalog', () => {
     expect(getImageRoutePointCost(stable, '1k')).toBe(16);
     expect(getImageRoutePointCost(stable, '2k')).toBe(16);
     expect(getImageRouteSupportedQualities(stable)).toEqual(['auto']);
+    expect(routes.find(route => route.id === 'midjourney-v8.2-mouxihub-fast')).toMatchObject({
+      modelFamily: model.routeFamily, label: '官转特价线路', line: '官转特价线路',
+      pointCost: 8, isDefaultRoute: false, baseUrl: 'https://api.mouxihub.com',
+    });
     expect(getImageModelMaxReferenceImages(model.id)).toBe(5);
     expect(isMidjourneyImageModel(model.requestModel)).toBe(true);
   });
